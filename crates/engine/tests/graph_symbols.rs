@@ -263,9 +263,13 @@ impl SymbolSource for Scoped {
     }
     fn file_symbols(&self, _path: &[u8], content: &[u8]) -> Option<FileSymbols> {
         let scope = self.0;
+        // No site: this reader is about SCOPE, and the graph never reads a
+        // site. Leaving it at the default is the point — the edges below have
+        // to come from the scope and nothing else.
         let sym = |name: &str| Symbol {
             name: name.as_bytes().to_vec(),
             scope,
+            site: Default::default(),
         };
         let mut out = FileSymbols::default();
         for line in content.split(|&b| b == b'\n') {
@@ -385,4 +389,247 @@ fn a_file_local_name_links_only_inside_its_own_file() {
     // thing.
     let (global_edges, _) = graph(&scoped(Scope::Global), &r, &base, &head);
     assert_eq!(global_edges, 0, "globally, `sharedName` has two definers");
+}
+
+// ------------------------------------------------------- the symbol index
+
+/// The document, so a test can resolve a symbol's `file` index to its path the
+/// way every consumer must.
+fn document(
+    symbols: &SymbolReaders,
+    r: &TestRepo,
+    base: &str,
+    head: &str,
+) -> differential_engine::schema::PlanDocument {
+    run_pipeline(
+        &r.repo(),
+        &ReviewSource::range(base.to_string(), head.to_string(), head.to_string()),
+        &Config::default(),
+        &LanguageRegistry::builtin(),
+        symbols,
+    )
+    .unwrap()
+    .document
+    .expect("document")
+}
+
+/// Run the pipeline and hand back the index (ADR 0032).
+fn symbol_index(
+    symbols: &SymbolReaders,
+    r: &TestRepo,
+    base: &str,
+    head: &str,
+) -> differential_engine::schema::SymbolIndex {
+    let out = run_pipeline(
+        &r.repo(),
+        &ReviewSource::range(base.to_string(), head.to_string(), head.to_string()),
+        &Config::default(),
+        &LanguageRegistry::builtin(),
+        symbols,
+    )
+    .unwrap();
+    out.document
+        .expect("document")
+        .symbols
+        .expect("classify produced an index")
+}
+
+/// A NEW call to a helper that was already there resolves.
+///
+/// This is the commonest shape of the reviewer's question and the one the first
+/// cut could not answer: definitions came from added lines only, so a helper the
+/// change never touched was invisible and the call site lit nothing.
+#[test]
+fn a_new_call_to_an_existing_helper_resolves() {
+    let r = TestRepo::new();
+    // `sum_xy` exists at base and is never edited. Its file is still in the
+    // diff, because a later line of it changes.
+    let base_lib = b"// lib\nfn sum_xy(a: u8, b: u8) {\n    a + b\n}\nfn other() {}\n";
+    r.write("src/lib.rs", base_lib);
+    r.write("src/call.rs", b"// call\nfn caller() {\n}\n");
+    let base = r.commit_all("base");
+    r.write(
+        "src/lib.rs",
+        b"// lib\nfn sum_xy(a: u8, b: u8) {\n    a + b\n}\nfn other() { changed() }\n",
+    );
+    r.write(
+        "src/call.rs",
+        b"// call\nfn caller() {\n    let n = sum_xy(1, 2);\n}\n",
+    );
+    let head = r.commit_all("head");
+
+    let doc = document(&readers(None), &r, &base, &head);
+    let path = |i: u32| doc.files[i as usize].path.as_str();
+    let index = doc.symbols.as_ref().expect("classify produced an index");
+    let def = index
+        .definitions
+        .iter()
+        .find(|d| d.name == "sum_xy")
+        .expect("an untouched declaration in a touched file is still indexed");
+    assert_eq!((path(def.file), def.line), ("src/lib.rs", 2));
+    assert_eq!(
+        def.class, None,
+        "the change did not write this line, so it belongs to no class"
+    );
+
+    let sites: Vec<(&str, u32)> = index
+        .uses
+        .iter()
+        .filter(|u| u.on == def.id)
+        .map(|u| (path(u.file), u.line))
+        .collect();
+    assert_eq!(sites, vec![("src/call.rs", 3)], "the new call site");
+}
+
+/// A use is recorded only on a line the change WROTE.
+///
+/// The other half of the rule above, and what bounds the index: with any
+/// declaration resolvable, recording every mention in every parsed file would
+/// grow this with the size of the FILES rather than of the change. The cost is
+/// that an older call site lights nothing, which is the right way round — the
+/// change is the thing being read.
+#[test]
+fn an_older_call_site_is_not_a_use() {
+    let r = TestRepo::new();
+    r.write("src/a.rs", b"// a\n");
+    r.write(
+        "src/b.rs",
+        b"fn caller_one() { widget_maker() }\nfn caller_two() { widget_maker() }\n",
+    );
+    let base = r.commit_all("base");
+    r.write("src/a.rs", b"// a\nfn widget_maker() {}\n");
+    r.write(
+        "src/b.rs",
+        b"fn caller_one() { widget_maker() }\nfn caller_two() { widget_maker() }\nfn caller_three() { widget_maker() }\n",
+    );
+    let head = r.commit_all("head");
+
+    let doc = document(&readers(None), &r, &base, &head);
+    let index = doc.symbols.as_ref().expect("classify produced an index");
+    let def = index
+        .definitions
+        .iter()
+        .find(|d| d.name == "widget_maker")
+        .expect("one definer");
+    let uses: Vec<u32> = index
+        .uses
+        .iter()
+        .filter(|u| u.on == def.id && doc.files[u.file as usize].path == "src/b.rs")
+        .map(|u| u.line)
+        .collect();
+    assert_eq!(
+        uses,
+        vec![3],
+        "lines 1 and 2 were already there; only line 3 was written"
+    );
+}
+
+/// An ambiguous name is absent, for the same reason it draws no edge.
+///
+/// The index reuses the graph's own single-definer verdict rather than forming
+/// a second opinion — two answers to "who defines this" would be a bug waiting
+/// for a corpus to find it.
+#[test]
+fn a_name_two_classes_define_is_in_no_index() {
+    let r = TestRepo::new();
+    r.write("src/a.rs", b"// a\n");
+    r.write("src/b.rs", b"// b\n");
+    let base = r.commit_all("base");
+    // Two files, each declaring the same global name, in two shape classes.
+    // `only_here` is the control: unambiguous, and CALLED — an uncalled
+    // declaration is dropped whether it is ambiguous or not, so a control
+    // nothing reaches would pass for the wrong reason.
+    r.write("src/a.rs", b"// a\nfn shared_name() {}\n");
+    r.write(
+        "src/b.rs",
+        b"// b\nfn shared_name() {}\nfn only_here() {}\nfn go() { only_here(); shared_name() }\n",
+    );
+    let head = r.commit_all("head");
+
+    let index = symbol_index(&readers(None), &r, &base, &head);
+    assert!(
+        !index.definitions.iter().any(|d| d.name == "shared_name"),
+        "two definers, so nothing can say which one a use meant: {:?}",
+        index.definitions
+    );
+    assert!(
+        index.definitions.iter().any(|d| d.name == "only_here"),
+        "an unambiguous name in the same change is still indexed"
+    );
+}
+
+/// A document written before the index existed still loads.
+///
+/// The field is additive, so `schema_version` stays 3 — and stored artefacts
+/// really are re-read (`dfr agent --doc`, the grouping cache), so this is a
+/// live case rather than a theoretical one.
+#[test]
+fn a_document_without_the_index_still_deserialises() {
+    use differential_engine::schema::PlanDocument;
+
+    let r = TestRepo::new();
+    r.write("src/a.rs", b"// a\n");
+    let base = r.commit_all("base");
+    r.write("src/a.rs", b"// a\nfn widget_maker() {}\n");
+    let head = r.commit_all("head");
+
+    let out = run_pipeline(
+        &r.repo(),
+        &ReviewSource::range(base.clone(), head.clone(), head.clone()),
+        &Config::default(),
+        &LanguageRegistry::builtin(),
+        &readers(None),
+    )
+    .unwrap();
+    let json = out.document.expect("document").to_json().unwrap();
+
+    // Strip the key entirely, the way a document written before this field
+    // would have it.
+    let mut value: serde_json::Value = serde_json::from_str(&json).unwrap();
+    value.as_object_mut().unwrap().remove("symbols");
+    let without = serde_json::to_string(&value).unwrap();
+
+    let doc = PlanDocument::from_json(&without).expect("an older document must still load");
+    assert!(
+        doc.symbols.is_none(),
+        "absent reads as None, never an error"
+    );
+}
+
+/// A declaration is not a use of itself.
+///
+/// The crude reader has no veto: its reference regex takes every identifier on
+/// a line, the name just declared included, so `fn helper()` reports `helper`
+/// as reading `helper`. The stub here behaves the same way on purpose. Pointing
+/// a reader at the line they are already standing on is the one answer never
+/// worth giving.
+#[test]
+fn a_declaration_does_not_read_itself() {
+    let r = TestRepo::new();
+    r.write("src/a.rs", b"// a\n");
+    r.write("src/b.rs", b"// b\n");
+    let base = r.commit_all("base");
+    r.write("src/a.rs", b"// a\nfn widget_maker() {}\n");
+    r.write("src/b.rs", b"// b\nfn caller() { widget_maker() }\n");
+    let head = r.commit_all("head");
+
+    let doc = document(&readers(None), &r, &base, &head);
+    let path = |i: u32| doc.files[i as usize].path.as_str();
+    let index = doc.symbols.as_ref().expect("classify produced an index");
+    let def = index
+        .definitions
+        .iter()
+        .find(|d| d.name == "widget_maker")
+        .expect("one definer");
+    let sites: Vec<(&str, u32)> = index
+        .uses
+        .iter()
+        .filter(|u| u.on == def.id)
+        .map(|u| (path(u.file), u.line))
+        .collect();
+    assert_eq!(
+        sites,
+        vec![("src/b.rs", 2)],
+        "the call site only — not the declaring line itself"
+    );
 }
