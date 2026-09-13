@@ -5,7 +5,9 @@ an LLM, and orders them so that definitions precede their references. It renders
 result as a terminal reviewer or as a stack of synthetic git commits.
 
 Enumeration is total: every hunk in the range is assigned to exactly one group, and the
-partition is checked by four structural invariants before any output is produced.
+partition is checked by six structural invariants. The ones that only read run inside the
+pipeline, before any document is emitted. The two that rebuild a tree run in a separate
+`verify` stage, which `dfr check` and `dfr stack` run and `dfr review` does not.
 
 This crate is the application layer. It owns the `dfr` and `differential` binaries. It
 parses arguments and dispatches. All the work happens in
@@ -26,8 +28,12 @@ That installs two binaries, `dfr` and `differential`. They are the same program.
 You also need:
 
 - `git` on your PATH. All repository access shells out to real git.
-- An LLM CLI for the grouping stage. The default is `claude`, run headless with tools
-  denied. Any command that takes a prompt on stdin and writes text on stdout works.
+- An agent CLI for the grouping stage. Five are supported, picked by name: `claude-code`
+  (the default), `codex`, `droid`, `copilot` and `pi`. Each runs headless and allowed to
+  read, never to write — **except `pi`, which can write**. An arbitrary command is not an
+  option: the grouping call hands its agent a tool allowlist and a prompt written for what
+  that agent can do. Run `dfr agents` to see what you have installed. See
+  [Config](#config).
 
 ## Quick start
 
@@ -49,7 +55,7 @@ dfr stack main..feature
 The first run on a range calls the LLM once. The result is cached, so a later run on the
 same range does not call it again.
 
-## The five commands
+## The seven commands
 
 ### `dfr review [<range>]`
 
@@ -122,7 +128,8 @@ Full detail:
 ### `dfr check <range>`
 
 Run the pipeline and report the structural invariants. This is the self-test and the CI
-entry point. It writes nothing.
+entry point. It touches no ref and no checkout. The verify stage rebuilds the head tree in
+a scratch index, and on a pass every object it writes already exists (ADR 0028).
 
 | flag | meaning |
 |---|---|
@@ -138,11 +145,37 @@ review into other tooling.
 | `--name <name>` | Read the named session, matching `dfr review --name`. |
 | `--pr [<N>]` / `--mr [<N>]` | Read the request's review, as `dfr review --pr` / `--mr`. |
 | `--post` | Publish the open findings to the request as review comments. Needs `--pr` or `--mr`. One line per finding: published with its URL, or skipped with the reason. |
+| `--summary` | Print the open findings as markdown instead — the same text the reviewer's `y` copies, for pasting into an agent or a PR. Not with `--post`. |
 | `--no-cache` | Bypass the grouping cache. |
 
 Each record carries `{id, created, body, status, moved, plan_hash, anchor}`. The anchor
 carries `{file, side, line, end_line, offset, span, hunk_digest, line_text,
 end_line_text}`. `hunk_digest` keys back into the plan document's `hunks[].digest`.
+
+### `dfr agent --doc <path>`
+
+Print every class the grouping model may group. This is the model's read path, not a
+human one: the prompt names this command, and the model runs it to read the document the
+grouping stage wrote. It takes no range and no `--repo`, opens no repository and calls no
+model. Diff text is `git diff`'s job.
+
+| flag | meaning |
+|---|---|
+| `--doc <path>` | The document the grouping stage wrote. Required. |
+
+### `dfr agents [--probe <name>]`
+
+List the agents that can run the grouping call, say which are on your PATH, and mark the
+ones that have been run for real. `--probe` runs one real model call against an agent and
+checks four facts: it spawned, it read the prompt from stdin, it could run the fetch
+command, and it was refused a write (ADR 0033). A passing probe is the evidence for
+promoting an agent. Takes no range and no repository.
+
+| flag | meaning |
+|---|---|
+| `--probe [<name>]` | Run one real model call against this agent, or against the configured one when no name is given. |
+| `--user-config <path>` | The user config to read `[grouping].agent` from. |
+| `--timeout-secs <N>` | How long to wait for a probe. Default: `300`. |
 
 ### `dfr clean [--dry-run]`
 
@@ -173,9 +206,11 @@ includes the language fingerprint, so those entries go cold on their own.
 | `--repo <path>` | the repo containing your cwd | Which repository to work on. |
 | `--config <path>` | `<repo-root>/.differential.toml` | The repo config file. |
 | `--user-config <path>` | `~/.config/differential/config.toml` | The user config file. |
-| `<range>` | required, except for `review` and `cache` | See below. |
+| `<range>` | required for `stack`, `check` and `findings`; optional for `review` | See below. |
 
-`dfr clean` takes only `--repo`: it reads no config and resolves no range.
+`dfr clean` takes only `--repo`: it reads no config and resolves no range. `dfr agent` and
+`dfr agents` open no repository, so they take none of these; `dfr agents` takes
+`--user-config` alone.
 
 A path you pass explicitly must exist. A missing default file just means defaults.
 
@@ -187,8 +222,9 @@ A path you pass explicitly must exist. A missing default file just means default
 | `a...b` | Base is the merge-base of `a` and `b`. This is what a merge request diff shows. |
 | `<rev> <rev>` | Two revisions as two arguments. |
 
-Only `dfr review` may omit the range. Every other command exits `2` without one — unless
-`--pr` or `--mr` names a request, which stands in for the range on every command.
+Only `dfr review` may omit the range. Every other command that takes one exits `2` without
+it — unless `--pr` or `--mr` names a request, which stands in for the range on every
+command.
 
 ## The picker
 
@@ -408,8 +444,12 @@ worktree.
 ├── reviews/<review-id>/
 │   ├── plans/<content-hash>.json   every generated document, immutable
 │   ├── current                     the active plan's content hash
-│   ├── findings.jsonl              the findings store
+│   ├── findings.jsonl              the findings store; the forge never writes here
+│   ├── comments.jsonl              a cache of the request's review threads
+│   ├── identity.json               a name, or the endpoints it was opened as
 │   └── state.json                  progress and view preferences
+├── reviews/<review-id>/
+│   └── alias                       a redirect: read that review instead
 └── cache/
     ├── grouping/<classes-hash>.json   the raw model response
     └── document/<content-hash>.json   the pre-group document

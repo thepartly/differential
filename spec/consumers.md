@@ -17,6 +17,7 @@ dfr findings [--repo <path>] [--config <path>] [--name <s>] [--summary] [--no-ca
 dfr findings [--repo <path>] [--config <path>] [--summary | --post] [--no-cache] --pr [N] | --mr [N]
 dfr check [--repo <path>] [--config <path>] [--json] <range>
 dfr agent --doc <path>
+dfr agents [--probe [<name>]] [--user-config <path>] [--timeout-secs <N>]
 dfr clean [--repo <path>] [--dry-run]
 ```
 
@@ -54,6 +55,11 @@ dfr clean [--repo <path>] [--dry-run]
   `git diff`'s job, and so it opens no repository, never runs the pipeline and never calls
   a model — a grouping run cannot recurse into itself. An empty change prints a plain
   sentence and exits 0 — to an agent a blank reply reads as "the tool is broken".
+- `agents` lists the agents that can run the grouping call, says which are on `PATH` and
+  marks the ones that have been run for real; `--probe` runs one real model call against
+  an agent, or the configured one, and checks that it spawned, read the prompt from stdin,
+  could run the fetch command and was refused a write (ADR 0033). It takes no range and
+  no repository: which agent you run is a per-user choice.
 - Exit codes: 0 success/all pass, 1 invariant or pipeline failure, 2 usage/config error.
 
 ## Library surface
@@ -88,10 +94,13 @@ let out = run_pipeline(&repo, &src, &config,
   otherwise a consumer and the reviewer can end up in two reviews of one range.
 - `run_pipeline` runs all invariants before emitting anything; on a violation there is no
   document, only the report saying what failed.
-- `run_grouped_pipeline(…, &GroupingOptions { backend, cache, artefacts, progress })`
+- `run_grouped_pipeline(…, &GroupingOptions { backend, cache, artefacts, fetch, progress })`
   additionally runs the grouping stage ([grouping.md](grouping.md)). `artefacts` is where
   the pre-group document is left for the model to read (`store::FsArtefactStore`); like the
-  cache, disabling it is a state of the store, not an `Option`. All are **injected**: the engine
+  cache, disabling it is a state of the store, not an `Option`. `fetch` is the executable
+  the model runs to read that document — normally this process — and the backend's tool
+  allowlist must be built from the same string, or the prompt names a command the model
+  may not run. All are **injected**: the engine
   no longer builds a backend from `[grouping].agent` — composition is the application
   layer's job (ADR 0020) — and disabling the cache is
   `store::FsGroupingCache::disabled()` rather than an absent one, so the stage never grows
@@ -109,7 +118,7 @@ let out = run_pipeline(&repo, &src, &config,
 One example remains for debugging the grouped document itself (JSON to stdout):
 
 ```sh
-cargo run -p differential-engine --example group -- [--repo <path>] [--no-cache] [-o <file>] <base>..<head>
+cargo run -p differential-symbols --example group -- [--repo <path>] [--config <path>] [--no-cache] [-o <file>] <base>..<head>
 ```
 
 ## Config: two files, split by ownership
@@ -165,6 +174,10 @@ theme = "dark"
 context = 3
 # Lines one `z` at a context boundary row pulls in.
 context_step = 10
+# Diff layout a review opens in: "split" (the default) or "unified". A default,
+# not a setting: `s` still toggles, and a review that has recorded a choice
+# keeps it.
+diff = "split"
 ```
 
 `theme` is a **name, not a colour list**, for the same reason `agent` is a name and not an

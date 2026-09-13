@@ -234,10 +234,15 @@ every mutation is on disk before the call returns.
 ├── reviews/<review-id>/
 │   ├── plans/<content-hash>.json   every generated document, immutable
 │   ├── current                     the active plan's content hash
-│   ├── findings.jsonl              the findings store
+│   ├── findings.jsonl              the findings store; the forge never writes here
+│   ├── comments.jsonl              a cache of the request's review threads
 │   ├── identity.json               a name, or the endpoints it was opened as
 │   └── state.json                  progress and view preferences
-└── cache/grouping/<classes-hash>.json
+├── reviews/<review-id>/
+│   └── alias                       a redirect: read that review instead
+└── cache/
+    ├── grouping/<classes-hash>.json   the raw model response
+    └── document/<content-hash>.json   the pre-group document
 ```
 
 The review id is `sha1(base_sha ‖ NUL ‖ head_spec)` truncated to 16 characters. The head is
@@ -294,7 +299,7 @@ found during validation.
 ## Dev entry point
 
 ```sh
-cargo run -p differential-engine --example group -- [--repo <path>] [--no-cache] [-o <file>] <base>..<head>
+cargo run -p differential-symbols --example group -- [--repo <path>] [--config <path>] [--no-cache] [-o <file>] <base>..<head>
 ```
 
 That prints the grouped document as JSON.

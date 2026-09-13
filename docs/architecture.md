@@ -125,15 +125,18 @@ and six of them once produced 64% of a real range's edges. See
 
 ### 4. Structural audits
 
-These run before any document is emitted.
+Two halves, split at the write boundary (ADR 0028).
 
-- Every changed file must reconstruct **byte-exactly** from its base plus its hunks.
+- Every changed file must reconstruct **byte-exactly** from its base plus its hunks. This
+  one only reads, and it runs inside the pipeline, before any document is emitted, beside
+  the enumeration and accounting checks.
 - The final tree is rebuilt **from applied hunks**, never copied, and must equal the real
   head tree.
 - An independent, deliberately dumb recount over git's own output must match.
 
-Each audit caught a real bug during validation. See
-[`spec/invariants.md`](../spec/invariants.md).
+The last two build a tree, so they write, and they run in the separate `verify` stage:
+`dfr check` and `dfr stack` run it, the reviewer does not. Each audit caught a real bug
+during validation. See [`spec/invariants.md`](../spec/invariants.md).
 
 ### Read and skipped hunks
 

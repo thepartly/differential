@@ -23,8 +23,9 @@ not (readers tolerate unknown fields, and must reject versions they do not know)
 ## `generator`
 
 `{tool, version, stages}` — `stages` lists exactly the pipeline stages that ran
-(`enumerate`, `classify`, `group`, `order`). A consumer must consult this rather than
-guessing from field presence.
+(`enumerate`, `classify`, `group`, `order`, `verify`), and `verify` is there only when the
+verify stage ran (ADR 0028). A consumer must consult this rather than guessing from field
+presence.
 
 ## `groups: null` vs `[]`
 

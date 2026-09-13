@@ -180,8 +180,9 @@ struct Common {
     /// under the request itself so a force-push reopens the same review
     /// (ADR 0029). Without a number, the current branch's.
     ///
-    /// Asks `gh`, which must be installed and logged in. Never fetches: when
-    /// the request's commits are not local it prints the `git fetch` to run.
+    /// Asks `gh`, which must be installed and logged in. When the request's
+    /// commits are not local it fetches its refs from `origin` once, and only
+    /// a commit still missing after that prints the `git fetch` to run.
     #[arg(long, value_name = "N", conflicts_with = "range")]
     pr: Option<Option<String>>,
     /// A GitLab merge request instead of a range: as `--pr`, through `glab`.

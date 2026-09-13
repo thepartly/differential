@@ -10,7 +10,7 @@ How to decide what to build, and what to refuse. Linked from
    would want to make.
 
 2. **Prefer the simple solution. No new abstractions without a demonstrated reason.**
-   The abstractions that exist (`Language`, `LlmBackend`, `SymbolSource`, the
+   The abstractions that exist (`Language`, `LlmBackend`, `SymbolSource`, `Forge`, the
    `engine::ports` seams, the `engine::schema` boundary) were author decisions with
    recorded rationale. A new trait,
    layer, or indirection needs the same bar: a concrete second consumer or a recorded

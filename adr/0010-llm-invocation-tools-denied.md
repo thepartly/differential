@@ -1,6 +1,8 @@
 # 0010 — The LLM is invoked headless with tools denied
 
-Status: accepted
+Status: superseded by [ADR 0022](0022-the-model-fetches-its-own-context.md): the model
+fetches its own context, so it runs with a read-only tool allowlist rather than with
+tools denied. The context below is why the allowlist is read-only.
 
 ## Context
 

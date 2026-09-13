@@ -54,6 +54,9 @@ variant, which is the correct outcome: it cannot interpret that source anyway). 
   checkbox, so any base can be paired with the worktree endpoint; the tree synthesis and
   the identity literals here are unchanged, and `index_tree` remains the staged snapshot
   for consumers that want it.)
+- The staged source is implemented and covered — `SourceKind::Staged`,
+  `worktree::index_tree`, `crates/engine/tests/worktree.rs` — but no `dfr` command reaches
+  it: the picker wires the worktree source only (`pipeline.rs`).
 - Grouping-cache keys derive from class digests, so an unchanged diff still hits cache;
   any edit is a miss, which is inherent to reviewing a moving worktree.
 - `dfr stack` still requires a commit base (`commit-tree -p`); it is not offered for
