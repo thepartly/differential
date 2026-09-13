@@ -12,7 +12,6 @@ categories = ["development-tools"]
 
 [dependencies]
 differential-engine = { workspace = true }
-tempfile = { workspace = true }
 
 [dev-dependencies]
 differential-testutil = { workspace = true }

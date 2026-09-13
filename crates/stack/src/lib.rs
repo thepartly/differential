@@ -312,24 +312,18 @@ where
             // loop used to state it again in its own words — deletion, then
             // the recorded mode and oid, then the same two error strings.
             let f = &view.files[fi];
-            entries.push(match plan::zero_hunk_state(f)? {
-                plan::Staged::Remove => IndexEntry::Remove {
-                    path: f.path.clone(),
-                },
-                plan::Staged::Recorded { mode, oid } => IndexEntry::Set {
-                    mode: mode.to_string(),
-                    oid: oid.to_string(),
-                    path: f.path.clone(),
-                },
-                // The rule never answers this, and an error says so where a
-                // panic would only assert it.
-                plan::Staged::Apply { .. } => {
-                    return Err(EngineError::Invariant(format!(
+            entries.push(IndexEntry::from_staged(
+                plan::zero_hunk_state(f)?,
+                f.path.clone(),
+                // The rule never answers `Apply` for a zero-hunk file, and an
+                // error says so where a panic would only assert it.
+                || {
+                    Err(EngineError::Invariant(format!(
                         "zero-hunk file {} was asked to apply hunks it has none of",
                         String::from_utf8_lossy(&f.path)
-                    )));
-                }
-            });
+                    )))
+                },
+            )?);
         }
         session.stage(&entries)?;
 
@@ -365,16 +359,10 @@ where
     let f = &view.files[fi];
     let applied_here = applied.get(&fi).map_or(0, Vec::len);
 
-    match plan::cumulative_state(f, applied_here)? {
-        plan::Staged::Remove => Ok(IndexEntry::Remove {
-            path: f.path.clone(),
-        }),
-        plan::Staged::Recorded { mode, oid } => Ok(IndexEntry::Set {
-            mode: mode.to_string(),
-            oid: oid.to_string(),
-            path: f.path.clone(),
-        }),
-        plan::Staged::Apply { mode } => {
+    IndexEntry::from_staged(
+        plan::cumulative_state(f, applied_here)?,
+        f.path.clone(),
+        || {
             if let std::collections::hash_map::Entry::Vacant(e) = base_blobs.entry(fi) {
                 e.insert(git.blob(base, &f.path)?);
             }
@@ -383,13 +371,9 @@ where
                 .map(|v| v.iter().map(|&h| &view.hunks[h]).collect())
                 .unwrap_or_default();
             let content = apply_hunks(base_blobs[&fi].as_deref(), &hunks);
-            Ok(IndexEntry::Set {
-                mode: mode.to_string(),
-                oid: git.write_blob(&content)?,
-                path: f.path.clone(),
-            })
-        }
-    }
+            git.write_blob(&content)
+        },
+    )
 }
 
 /// Output of the full stack pipeline.

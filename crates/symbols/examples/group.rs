@@ -14,7 +14,7 @@ use differential_engine::config::Config;
 use differential_engine::gitio::Repo;
 use differential_engine::grouping::GroupingOptions;
 use differential_engine::lang::LanguageRegistry;
-use differential_engine::schema::Effort;
+use differential_engine::plan;
 use differential_engine::store::{FsArtefactStore, FsGroupingCache, OsConfigSource};
 use differential_engine::{resolve_range, run_grouped_pipeline};
 
@@ -133,13 +133,9 @@ fn main() -> ExitCode {
                 .sum()
         };
         for g in groups {
-            let tier = match g.effort {
-                Effort::Focus => "focus",
-                Effort::Skim => "skim ",
-                Effort::Noise => "noise",
-            };
+            let tier = plan::effort_name(g.effort);
             eprintln!(
-                "[{tier}] {:4}h /{:3} cls  {}",
+                "[{tier:<5}] {:4}h /{:3} cls  {}",
                 class_hunks(g),
                 g.class_ids.len(),
                 g.label

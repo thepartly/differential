@@ -91,6 +91,25 @@ pub struct ClassMembers {
     pub hunks: Vec<HunkId>,
 }
 
+/// Whether a set of hunks — a group's, a file's, a directory's — reads as done.
+///
+/// Every hunk marked, and at least one hunk to mark: a binary file or a
+/// gitlink carries no hunks, and "all of nothing" must not light it up as
+/// reviewed. Four rows in the TUI each re-derived that guard by hand.
+pub fn all_reviewed<'a>(
+    hunks: impl IntoIterator<Item = &'a HunkId>,
+    reviewed: &std::collections::HashSet<usize>,
+) -> bool {
+    let mut any = false;
+    for h in hunks {
+        if !reviewed.contains(&h.index()) {
+            return false;
+        }
+        any = true;
+    }
+    any
+}
+
 impl ReviewView {
     /// Project a document, validating it on the way through.
     ///
@@ -220,10 +239,6 @@ impl ReviewView {
         self.groups.iter().position(|g| g.id == id)
     }
 
-    pub fn group_by_id(&self, id: &str) -> Option<&GroupView> {
-        self.groups.iter().find(|g| g.id == id)
-    }
-
     /// The group owning a hunk, via its class.
     ///
     /// `None` only for a hunk whose class is in no group — impossible after
@@ -301,6 +316,22 @@ impl ReviewView {
 mod tests {
     use super::*;
     use crate::plan::test_support::{doc_with, group, hunk_ids};
+
+    #[test]
+    fn all_reviewed_needs_every_hunk_and_at_least_one() {
+        let hunks = [HunkId::from_index(0), HunkId::from_index(1)];
+        let marked = |ids: &[usize]| {
+            ids.iter()
+                .copied()
+                .collect::<std::collections::HashSet<_>>()
+        };
+
+        assert!(all_reviewed(&hunks, &marked(&[0, 1])));
+        assert!(!all_reviewed(&hunks, &marked(&[0])), "one hunk unmarked");
+        assert!(!all_reviewed(&hunks, &marked(&[])), "nothing marked");
+        // A binary file or a gitlink has no hunks: "all of nothing" is not done.
+        assert!(!all_reviewed(&[], &marked(&[0, 1])));
+    }
 
     fn two_group_doc() -> schema::PlanDocument {
         let mut doc = doc_with(

@@ -34,12 +34,6 @@ impl std::ops::Add for LineCounts {
     }
 }
 
-impl std::ops::AddAssign for LineCounts {
-    fn add_assign(&mut self, rhs: LineCounts) {
-        *self = *self + rhs;
-    }
-}
-
 impl std::iter::Sum for LineCounts {
     fn sum<I: Iterator<Item = LineCounts>>(iter: I) -> LineCounts {
         iter.fold(LineCounts::default(), |a, b| a + b)

@@ -40,23 +40,10 @@ fn staging_entry<G>(
 where
     G: ObjectReader + ObjectWriter,
 {
-    let path = f.path.clone();
-    match plan::final_state(f)? {
-        plan::Staged::Remove => Ok(IndexEntry::Remove { path }),
-        plan::Staged::Recorded { mode, oid } => Ok(IndexEntry::Set {
-            mode: mode.to_string(),
-            oid: oid.to_string(),
-            path,
-        }),
-        plan::Staged::Apply { mode } => {
-            let hunks: Vec<&Hunk> = f.hunks.iter().map(|&i| &view.hunks[i]).collect();
-            let base_content = git.blob(base, &path)?;
-            let content = apply_hunks(base_content.as_deref(), &hunks);
-            Ok(IndexEntry::Set {
-                mode: mode.to_string(),
-                oid: git.write_blob(&content)?,
-                path,
-            })
-        }
-    }
+    IndexEntry::from_staged(plan::final_state(f)?, f.path.clone(), || {
+        let hunks: Vec<&Hunk> = f.hunks.iter().map(|&i| &view.hunks[i]).collect();
+        let base_content = git.blob(base, &f.path)?;
+        let content = apply_hunks(base_content.as_deref(), &hunks);
+        git.write_blob(&content)
+    })
 }

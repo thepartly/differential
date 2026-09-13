@@ -4,7 +4,7 @@
 //! with the model consistent: `rebuild_rows` is what the rest of the app calls
 //! after any change that could move a row.
 
-use differential_engine::plan::Fold;
+use differential_engine::plan::{self, Fold};
 use ratatui::text::Line;
 
 use crate::rows::{Row, RowKind, RowsContext};
@@ -102,6 +102,10 @@ impl App {
     }
 
     /// Path of the selected file-tree row (a file path, or a directory).
+    ///
+    /// Test-only: the resume test reads it to prove the cursor came back to the
+    /// same row. The app persists through `tree_row_path` directly.
+    #[doc(hidden)]
     pub fn selected_path(&self) -> Option<String> {
         self.tree_row_path(self.selected_file)
     }
@@ -510,8 +514,7 @@ impl App {
                         (
                             f.counts.adds,
                             f.counts.dels,
-                            !f.hunks.is_empty()
-                                && f.hunks.iter().all(|h| reviewed.contains(&h.index())),
+                            plan::all_reviewed(&f.hunks, &reviewed),
                         )
                     })
                     .unwrap_or((0, 0, false));

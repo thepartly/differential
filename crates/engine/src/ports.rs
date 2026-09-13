@@ -13,10 +13,11 @@
 //! the fake and pass while proving nothing (ADR 0002). Tests use hermetic
 //! temporary repositories and real `git`.
 //!
-//! The two runtime-open abstractions in this crate — `llm::LlmBackend` and
-//! `lang::Language` — are deliberately NOT here. They are `dyn` because config
-//! and a plugin registry pick them at run time; nothing in this module is
-//! chosen at run time.
+//! The four runtime-open abstractions in this crate — `llm::LlmBackend`,
+//! `lang::Language`, `artefact::symbols::SymbolSource` (ADR 0023) and
+//! `forge::Forge` (ADR 0029) — are deliberately NOT here. They are `dyn`
+//! because config, a plugin registry or the request's host picks them at run
+//! time; nothing in this module is chosen at run time.
 //!
 //! There is no `trait Git: ObjectReader + …` convenience supertrait, and there
 //! must not be: the whole value is that a consumer's bounds name what it
@@ -27,6 +28,7 @@ use std::path::{Path, PathBuf};
 
 use crate::EngineError;
 use crate::forge::RemoteThread;
+use crate::plan::Staged;
 use crate::review_state::{Finding, ReviewState};
 use crate::schema;
 
@@ -191,6 +193,7 @@ pub trait AttributeSource {
 /// `ObjectWriter::write_blob` inside the staging loop and would not outlive a
 /// borrow. One allocation per changed file is free next to the subprocess it
 /// is about to be piped into.
+#[derive(Debug)]
 pub enum IndexEntry {
     Set {
         mode: String,
@@ -200,6 +203,35 @@ pub enum IndexEntry {
     Remove {
         path: Vec<u8>,
     },
+}
+
+impl IndexEntry {
+    /// The index record a staging decision implies.
+    ///
+    /// `Remove` and `Recorded` need nothing beyond the decision. `Apply` needs
+    /// content written, and only the caller knows how — from a blob read fresh
+    /// or one it has memoised — so `write` is asked for the oid then, and never
+    /// otherwise. The three tree builders used to spell all three arms out for
+    /// themselves, and agreed only by inspection.
+    pub fn from_staged(
+        staged: Staged<'_>,
+        path: Vec<u8>,
+        write: impl FnOnce() -> Result<String, EngineError>,
+    ) -> Result<IndexEntry, EngineError> {
+        Ok(match staged {
+            Staged::Remove => IndexEntry::Remove { path },
+            Staged::Recorded { mode, oid } => IndexEntry::Set {
+                mode: mode.to_string(),
+                oid: oid.to_string(),
+                path,
+            },
+            Staged::Apply { mode } => IndexEntry::Set {
+                mode: mode.to_string(),
+                oid: write()?,
+                path,
+            },
+        })
+    }
 }
 
 /// Opening a scratch index. Never the user's index, never a checkout
@@ -316,7 +348,6 @@ pub trait CommitHistory {
 pub trait RepoLayout {
     /// The shared git directory, absolutised (worktree-safe).
     fn common_dir(&self) -> Result<PathBuf, EngineError>;
-    fn work_root(&self) -> &Path;
 }
 
 // ----------------------------------------------------------- persistence
@@ -438,4 +469,44 @@ pub trait ConfigSource {
     /// `read`'s `None`, so the error text comes from the same `std::fs` call
     /// it always did and cannot drift.
     fn read_required(&self, path: &Path) -> Result<String, EngineError>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn set(entry: &IndexEntry) -> (&str, &str, &[u8]) {
+        match entry {
+            IndexEntry::Set { mode, oid, path } => (mode, oid, path),
+            IndexEntry::Remove { .. } => panic!("expected Set"),
+        }
+    }
+
+    #[test]
+    fn remove_and_recorded_never_ask_for_a_write() {
+        let never = || -> Result<String, EngineError> { panic!("write asked for") };
+
+        let e = IndexEntry::from_staged(Staged::Remove, b"a".to_vec(), never).unwrap();
+        assert!(matches!(e, IndexEntry::Remove { ref path } if path == b"a"));
+
+        let recorded = Staged::Recorded {
+            mode: "160000",
+            oid: "abc",
+        };
+        let e = IndexEntry::from_staged(recorded, b"sub".to_vec(), never).unwrap();
+        assert_eq!(set(&e), ("160000", "abc", &b"sub"[..]));
+    }
+
+    #[test]
+    fn apply_takes_the_oid_the_write_returns_and_its_error() {
+        let apply = Staged::Apply { mode: "100644" };
+        let e = IndexEntry::from_staged(apply, b"f".to_vec(), || Ok("def".to_string())).unwrap();
+        assert_eq!(set(&e), ("100644", "def", &b"f"[..]));
+
+        let err = IndexEntry::from_staged(apply, b"f".to_vec(), || {
+            Err(EngineError::Invariant("no hunks".into()))
+        })
+        .unwrap_err();
+        assert!(matches!(err, EngineError::Invariant(ref m) if m == "no hunks"));
+    }
 }
