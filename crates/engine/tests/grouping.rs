@@ -4,7 +4,9 @@ use differential_engine::plan::ReviewSource;
 use differential_engine::schema::{Effort, PlanDocument, ReadAction};
 use differential_engine::store::FsGroupingCache;
 use differential_testutil::{
-    FakeBackend, TestRepo, grouped, grouped_with_cache, ids_in_prompt, json_group, two_class_repo,
+    FakeBackend, TestRepo, grouped, grouped_with_cache, ids_in_prompt, json_group,
+    one_line_change_repo, rename_and_rewrite_repo, tiny_skim_backend, two_class_repo,
+    verbatim_move_repo,
 };
 
 #[test]
@@ -239,24 +241,7 @@ fn a_generated_file_never_shares_a_class_with_a_source_file() {
 
 #[test]
 fn low_similarity_rename_is_extracted_from_skim() {
-    let r = TestRepo::new();
-    let mut body = String::new();
-    for i in 0..40 {
-        body.push_str(&format!("shared_line_number_{i} = value_{i}\n"));
-    }
-    r.write("mod/original.txt", body.as_bytes());
-    let base = r.commit_all("base");
-    std::fs::remove_file(r.root.join("mod/original.txt")).unwrap();
-    let mut edited = String::new();
-    for i in 0..40 {
-        if i % 4 == 0 {
-            edited.push_str(&format!("rewritten_entry_{i} -> different({i})\n"));
-        } else {
-            edited.push_str(&format!("shared_line_number_{i} = value_{i}\n"));
-        }
-    }
-    r.write("mod/relocated.txt", edited.as_bytes());
-    let head = r.commit_all("move and rewrite");
+    let (r, base, head) = rename_and_rewrite_repo();
 
     // The model (wrongly) marks everything skim, and its payload must have
     // told it about the rename.
@@ -280,12 +265,7 @@ fn low_similarity_rename_is_extracted_from_skim() {
 
 #[test]
 fn verbatim_rename_stays_skim() {
-    let r = TestRepo::new();
-    let body = b"fn alpha() {}\nfn beta() {}\nfn gamma() {}\nfn delta() {}\nfn epsilon() {}\n";
-    r.write("src/old_name.rs", body);
-    let base = r.commit_all("base");
-    r.git(&["mv", "src/old_name.rs", "src/new_name.rs"]);
-    let head = r.commit_all("move");
+    let (r, base, head) = verbatim_move_repo();
 
     let backend = FakeBackend::new("fake", |ids| {
         let refs: Vec<&str> = ids.iter().map(String::as_str).collect();
@@ -366,18 +346,8 @@ fn empty_diff_groups_without_calling_the_model() {
 
 #[test]
 fn skim_group_without_remainder_has_no_skip_step() {
-    let r = TestRepo::new();
-    r.write("one.txt", b"single_change_here = old\n");
-    let base = r.commit_all("base");
-    r.write("one.txt", b"single_change_here = new\n");
-    let head = r.commit_all("head");
-    let backend = FakeBackend::new("fake", |ids| {
-        format!(
-            r#"{{"groups": [{}]}}"#,
-            json_group("Tiny", "skim", &[&ids[0]])
-        )
-    });
-    let d = grouped(&r, &base, &head, &backend);
+    let (r, base, head) = one_line_change_repo();
+    let d = grouped(&r, &base, &head, &tiny_skim_backend());
     let actions: Vec<ReadAction> = d
         .reading_plan
         .as_ref()

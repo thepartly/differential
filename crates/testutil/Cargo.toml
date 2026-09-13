@@ -9,7 +9,9 @@ repository.workspace = true
 
 [dependencies]
 differential-engine = { workspace = true }
+serde = { workspace = true }
 tempfile = { workspace = true }
+toml = { workspace = true }
 
 [lints]
 workspace = true

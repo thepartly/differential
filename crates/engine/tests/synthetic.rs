@@ -4,7 +4,9 @@
 
 use differential_engine::config::Config;
 use differential_engine::schema::{Disposition, GeneratedBy};
-use differential_testutil::{TestRepo, assert_all_ok, doc};
+use differential_testutil::{
+    TestRepo, assert_all_ok, doc, rename_and_rewrite_repo, verbatim_move_repo,
+};
 
 // ---------------------------------------------------------------- newlines
 
@@ -160,12 +162,7 @@ fn binary_add_and_modify() {
 
 #[test]
 fn rename_verbatim_r100() {
-    let r = TestRepo::new();
-    let body = b"fn alpha() {}\nfn beta() {}\nfn gamma() {}\nfn delta() {}\nfn epsilon() {}\n";
-    r.write("src/old_name.rs", body);
-    let base = r.commit_all("base");
-    r.git(&["mv", "src/old_name.rs", "src/new_name.rs"]);
-    let head = r.commit_all("move");
+    let (r, base, head) = verbatim_move_repo();
     let out = r.pipeline(&base, &head);
     assert_all_ok(&out);
     let d = doc(&out);
@@ -189,24 +186,7 @@ fn rename_verbatim_r100() {
 
 #[test]
 fn rename_with_heavy_edit_carries_low_similarity() {
-    let r = TestRepo::new();
-    let mut body = String::new();
-    for i in 0..40 {
-        body.push_str(&format!("shared_line_number_{i} = value_{i}\n"));
-    }
-    r.write("mod/original.txt", body.as_bytes());
-    let base = r.commit_all("base");
-    std::fs::remove_file(r.root.join("mod/original.txt")).unwrap();
-    let mut edited = String::new();
-    for i in 0..40 {
-        if i % 4 == 0 {
-            edited.push_str(&format!("rewritten_entry_{i} -> different({i})\n"));
-        } else {
-            edited.push_str(&format!("shared_line_number_{i} = value_{i}\n"));
-        }
-    }
-    r.write("mod/relocated.txt", edited.as_bytes());
-    let head = r.commit_all("move and rewrite");
+    let (r, base, head) = rename_and_rewrite_repo();
     let out = r.pipeline(&base, &head);
     assert_all_ok(&out);
     let d = doc(&out);

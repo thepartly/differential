@@ -1,30 +1,15 @@
 //! Review-state store tests: persistence, per-hunk reviewed marks, and the
 //! re-anchoring guarantees across a regenerated plan.
 
-use differential_engine::config::Config;
-use differential_engine::lang::LanguageRegistry;
-use differential_engine::pipeline::run_grouped_pipeline;
-use differential_engine::plan::ReviewSource;
 use differential_engine::ports::ReviewStore;
 use differential_engine::review_state::{Anchor, Finding, FindingStatus, reanchor, review_id};
-use differential_engine::store::FsReviewStore;
-use differential_engine::store::{FsArtefactStore, FsGroupingCache};
+use differential_engine::store::{FsGroupingCache, FsReviewStore};
 use differential_engine::{FsReviewSession, ReviewSession};
 /// Findings hash their creation time into their id; pinning it keeps these
 /// assertions about anchoring rather than about the clock.
 const FIXED_TIME: u64 = 1_700_000_000;
 
-use differential_testutil::{FakeBackend, TestRepo, grouped, json_group};
-
-fn focus_all_backend() -> FakeBackend {
-    FakeBackend::new("fake", |ids| {
-        let refs: Vec<&str> = ids.iter().map(String::as_str).collect();
-        format!(
-            r#"{{"groups": [{}]}}"#,
-            json_group("Everything", "focus", &refs)
-        )
-    })
-}
+use differential_testutil::{TestRepo, doc_and_view, focus_all_backend, grouped};
 
 /// The id is a function of BOTH the base and the head spec, and of nothing
 /// else — which is what lets one review survive its branch tip moving.
@@ -91,38 +76,6 @@ fn store_roundtrips_state_plans_and_findings() {
     assert_eq!(loaded.len(), 1);
     assert_eq!(loaded[0].body, "off by one");
     assert_eq!(loaded[0].status, FindingStatus::Open);
-}
-
-/// The plan document AND the diff view for a range — `reanchor` needs both,
-/// and `testutil::grouped` hands back only the document.
-///
-/// Every test here that regenerates a plan goes through this. Three of them
-/// used to spell the whole fifteen-line call out again, and a fourth spelling
-/// would have been a fourth chance to disagree about the fixture.
-fn doc_and_view(
-    r: &TestRepo,
-    base: &str,
-    head: &str,
-) -> (
-    differential_engine::schema::PlanDocument,
-    differential_engine::model::DiffView,
-) {
-    let out = run_grouped_pipeline(
-        &r.repo(),
-        &ReviewSource::range(base.to_string(), head.to_string(), head.to_string()),
-        &Config::default(),
-        &LanguageRegistry::builtin(),
-        &differential_testutil::stub_readers(),
-        &differential_engine::grouping::GroupingOptions {
-            backend: &focus_all_backend(),
-            cache: &FsGroupingCache::disabled(),
-            artefacts: &FsArtefactStore::disabled(),
-            fetch: "dfr",
-            progress: None,
-        },
-    )
-    .unwrap();
-    (out.document.unwrap(), out.view)
 }
 
 /// A finding anchors to an OFFSET inside its hunk, never to a line number.
