@@ -129,6 +129,40 @@ impl Agent {
         }
     }
 
+    /// Whether anyone has ever run this agent's command line.
+    ///
+    /// Not a quality judgement — a claim about provenance, and the only honest
+    /// one this crate can make. Every argv here is written from its agent's
+    /// documentation, and a test can assert the string this crate builds but
+    /// never that the CLI on the other end accepts it. CI cannot either: the
+    /// binary is not installed and its flags move between releases.
+    ///
+    /// `true` means `dfr agents --probe` passed all four checks against the
+    /// real CLI, and the argv is in this repository because of that run.
+    ///
+    /// **`false` means likely wrong, not merely unchecked.** Of the three
+    /// checked so far, two were broken: Claude Code's allowlist did not bind
+    /// without `--permission-mode default`, and Codex was passing
+    /// `--ask-for-approval`, which its `exec` subcommand rejects outright. Both
+    /// came from documentation that was accurate about the product and wrong
+    /// about the entry point. Nothing suggests the unchecked two are better.
+    ///
+    /// A caller that offers a user this list must say so, for the same reason
+    /// it must say what [`Agent::read_only`] answers: the person choosing is
+    /// the person who carries it.
+    ///
+    /// This flips when someone runs the probe and the argv lands — never
+    /// because it looks right.
+    pub fn proven(self) -> bool {
+        match self {
+            // Probed on a real call: all four checks passed.
+            Agent::ClaudeCode | Agent::Codex | Agent::Pi => true,
+            // Written from documentation. Droid needs a paid Factory plan and
+            // Copilot a Copilot seat, so neither has been run.
+            Agent::Droid | Agent::Copilot => false,
+        }
+    }
+
     /// What stops this agent writing, if anything.
     ///
     /// A caller that shows a user the list of agents MUST show this too. The
@@ -633,6 +667,31 @@ attributes = ["linguist-generated", "custom-generated"]
         let before = keys.len();
         keys.dedup();
         assert_eq!(keys.len(), before, "two agents share a name: {keys:?}");
+    }
+
+    #[test]
+    fn which_agents_have_actually_been_run_is_pinned() {
+        // `proven` is a claim about what a human ran, so nothing can check it
+        // automatically. Pinning the two lists is the next best thing: moving
+        // an agent between them has to be deliberate, and the reviewer of that
+        // diff is being asked "did you run the probe?".
+        let proven: Vec<&str> = Agent::ALL
+            .iter()
+            .filter(|a| a.proven())
+            .map(|a| a.key())
+            .collect();
+        assert_eq!(proven, vec!["claude-code", "codex", "pi"]);
+
+        let unproven: Vec<&str> = Agent::ALL
+            .iter()
+            .filter(|a| !a.proven())
+            .map(|a| a.key())
+            .collect();
+        assert_eq!(unproven, vec!["droid", "copilot"]);
+
+        // The default must be one somebody has run. Anything else ships a
+        // command line nobody has tried to the people who configured nothing.
+        assert!(Agent::default().proven(), "the default must be proven");
     }
 
     #[test]

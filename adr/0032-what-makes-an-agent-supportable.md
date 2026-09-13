@@ -107,7 +107,26 @@ loosened; it is a property four agents have and a fifth does not.
 
 ## An argv in this repository is unverified until someone runs it
 
-This is the honest consequence and it has no clean fix.
+This is the honest consequence, and the numbers below are why it is not a footnote.
+
+Three of the five have now been run: `claude-code`, `codex` and `pi`. **Two of those three
+were broken.** `droid` and `copilot` have not been run — Droid's cheapest plan is $20/month
+with no confirmed free tier, and Copilot needs a seat — so they ship marked.
+
+`config::Agent::proven` carries the mark and `dfr agents` prints it, as a `?` in the agent's
+own row rather than a line of prose underneath. The wording is deliberate: **a `?` means
+probably wrong, not merely unconfirmed.** Two thirds is the observed rate, both failures came
+from documentation that was accurate about the product and wrong about the subcommand, and
+nothing distinguishes the unchecked two from the checked three except that nobody has tried.
+
+The mark moves when someone runs the probe and it passes. It does not move because an argv
+looks right — that is exactly the judgement that produced both defects.
+
+One result is worth recording separately, because it is the only claim here that was
+confirmed rather than corrected. **Pi wrote the file.** The section above predicted that from
+Pi's documentation; a real probe run against DeepSeek-authenticated Pi 0.85.1 produced
+`the agent wrote the file, as documented`. The unenforced tier is observed behaviour now, not
+an inference, and Pi's argv needed no fix.
 
 Every command line here is written from its agent's documentation. No test in this
 repository can check one, because the CLI on the other end is not installed here, and its
@@ -215,6 +234,9 @@ no output — which is why the probe judges on stdout and not on status.
 - **`ReadOnly` is a four-variant enum, not a bool.** The three enforcing answers are not
   interchangeable to someone deciding whether to trust one, and the fourth needs a sentence
   rather than a label.
+- **An agent ships with its provenance attached.** `Agent::proven` is a claim about what a
+  human ran, so nothing checks it automatically; a test pins both lists instead, which makes
+  moving an agent between them a deliberate line in a diff a reviewer can ask about.
 - **Adding a sixth agent is still three edits and a compiler error.** A variant in
   `config::Agent`, a constructor in `llm.rs`, an arm in `backend_for`. What the compiler
   cannot ask for is the boundary, which is why it is written down here and in the module

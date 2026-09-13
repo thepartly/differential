@@ -267,21 +267,31 @@ error too.
 
 Five, by name. `dfr agents` lists them and says which are on your PATH.
 
-| `agent` | CLI | what keeps it read-only |
-|---|---|---|
-| `claude-code` | `claude` | a tool allowlist |
-| `codex` | `codex` | an OS sandbox — Seatbelt on macOS, bubblewrap on Linux |
-| `droid` | `droid` | its own default; we pass no flag that lifts it |
-| `copilot` | `copilot` | a tool allowlist, plus an explicit `--deny-tool write` |
-| `pi` | `pi` | **nothing. Pi can write, commit and push.** |
+| `agent` | CLI | what keeps it read-only | run for real? |
+|---|---|---|---|
+| `claude-code` | `claude` | a tool allowlist | yes |
+| `codex` | `codex` | an OS sandbox — Seatbelt on macOS, bubblewrap on Linux | yes |
+| `pi` | `pi` | **nothing. Pi can write, commit and push.** | yes |
+| `droid` | `droid` | its own default; we pass no flag that lifts it | **no** |
+| `copilot` | `copilot` | a tool allowlist, plus an explicit `--deny-tool write` | **no** |
+
+**The last column is not a formality.** Every command line here was written from its
+agent's documentation, and a test can check the string this repo builds but never that the
+real CLI accepts it. Three have now been run. **Two of those three were broken** — Claude
+Code's allowlist did not bind without `--permission-mode default`, and Codex was being
+passed `--ask-for-approval`, which its `exec` subcommand rejects outright. Both errors came
+from docs that were right about the product and wrong about the subcommand.
+
+So treat `droid` and `copilot` as probably wrong rather than merely unconfirmed. If you have
+one, `dfr agents --probe <name>` settles it in one call — and a passing run is the evidence
+for promoting it.
 
 **Read that last row before choosing it.** Pi ships no sandbox and no per-command
 allowlist, and its tool switch is all-or-nothing: the shell tool the model needs to read
 your diff is the same one that lets it write. Only the prompt asks it not to. Every other
 agent is stopped by something. ADR 0032 records why Pi is offered anyway.
 
-Each agent's command line is written from that agent's documentation, and this repository
-cannot test one against a CLI it does not have. On a machine that has one:
+On a machine that has one:
 
 ```sh
 dfr agents                 # free: what is installed, and what is configured

@@ -49,6 +49,9 @@ pub struct Row {
     pub installed: bool,
     pub read_only: ReadOnly,
     pub configured: bool,
+    /// Whether anyone has ever run this agent's command line. See
+    /// [`Agent::proven`].
+    pub proven: bool,
 }
 
 /// Every agent, with what this machine has.
@@ -65,6 +68,7 @@ pub fn rows(configured: Agent, backend_for: impl Fn(Agent) -> CommandBackend) ->
                 program,
                 read_only: agent.read_only(),
                 configured: agent == configured,
+                proven: agent.proven(),
             }
         })
         .collect()
@@ -91,6 +95,13 @@ pub fn list(rows: &[Row]) -> String {
     let w_name = rows.iter().map(|r| r.display.len()).max().unwrap_or(0);
     let w_prog = rows.iter().map(|r| r.program.len()).max().unwrap_or(0);
     let w_state = "not found".len();
+    // Padded so the `?` marks form a column. Unpadded they land wherever the
+    // read-only phrase ends, which reads as a typo rather than a mark.
+    let w_ro = rows
+        .iter()
+        .map(|r| read_only_words(r.read_only).len())
+        .max()
+        .unwrap_or(0);
 
     out.push_str("Agents. * is the configured one; set it with [grouping].agent\n");
     out.push_str("in ~/.config/differential/config.toml.\n\n");
@@ -100,22 +111,34 @@ pub fn list(rows: &[Row]) -> String {
         // and the binary they have to install are not always the same word:
         // `claude-code` is the agent, `claude` is the command.
         let state = if r.installed { "found" } else { "not found" };
-        let _ = writeln!(
-            out,
-            "{mark} {:w_key$}  {:w_name$}  {:w_prog$}  {:w_state$}  {}",
+        // The unproven ones are flagged in the row, not only in the note
+        // below it. A reader picking a name off this list scans the rows.
+        let flag = if r.proven { "" } else { "  ?" };
+        let line = format!(
+            "{mark} {:w_key$}  {:w_name$}  {:w_prog$}  {:w_state$}  {:w_ro$}{flag}",
             r.agent.key(),
             r.display,
             r.program,
             state,
             read_only_words(r.read_only),
         );
+        let _ = writeln!(out, "{}", line.trim_end());
+    }
+
+    if rows.iter().any(|r| !r.proven) {
+        out.push_str(
+            "\n? Nobody has ever run this one. Its command line was written from\n\
+             that agent's documentation and never checked against the real CLI.\n\
+             Of the three that HAVE been checked, two were broken first — so\n\
+             treat a `?` as probably wrong, not merely unconfirmed.\n",
+        );
     }
     out.push_str(
-        "\nAn argv here is written from each agent's documentation, and this\n\
-         repository cannot test it against a CLI it does not have. Run\n\
-         `dfr agents --probe <name>` on a machine that has one: it makes one\n\
-         real model call and reports whether the agent read its prompt, found\n\
-         the fetch command, and was refused a write.\n",
+        "\nRun `dfr agents --probe <name>` on a machine that has one. It makes\n\
+         one real model call and reports whether the agent started, read its\n\
+         prompt from stdin, could run the fetch command, and was refused a\n\
+         write. If a `?` agent passes, that is the evidence for dropping its\n\
+         mark in `config::Agent::proven`.\n",
     );
     out
 }
@@ -656,6 +679,20 @@ mod tests {
             "{text}"
         );
         assert!(text.contains("--probe"), "{text}");
+
+        // An agent nobody has run must be marked in its own row, and the mark
+        // must be explained. A reader picking a name scans rows, not prose.
+        let unproven_row = text
+            .lines()
+            .find(|l| l.contains("droid"))
+            .expect("droid is listed");
+        assert!(unproven_row.trim_end().ends_with('?'), "{unproven_row}");
+        let proven_row = text
+            .lines()
+            .find(|l| l.contains("claude-code"))
+            .expect("claude-code is listed");
+        assert!(!proven_row.trim_end().ends_with('?'), "{proven_row}");
+        assert!(text.contains("Nobody has ever run this one"), "{text}");
     }
 
     fn failures(checks: &[Check]) -> Vec<&str> {

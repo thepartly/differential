@@ -24,6 +24,11 @@ No test here can prove an argv against a CLI that is not installed. `dfr agents 
 <name>` is where that happens: one real call, and it reports whether the agent spawned,
 read its prompt from stdin, could run the fetch command, and was refused a write.
 
+`config::Agent::proven` records which have had that run. `claude-code`, `codex` and `pi`
+have; `droid` and `copilot` have not, and `dfr agents` marks them so a reader choosing a
+name sees it. Two of the three checked so far were broken before they passed, so the mark
+means "probably wrong", not "not yet confirmed". It moves when someone runs the probe.
+
 ## What the model never sees or cannot override
 
 - **Noise is mechanical** (ADR 0006). A class whose hunks live in `generated` files is

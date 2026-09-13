@@ -253,8 +253,12 @@ what that agent can do.
 Five names: `claude-code` (the default), `codex`, `droid`, `copilot` and `pi`. Four of them
 are stopped from writing by an allowlist, an OS sandbox or their own default. **`pi` is
 not** — it ships no sandbox and no per-command allowlist, and the shell tool it needs to
-read your diff is the one that lets it write (ADR 0032). `dfr agents` prints the list with
-that on it, and `dfr agents --probe <name>` tests one for real.
+read your diff is the one that lets it write (ADR 0032).
+
+`claude-code`, `codex` and `pi` have been run against the real CLI and pass.
+**`droid` and `copilot` have not**, and two of the three that were checked needed a fix
+first, so expect these to need one too. `dfr agents` marks them, and
+`dfr agents --probe <name>` is how one stops being marked.
 
 ```toml
 [grouping]
