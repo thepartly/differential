@@ -3,29 +3,15 @@
 
 use differential_engine::config::Config;
 use differential_engine::forge::{self, RemoteComment, RemoteThread, Request};
-use differential_engine::grouping::GroupingOptions;
 use differential_engine::lang::LanguageRegistry;
-use differential_engine::pipeline::run_grouped_pipeline;
 use differential_engine::plan::{self, ReviewSource};
 use differential_engine::ports::{ReviewCatalogue, ReviewIdentity, ReviewStore};
 use differential_engine::review_identity::resolve;
 use differential_engine::review_state::Lines;
 use differential_engine::schema::{self, Remote};
-use differential_engine::store::{
-    FsArtefactStore, FsGroupingCache, FsReviewCatalogue, FsReviewStore,
-};
+use differential_engine::store::{FsReviewCatalogue, FsReviewStore};
 use differential_engine::{FsReviewSession, ReviewSession};
-use differential_testutil::{FakeBackend, TestRepo, github_request, json_group, remote_comment};
-
-fn focus_all_backend() -> FakeBackend {
-    FakeBackend::new("fake", |ids| {
-        let refs: Vec<&str> = ids.iter().map(String::as_str).collect();
-        format!(
-            r#"{{"groups": [{}]}}"#,
-            json_group("Everything", "focus", &refs)
-        )
-    })
-}
+use differential_testutil::{TestRepo, doc_and_view, github_request, remote_comment};
 
 /// Ten lines `line_N = N` in `src/lib.rs`; the head is the same file after
 /// `edit` has had its way with the lines.
@@ -47,30 +33,6 @@ fn two_hunk_repo() -> (TestRepo, String, String) {
         lines[2] = "line_3 = 300".to_string();
         lines[7] = "line_8 = 800".to_string();
     })
-}
-
-fn doc_and_view(
-    r: &TestRepo,
-    base: &str,
-    head: &str,
-) -> (schema::PlanDocument, differential_engine::model::DiffView) {
-    let backend = focus_all_backend();
-    let out = run_grouped_pipeline(
-        &r.repo(),
-        &ReviewSource::range(base.to_string(), head.to_string(), head.to_string()),
-        &Config::default(),
-        &LanguageRegistry::builtin(),
-        &differential_testutil::stub_readers(),
-        &GroupingOptions {
-            backend: &backend,
-            cache: &FsGroupingCache::disabled(),
-            artefacts: &FsArtefactStore::disabled(),
-            fetch: "dfr",
-            progress: None,
-        },
-    )
-    .unwrap();
-    (out.document.unwrap(), out.view)
 }
 
 fn thread(id: &str, path: &str, side: &str, line: Option<u32>) -> RemoteThread {
@@ -194,6 +156,13 @@ fn lines(side: &str, start: u32, end: u32) -> Lines {
     }
 }
 
+/// One finding with no range of its own on the hunk that starts at line 3 —
+/// the first of `two_hunk_repo`'s two — and the id it was given.
+fn finding_on_line_3(s: &mut FsReviewSession, body: &str) -> String {
+    let h3 = s.doc().hunks.iter().position(|h| h.new_start == 3).unwrap();
+    s.add_finding(h3, None, body.into()).unwrap().id.clone()
+}
+
 #[test]
 fn a_publish_sends_open_unpublished_findings_inside_the_diff_and_names_the_rest() {
     let (r, base, head) = two_hunk_repo();
@@ -297,8 +266,7 @@ fn a_published_finding_hides_behind_its_fetched_twin() {
     let (r, base, head) = two_hunk_repo();
     let tmp = tempfile::TempDir::new().unwrap();
     let mut s = session(&r, &base, &head, tmp.path());
-    let h3 = s.doc().hunks.iter().position(|h| h.new_start == 3).unwrap();
-    let id = s.add_finding(h3, None, "mine".into()).unwrap().id.clone();
+    let id = finding_on_line_3(&mut s, "mine");
     s.mark_published(&[forge::Published {
         finding: id.clone(),
         thread: "T".into(),
@@ -470,12 +438,7 @@ fn a_fetch_reconciles_a_finding_the_forge_already_carries() {
     let (r, base, head) = two_hunk_repo();
     let tmp = tempfile::TempDir::new().unwrap();
     let mut s = session(&r, &base, &head, tmp.path());
-    let h3 = s.doc().hunks.iter().position(|h| h.new_start == 3).unwrap();
-    let id = s
-        .add_finding(h3, None, "on the change".into())
-        .unwrap()
-        .id
-        .clone();
+    let id = finding_on_line_3(&mut s, "on the change");
 
     // The publish's answer was lost: nothing was marked. The plan would send
     // it again — until the threads say it is there.
@@ -507,12 +470,7 @@ fn the_batch_sends_bodies_with_their_markers() {
     let (r, base, head) = two_hunk_repo();
     let tmp = tempfile::TempDir::new().unwrap();
     let mut s = session(&r, &base, &head, tmp.path());
-    let h3 = s.doc().hunks.iter().position(|h| h.new_start == 3).unwrap();
-    let id = s
-        .add_finding(h3, None, "on the change".into())
-        .unwrap()
-        .id
-        .clone();
+    let id = finding_on_line_3(&mut s, "on the change");
     let plan = s.publish_plan(forge::ForgeKind::Github);
     assert_eq!(
         plan.batch.comments[0].body,
@@ -651,12 +609,7 @@ fn a_linked_record_follows_an_edit_or_delete_even_before_its_twin_is_fetched() {
     let (r, base, head) = two_hunk_repo();
     let tmp = tempfile::TempDir::new().unwrap();
     let mut s = session(&r, &base, &head, tmp.path());
-    let h3 = s.doc().hunks.iter().position(|h| h.new_start == 3).unwrap();
-    let id = s
-        .add_finding(h3, None, "first words".into())
-        .unwrap()
-        .id
-        .clone();
+    let id = finding_on_line_3(&mut s, "first words");
     s.mark_published(&[forge::Published {
         finding: id.clone(),
         thread: "T".into(),

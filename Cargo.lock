@@ -566,13 +566,12 @@ name = "differential-symbols"
 version = "0.9.0"
 dependencies = [
  "differential-engine",
+ "differential-testutil",
  "hex",
  "petgraph",
  "regex",
- "serde",
  "serde_json",
  "sha1",
- "toml",
  "tree-sitter",
  "tree-sitter-c",
  "tree-sitter-c-sharp",
@@ -591,7 +590,9 @@ name = "differential-testutil"
 version = "0.9.0"
 dependencies = [
  "differential-engine",
+ "serde",
  "tempfile",
+ "toml",
 ]
 
 [[package]]

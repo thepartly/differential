@@ -1,6 +1,9 @@
 //! Shared test support (publish = false): hermetic temporary git
-//! repositories, the programmable fake LLM backend, and prompt helpers.
-//! Dev-dependency of the engine and renderer crates — never published.
+//! repositories, the programmable fake LLM backend, prompt helpers and the
+//! real-corpus parity harness. Dev-dependency of the engine, symbols and
+//! renderer crates — never published.
+
+pub mod parity;
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -18,16 +21,9 @@ pub struct TestRepo {
     pub root: PathBuf,
 }
 
-/// Present for `clippy::new_without_default`, which fires on any `new()` that
-/// takes no arguments. Nothing calls it — every fixture says `TestRepo::new()`
-/// — so it is here for the lint rather than for a caller.
-impl Default for TestRepo {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl TestRepo {
+    // Nothing calls `default()`; every fixture says `TestRepo::new()`.
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         let tmp = TempDir::new().unwrap();
         let root = tmp.path().to_path_buf();
@@ -98,12 +94,7 @@ impl TestRepo {
         self.pipeline_read_only_with(base, head, &Config::default())
     }
 
-    pub fn pipeline_read_only_with(
-        &self,
-        base: &str,
-        head: &str,
-        config: &Config,
-    ) -> PipelineOutput {
+    fn pipeline_read_only_with(&self, base: &str, head: &str, config: &Config) -> PipelineOutput {
         run_pipeline(
             &self.repo(),
             &ReviewSource::range(base.to_string(), head.to_string(), head.to_string()),
@@ -254,6 +245,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use differential_engine::grouping::GroupingOptions;
 use differential_engine::llm::{LlmBackend, LlmError};
+use differential_engine::model::DiffView;
 use differential_engine::pipeline::run_grouped_pipeline;
 use differential_engine::schema::PlanDocument;
 use differential_engine::store::{FsArtefactStore, FsGroupingCache};
@@ -373,6 +365,75 @@ pub fn json_group(label: &str, effort: &str, classes: &[&str]) -> String {
     )
 }
 
+/// The model puts every class in one focus group. The answer for a test that
+/// needs a grouped document and does not care how it is grouped.
+pub fn focus_all_backend() -> FakeBackend {
+    FakeBackend::new("fake", |ids| {
+        let refs: Vec<&str> = ids.iter().map(String::as_str).collect();
+        format!(
+            r#"{{"groups": [{}]}}"#,
+            json_group("Everything", "focus", &refs)
+        )
+    })
+}
+
+/// The one-class fixture: a single line in a single file changes.
+pub fn one_line_change_repo() -> (TestRepo, String, String) {
+    let r = TestRepo::new();
+    r.write("one.txt", b"single_change_here = old\n");
+    let base = r.commit_all("base");
+    r.write("one.txt", b"single_change_here = new\n");
+    let head = r.commit_all("head");
+    (r, base, head)
+}
+
+/// The model marks [`one_line_change_repo`]'s one class a skim group called
+/// `Tiny`, which is how a skim group comes to have no remainder.
+pub fn tiny_skim_backend() -> FakeBackend {
+    FakeBackend::new("fake", |ids| {
+        format!(
+            r#"{{"groups": [{}]}}"#,
+            json_group("Tiny", "skim", &[&ids[0]])
+        )
+    })
+}
+
+/// A five-function file moved with `git mv` and nothing else: git reports the
+/// rename at 100% similarity.
+pub fn verbatim_move_repo() -> (TestRepo, String, String) {
+    let r = TestRepo::new();
+    let body = b"fn alpha() {}\nfn beta() {}\nfn gamma() {}\nfn delta() {}\nfn epsilon() {}\n";
+    r.write("src/old_name.rs", body);
+    let base = r.commit_all("base");
+    r.git(&["mv", "src/old_name.rs", "src/new_name.rs"]);
+    let head = r.commit_all("move");
+    (r, base, head)
+}
+
+/// A forty-line file moved AND edited on the way — every fourth line rewritten
+/// — so git still sees a rename, but one well below the relocation gate.
+pub fn rename_and_rewrite_repo() -> (TestRepo, String, String) {
+    let r = TestRepo::new();
+    let mut body = String::new();
+    for i in 0..40 {
+        body.push_str(&format!("shared_line_number_{i} = value_{i}\n"));
+    }
+    r.write("mod/original.txt", body.as_bytes());
+    let base = r.commit_all("base");
+    std::fs::remove_file(r.root.join("mod/original.txt")).unwrap();
+    let mut edited = String::new();
+    for i in 0..40 {
+        if i % 4 == 0 {
+            edited.push_str(&format!("rewritten_entry_{i} -> different({i})\n"));
+        } else {
+            edited.push_str(&format!("shared_line_number_{i} = value_{i}\n"));
+        }
+    }
+    r.write("mod/relocated.txt", edited.as_bytes());
+    let head = r.commit_all("move and rewrite");
+    (r, base, head)
+}
+
 pub fn grouped(r: &TestRepo, base: &str, head: &str, backend: &dyn LlmBackend) -> PlanDocument {
     grouped_with_cache(r, base, head, backend, None)
 }
@@ -384,6 +445,31 @@ pub fn grouped_with_cache(
     backend: &dyn LlmBackend,
     cache_dir: Option<&std::path::Path>,
 ) -> PlanDocument {
+    grouped_output(r, base, head, backend, cache_dir)
+        .document
+        .expect("grouped document")
+}
+
+/// The plan document AND the diff view for a range, grouped by
+/// [`focus_all_backend`] — `reanchor` and a review session need both, and
+/// [`grouped`] hands back only the document.
+///
+/// Every test that regenerates a plan goes through this. Three of them used to
+/// spell the whole fifteen-line call out again, then two test crates each had
+/// this function word for word; a fourth spelling would have been a fourth
+/// chance to disagree about the fixture.
+pub fn doc_and_view(r: &TestRepo, base: &str, head: &str) -> (PlanDocument, DiffView) {
+    let out = grouped_output(r, base, head, &focus_all_backend(), None);
+    (out.document.expect("grouped document"), out.view)
+}
+
+fn grouped_output(
+    r: &TestRepo,
+    base: &str,
+    head: &str,
+    backend: &dyn LlmBackend,
+    cache_dir: Option<&std::path::Path>,
+) -> PipelineOutput {
     let cache = match cache_dir {
         Some(dir) => FsGroupingCache::at(dir.to_path_buf()),
         None => FsGroupingCache::disabled(),
@@ -391,7 +477,7 @@ pub fn grouped_with_cache(
     // Never inside `cache_dir`: the golden test counts what the grouping cache
     // wrote, and an artefact sitting next to it would be counted too.
     let artefacts = FsArtefactStore::disabled();
-    let out = run_grouped_pipeline(
+    run_grouped_pipeline(
         &r.repo(),
         &ReviewSource::range(base.to_string(), head.to_string(), head.to_string()),
         &Config::default(),
@@ -405,8 +491,7 @@ pub fn grouped_with_cache(
             progress: None,
         },
     )
-    .unwrap();
-    out.document.expect("grouped document")
+    .unwrap()
 }
 
 // ------------------------------------------------------------------- forge

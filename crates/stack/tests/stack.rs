@@ -9,7 +9,9 @@ use differential_engine::plan::ReviewSource;
 use differential_engine::store::{FsArtefactStore, FsGroupingCache};
 use differential_stack::run_stack_pipeline;
 use differential_stack::{StackOptions, StackResult};
-use differential_testutil::{FakeBackend, TestRepo, json_group, two_class_repo};
+use differential_testutil::{
+    FakeBackend, TestRepo, json_group, one_line_change_repo, tiny_skim_backend, two_class_repo,
+};
 
 fn stacked(r: &TestRepo, base: &str, head: &str, backend: &dyn LlmBackend) -> StackResult {
     let out = run_stack_pipeline(
@@ -76,18 +78,8 @@ fn stack_renders_focus_then_skim_split_and_lands_on_the_ref() {
 
 #[test]
 fn skim_without_remainder_is_a_single_commit() {
-    let r = TestRepo::new();
-    r.write("one.txt", b"single_change_here = old\n");
-    let base = r.commit_all("base");
-    r.write("one.txt", b"single_change_here = new\n");
-    let head = r.commit_all("head");
-    let backend = FakeBackend::new("fake", |ids| {
-        format!(
-            r#"{{"groups": [{}]}}"#,
-            json_group("Tiny", "skim", &[&ids[0]])
-        )
-    });
-    let s = stacked(&r, &base, &head, &backend);
+    let (r, base, head) = one_line_change_repo();
+    let s = stacked(&r, &base, &head, &tiny_skim_backend());
     assert_eq!(s.commits.len(), 1);
     assert!(
         s.commits[0]
