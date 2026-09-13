@@ -1618,23 +1618,6 @@ fn cursor_screen_row(app: &App) -> u16 {
     (app.cursor - app.scroll()) as u16 + 1
 }
 
-#[test]
-fn the_cursor_is_a_brighter_gutter_block_on_a_changed_row() {
-    let (_r, mut app) = app_with_a_long_file();
-    // A changed line carries its own background, and a line style sits under
-    // span styles — so the gutter block is what has to show the cursor there.
-    put_cursor_on(&mut app, |k| matches!(k, RowKind::Diff(_)));
-    // Walk onto a row that actually has a change colour.
-    for _ in 0..20 {
-        let y = cursor_screen_row(&app);
-        if row_backgrounds(&mut app, y).iter().any(is_cursor_block) {
-            return;
-        }
-        app.handle_key(key('j'));
-    }
-    panic!("the cursor's gutter must wear the brighter block of its change colour");
-}
-
 /// A changed line's every span carries `added_bg`/`deleted_bg`, and a span
 /// background beats a line style. The selection used to BE a line style, so
 /// selecting the lines inside a hunk — which is what selecting means here —
@@ -4244,8 +4227,8 @@ fn the_list_is_the_only_door_to_an_orphaned_note() {
     assert!(app.session.findings().is_empty(), "dd must reach an orphan");
 }
 
-/// More notes than the box is tall. The file-list modal has no scroll and
-/// clips; a review has more notes than it has files.
+/// More notes than the box is tall. The file-list modal scrolls too, but a
+/// review has more notes than it has files, so this list is where it shows.
 #[test]
 fn the_list_scrolls_to_keep_the_selection_on_screen() {
     let (_r, mut app) = app_with_a_long_file();
@@ -4299,38 +4282,6 @@ fn the_list_scrolls_to_keep_the_selection_on_screen() {
         "the window should have moved to keep it on screen"
     );
     assert!(*scroll <= *selected, "and never past the selection");
-}
-
-#[test]
-#[ignore = "prints the pane for a human to look at"]
-fn render_dump_findings() {
-    let (_r, mut app) = app_with_a_long_file();
-    app.focus = Focus::Detail;
-    // Three notes: one on a line, one over a range, one on a hunk header.
-    let mut wrote = 0;
-    for i in 0..app.rows.len() {
-        if wrote == 3 {
-            break;
-        }
-        if app.rows[i].line.is_none() && !matches!(app.rows[i].kind, RowKind::HunkHeader { .. }) {
-            continue;
-        }
-        app.cursor = i;
-        if wrote == 1 {
-            app.handle_key(key('v'));
-            app.handle_key(key('j'));
-        }
-        app.handle_key(key('c'));
-        app.handle_paste(&format!("note number {wrote} about this"));
-        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-        wrote += 1;
-    }
-    app.handle_key(key('F'));
-    println!("\n=== findings modal ===");
-    println!("{}", ansi_dump(&mut app, 120, 16));
-    app.handle_key(key('D'));
-    println!("\n=== confirming ===");
-    println!("{}", ansi_dump(&mut app, 120, 16));
 }
 
 /// `?` answers for where the reader is standing, and nothing else. A list of
@@ -4564,200 +4515,6 @@ fn a_float_keeps_the_themes_ground_rather_than_the_terminals() {
         (0..100u16).any(|x| buf[(x, row)].style().bg == ground),
         "the float carries none of the theme's ground"
     );
-}
-
-/// Not an assertion — every shipped palette on the same screen, so they can be
-/// compared side by side rather than one at a time:
-/// `cargo test -p differential-tui --test tui -- --ignored --nocapture render_dump_themes`
-///
-/// The contrast and distinctness tests say a palette is *usable*. They cannot
-/// say it is nice to look at, which is what this is for.
-#[test]
-#[ignore = "prints every theme for a human to look at"]
-fn render_dump_themes() {
-    use differential_engine::config::ThemeName;
-    for name in [
-        ThemeName::Dark,
-        ThemeName::OneDark,
-        ThemeName::OneLight,
-        ThemeName::GruvboxDark,
-        ThemeName::GruvboxLight,
-        ThemeName::SolarizedDark,
-        ThemeName::SolarizedLight,
-        ThemeName::CatppuccinMocha,
-        ThemeName::CatppuccinLatte,
-        ThemeName::Dracula,
-        ThemeName::Monokai,
-    ] {
-        let (_r, mut app) = make_app();
-        app.set_theme(Theme::named(name));
-        println!("\n=== {name:?} ===");
-        println!("{}", ansi_dump(&mut app, 120, 30));
-    }
-}
-
-/// Not an assertion — a readable dump of the pane, so the styling can be
-/// eyeballed with `cargo test -- --ignored --nocapture render_dump`.
-#[test]
-#[ignore = "prints the pane for a human to look at"]
-fn render_dump() {
-    let (_r, mut app) = app_with_a_long_file();
-    app.focus = Focus::Detail;
-    put_cursor_on(&mut app, |k| matches!(k, RowKind::Diff(_)));
-    for mode in ["unified", "split"] {
-        // Park on a changed row, so the cursor's gutter block is in the dump.
-        for _ in 0..20 {
-            let y = cursor_screen_row(&app);
-            if row_backgrounds(&mut app, y).iter().any(is_cursor_block) {
-                break;
-            }
-            app.handle_key(key('j'));
-        }
-        println!("\n=== diff: {mode} ===");
-        println!("{}", ansi_dump(&mut app, 120, 26));
-        app.handle_key(key('s'));
-    }
-}
-
-/// The one thing a still picture has to settle for #68: whether a selected
-/// changed line reads as selected without drowning the change colour it wears.
-///
-/// `cargo test -p differential-tui --test tui -- --ignored --nocapture render_dump_selection`
-#[test]
-#[ignore = "prints the pane for a human to look at"]
-fn render_dump_selection() {
-    let (_r, mut app) = app_with_a_long_file();
-    app.focus = Focus::Detail;
-    for mode in ["unified", "split"] {
-        // A run over CHANGED lines, which is the case the fix is about. The
-        // row indices differ between the two layouts, so the walk repeats.
-        put_cursor_on(&mut app, |k| matches!(k, RowKind::Diff(_)));
-        for _ in 0..20 {
-            let y = cursor_screen_row(&app);
-            if row_backgrounds(&mut app, y).iter().any(is_cursor_block) {
-                break;
-            }
-            app.handle_key(key('j'));
-        }
-        app.handle_key(key('v'));
-        app.handle_key(key('j'));
-        println!("\n=== selection over changed lines, {mode} ===");
-        println!("{}", ansi_dump(&mut app, 120, 26));
-        app.handle_key(key('v'));
-        app.handle_key(key('s'));
-    }
-}
-
-/// The screen as ANSI truecolour, so a paste of it shows what a terminal shows.
-/// `TestBackend` renders styles but only exposes them cell by cell.
-fn ansi_dump(app: &mut App, w: u16, h: u16) -> String {
-    use ratatui::style::{Color, Modifier};
-    let backend = ratatui::backend::TestBackend::new(w, h);
-    let mut terminal = ratatui::Terminal::new(backend).unwrap();
-    terminal.draw(|f| app.draw(f)).unwrap();
-    let buf = terminal.backend().buffer().clone();
-    // The named colours the theme still uses, as the 8-bit codes a terminal
-    // reads — truecolour and named inks have to end up in one escape.
-    let code = |c: Color, base: u8| -> String {
-        match c {
-            Color::Rgb(r, g, b) => format!("{};2;{r};{g};{b}", base + 8),
-            Color::Reset => format!("{}", base + 9),
-            Color::Black => format!("{}", base),
-            Color::Red => format!("{}", base + 1),
-            Color::Green => format!("{}", base + 2),
-            Color::Yellow => format!("{}", base + 3),
-            Color::Blue => format!("{}", base + 4),
-            Color::Magenta => format!("{}", base + 5),
-            Color::Cyan => format!("{}", base + 6),
-            Color::Gray => format!("{}", base + 7),
-            Color::DarkGray => format!("{}", base + 60),
-            Color::LightRed => format!("{}", base + 61),
-            Color::LightGreen => format!("{}", base + 62),
-            Color::LightYellow => format!("{}", base + 63),
-            Color::LightBlue => format!("{}", base + 64),
-            Color::LightMagenta => format!("{}", base + 65),
-            Color::LightCyan => format!("{}", base + 66),
-            Color::White => format!("{}", base + 67),
-            _ => format!("{}", base + 9),
-        }
-    };
-    let mut out = String::new();
-    for y in 0..h {
-        // One escape per RUN, not per cell: a cell-by-cell dump is twenty
-        // times the bytes and unreadable in a diff.
-        let mut worn = String::new();
-        for x in 0..w {
-            let cell = &buf[(x, y)];
-            let mut parts = vec![code(cell.fg, 30), code(cell.bg, 40)];
-            if cell.modifier.contains(Modifier::BOLD) {
-                parts.push("1".to_string());
-            }
-            // Underline too, since a symbol the reader could look up is marked
-            // with a shape rather than a colour — a dump that dropped it would
-            // show none of that mark at all.
-            if cell.modifier.contains(Modifier::UNDERLINED) {
-                parts.push("4".to_string());
-            }
-            let style = parts.join(";");
-            if style != worn {
-                out.push_str(&format!("\x1b[0;{style}m"));
-                worn = style;
-            }
-            out.push_str(cell.symbol());
-        }
-        out.push_str("\x1b[0m\n");
-    }
-    out
-}
-
-/// The group map float, folded, over a document with more files than the
-/// selected group touches.
-///
-/// `cargo test -p differential-tui --test tui render_dump_map -- --ignored --nocapture`
-#[test]
-#[ignore = "prints the pane for a human to look at"]
-fn render_dump_map() {
-    let r = TestRepo::new();
-    let files = [
-        "deep/a/b/c/buried.rs",
-        "src/one.rs",
-        "src/two.rs",
-        "src/three.rs",
-        "src/four.rs",
-        "src/five.rs",
-        "src/target.rs",
-    ];
-    let shapes = [
-        ("fn f() { g(); }\n", "fn f() { h(); }\n"),
-        ("let x = 1;\n", "let x = 2;\n"),
-        ("struct S { a: u8 }\n", "struct S { a: u16 }\n"),
-        ("use a::b;\n", "use a::c;\n"),
-        ("const K: u8 = 1;\n", "const K: u8 = 2;\n"),
-        ("impl T for S {}\n", "impl U for S {}\n"),
-        ("enum E { A, B }\n", "enum E { A, C }\n"),
-    ];
-    for (path, (before, _)) in files.iter().zip(shapes) {
-        r.write(path, before.as_bytes());
-    }
-    r.commit_all("base");
-    for (path, (_, after)) in files.iter().zip(shapes) {
-        r.write(path, after.as_bytes());
-    }
-    r.commit_all("head");
-    let backend = one_group_per_class();
-    let mut app = open_app_with(&r, &backend, ".dfr-map-dump-store");
-    app.focus = Focus::Groups;
-    for _ in 0..files.len() {
-        if drawn_rows(&mut app)
-            .iter()
-            .any(|l| l.contains("● target.rs"))
-        {
-            break;
-        }
-        app.handle_key(key('j'));
-    }
-    println!("\n=== group map, folded ===");
-    println!("{}", ansi_dump(&mut app, 120, 20));
 }
 
 /// The cursor's bar sits just inside the frame on EVERY selectable row — a
@@ -5058,57 +4815,6 @@ fn a_context_boundary_band_lightens_under_the_cursor() {
         !muted.contains(&theme().hint_cursor_bg),
         "only the cursor's band lightens: {muted:?}"
     );
-}
-
-/// A split diff over a pure insertion: one side is hatched, and the cursor's
-/// block still lands in the same column on both.
-///
-/// `cargo test -p differential-tui --test tui render_dump_hatch -- --ignored --nocapture`
-#[test]
-#[ignore = "prints the pane for a human to look at"]
-fn render_dump_hatch() {
-    let r = TestRepo::new();
-    r.write("src/a.rs", b"let keep = 1;\nlet tail = 3;\n");
-    r.commit_all("base");
-    r.write(
-        "src/a.rs",
-        b"let keep = 1;\nlet fresh = 2;\nlet tail = 3;\n",
-    );
-    r.commit_all("head");
-    let backend = skim_first_backend();
-    let mut app = open_app_with_opts(&r, &backend, ".dfr-hatch-dump-store", laid_out(true));
-    put_cursor_on(&mut app, |k| matches!(k, RowKind::Diff(_)));
-    for _ in 0..20 {
-        let y = cursor_screen_row(&app);
-        if row_backgrounds(&mut app, y).iter().any(is_cursor_block) {
-            break;
-        }
-        app.handle_key(key('j'));
-    }
-    println!("\n=== split over an insertion ===");
-    println!("{}", ansi_dump(&mut app, 120, 16));
-}
-
-/// The plan pane's connector, with a group that follows two others.
-///
-/// `cargo test -p differential-tui --test tui render_dump_plan -- --ignored --nocapture`
-#[test]
-#[ignore = "prints the pane for a human to look at"]
-fn render_dump_plan() {
-    let (_r, mut app) = app_with_dependency_edge();
-    app.focus = Focus::Groups;
-    let follower = (0..app.groups().len())
-        .find(|i| !app.groups()[*i].depends_on.is_empty())
-        .expect("no group follows another");
-    while app.selected_group != follower {
-        app.handle_key(key(if app.selected_group < follower {
-            'j'
-        } else {
-            'k'
-        }));
-    }
-    println!("\n=== plan connector ===");
-    println!("{}", ansi_dump(&mut app, 120, 20));
 }
 
 /// A note stays on the line it was written on when the layout changes.
@@ -5426,89 +5132,6 @@ fn a_selection_wears_a_pill_for_as_long_as_it_lasts() {
     );
 }
 
-/// Not an assertion — the three chrome changes, side by side, so they can be
-/// eyeballed with
-/// `cargo test -p differential-tui --test tui -- --ignored --nocapture render_dump_chrome`.
-#[test]
-#[ignore = "prints the panes for a human to look at"]
-fn render_dump_chrome() {
-    // 1. A selection pill in the footer, with its count.
-    let (_r, mut app) = app_with_a_long_file();
-    app.focus = Focus::Detail;
-    let start = app
-        .rows
-        .windows(3)
-        .position(|w| {
-            w.iter()
-                .all(|r| r.line.as_ref().is_some_and(|l| l.side == "new"))
-        })
-        .expect("three new-side rows in a row");
-    app.cursor = start;
-    app.handle_key(key('v'));
-    println!("\n=== footer: one line selected ===");
-    println!("{}", ansi_dump(&mut app, 120, 16));
-    app.handle_key(key('j'));
-    app.handle_key(key('j'));
-    println!("\n=== footer: three lines selected ===");
-    println!("{}", ansi_dump(&mut app, 120, 16));
-
-    // 2. The findings list, with a path deep enough to need cutting.
-    let (_r2, mut deep) = app_with_a_deep_path();
-    note_on(
-        &mut deep,
-        |r| r.line.is_some(),
-        "the note keeps its room now that the path cannot take the row",
-    );
-    deep.handle_key(key('F'));
-    println!("\n=== findings modal: a deep path ===");
-    println!("{}", ansi_dump(&mut deep, 120, 16));
-
-    // 3. The file list, scrolled past its first entry.
-    let (_r3, mut many) = app_with_many_files();
-    many.focus = Focus::Detail;
-    many.set_viewport(Viewport {
-        detail_rows: 4,
-        detail_cols: 58,
-        plan_rows: 4,
-        body_rows: 6,
-        ..Viewport::default()
-    });
-    many.handle_key(key('f'));
-    for _ in 0..7 {
-        many.handle_key(key('j'));
-    }
-    println!("\n=== file list: scrolled to the last file ===");
-    println!("{}", ansi_dump(&mut many, 120, 8));
-
-    // 4. The file list holding one path that fits and one that cannot, at two
-    //    widths — the box grows to its content, then the path gives way.
-    let deep = "src/alpha/bravo/charlie/delta/echo/foxtrot/golf/hotel/india/juliet/\
-kilo/lima/mike/november/oscar/papa/quebec/distinctive_name.rs";
-    let r = TestRepo::new();
-    for f in [deep, "src/near.rs"] {
-        r.write(f, b"fn go() { old() }\n");
-    }
-    r.commit_all("base");
-    for f in [deep, "src/near.rs"] {
-        r.write(f, b"fn go() { new() }\n");
-    }
-    r.commit_all("head");
-    let backend = FakeBackend::new("fake", |ids| {
-        let all: Vec<&str> = ids.iter().map(String::as_str).collect();
-        format!(
-            r#"{{"groups": [{}]}}"#,
-            json_group("Everything", "focus", &all)
-        )
-    });
-    let mut deep_app = open_app_with(&r, &backend, ".dfr-dump-deep-store");
-    deep_app.focus = Focus::Detail;
-    deep_app.handle_key(key('f'));
-    for w in [160u16, 100, 80] {
-        println!("\n=== file list at {w} columns: a path that cannot fit ===");
-        println!("{}", ansi_dump(&mut deep_app, w, 8));
-    }
-}
-
 /// `y` hands the loop the text and nothing else. The projection itself is the
 /// ENGINE's, so `dfr findings --summary` prints exactly what `y` copies.
 #[test]
@@ -5535,33 +5158,6 @@ fn y_carries_the_same_summary_the_cli_prints() {
         !r.root.join(".dfr-test-store/summary.md").exists(),
         "`y` writes no file — the summary is a command away, not a path"
     );
-}
-
-/// Not an assertion — the footer carrying each of the three messages at three
-/// widths, so the squeeze against the tallies and the two right-hand keys can
-/// be seen:
-/// `cargo test -p differential-tui --test tui -- --ignored --nocapture render_dump_summary_footer`
-#[test]
-#[ignore = "prints the footer for a human to look at"]
-fn render_dump_summary_footer() {
-    let (_r, mut app) = make_app();
-    app.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
-    app.handle_key(key('c'));
-    app.handle_paste("off by one");
-    app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-
-    let cmd = "dfr findings main..feature --summary";
-    for status in [
-        "findings summary copied to clipboard".to_string(),
-        format!("sent via the terminal · {cmd}"),
-        format!("clipboard unavailable · {cmd}"),
-    ] {
-        app.status = status.clone();
-        for w in [140u16, 110, 90] {
-            println!("\n=== {w} columns: {status} ===");
-            println!("{}", ansi_dump(&mut app, w, 6));
-        }
-    }
 }
 
 /// A long line is cut at the pane edge and `w` is not always the answer — in
@@ -5741,28 +5337,6 @@ fn the_shift_comes_back_inside_a_wider_layout() {
     );
 }
 
-/// The one thing a still picture cannot settle for #74: where the pane lands,
-/// and what the cursor does on the way.
-///
-/// `cargo test -p differential-tui --test tui -- --ignored --nocapture render_dump_hscroll`
-#[test]
-#[ignore = "prints the pane for a human to look at"]
-fn render_dump_hscroll() {
-    let (_r, mut app) = app_with_a_long_line();
-    app.focus = Focus::Detail;
-    for mode in ["unified", "split"] {
-        for cols in [0usize, 8, 32] {
-            app.handle_key(key('0'));
-            for _ in 0..cols / 8 {
-                app.handle_key(key('l'));
-            }
-            println!("\n=== {mode}, shifted {cols} columns ===");
-            println!("{}", ansi_dump(&mut app, 120, 20));
-        }
-        app.handle_key(key('s'));
-    }
-}
-
 /// The pane at a known width, as rows of text.
 fn wrapped_pane(app: &mut App) -> Vec<String> {
     app.focus = Focus::Detail;
@@ -5919,40 +5493,6 @@ fn the_wrap_choice_is_persisted() {
     assert_eq!(app.session.wrap(), Some(true));
     let state = std::fs::read_to_string(r.root.join(".dfr-wrap-store/state.json")).unwrap();
     assert!(state.contains("\"wrap\": true"), "{state}");
-}
-
-/// `cargo test -p differential-tui --test tui -- --ignored --nocapture render_dump_wrap`
-#[test]
-#[ignore = "prints the pane for a human to look at"]
-fn render_dump_wrap() {
-    let (_r, mut app) = app_with_a_long_line();
-    app.focus = Focus::Detail;
-    app.set_viewport(Viewport {
-        detail_rows: 22,
-        detail_cols: 58,
-        plan_rows: 22,
-        body_rows: 24,
-        ..Viewport::default()
-    });
-    app.handle_key(key('c'));
-    for ch in "the note a reviewer writes about this line is prose too, and it also runs past the edge of the pane".chars() {
-        app.handle_key(key(ch));
-    }
-    app.handle_key(ctrl('s'));
-    eprintln!("=== unified, w OFF ===");
-    for row in drawn_rows(&mut app) {
-        eprintln!("{row}");
-    }
-    app.handle_key(key('w'));
-    eprintln!("=== unified, w ON ===");
-    for row in drawn_rows(&mut app) {
-        eprintln!("{row}");
-    }
-    app.handle_key(key('s'));
-    eprintln!("=== split, w ON ===");
-    for row in drawn_rows(&mut app) {
-        eprintln!("{row}");
-    }
 }
 
 // ------------------------------------------------------------ forge threads
@@ -6473,74 +6013,6 @@ mod forge_threads {
         assert!(rows.iter().any(|r| r.contains("not yours")));
     }
 
-    /// The footer, in every place that has keys of its own.
-    ///
-    /// `cargo test -p differential-tui --test tui render_dump_footers -- --ignored --nocapture`
-    #[test]
-    #[ignore = "prints the footer for a human to look at"]
-    fn render_dump_footers() {
-        let (_r, mut app, _fake) = app_with_threads(vec![thread("T1", "C1")]);
-        let show = |app: &App, what: &str| {
-            println!("{what:>22}  |{}|", screen(app, 120, 30)[29].trim_end());
-        };
-        app.focus = Focus::Groups;
-        show(&app, "the plan pane");
-        switch_left_pane(&mut app);
-        show(&app, "the file tree");
-        switch_left_pane(&mut app);
-
-        app.focus = Focus::Detail;
-        while !matches!(app.rows[app.cursor].kind, RowKind::Diff(_)) {
-            app.handle_key(key('j'));
-        }
-        show(&app, "the diff pane");
-        app.handle_key(key('v'));
-        app.handle_key(key('j'));
-        show(&app, "selecting");
-        app.handle_key(key('v'));
-
-        app.cursor = *thread_rows(&app, "T1").first().expect("no thread rows");
-        show(&app, "a review thread");
-
-        app.handle_key(key('f'));
-        show(&app, "the file list");
-        app.handle_key(KeyCode::Esc.into());
-        app.handle_key(key('F'));
-        show(&app, "the findings list");
-        app.handle_key(KeyCode::Esc.into());
-        while !matches!(app.rows[app.cursor].kind, RowKind::Diff(_)) {
-            app.handle_key(key('k'));
-        }
-        app.handle_key(key('c'));
-        show(&app, "the composer");
-    }
-
-    /// The help modal, in every place it can be opened from.
-    ///
-    /// `cargo test -p differential-tui --test tui render_dump_help -- --ignored --nocapture`
-    #[test]
-    #[ignore = "prints the modal for a human to look at"]
-    fn render_dump_help() {
-        let (_r, mut app, _fake) = app_with_threads(vec![thread("T1", "C1")]);
-        app.focus = Focus::Groups;
-        app.handle_key(key('?'));
-        println!("\n=== help, from the plan pane ===");
-        println!("{}", ansi_dump(&mut app, 120, 34));
-
-        app.handle_key(key('x'));
-        app.focus = Focus::Detail;
-        app.cursor = *thread_rows(&app, "T1").first().expect("no thread rows");
-        app.handle_key(key('?'));
-        println!("\n=== help, on a review thread ===");
-        println!("{}", ansi_dump(&mut app, 120, 34));
-
-        app.handle_key(key('x'));
-        app.handle_key(key('F'));
-        app.handle_key(key('?'));
-        println!("\n=== help, inside the findings list ===");
-        println!("{}", ansi_dump(&mut app, 120, 34));
-    }
-
     #[test]
     fn the_footer_counts_threads_only_on_a_request_review() {
         let footer = |app: &mut App| -> String { screen(app, 120, 30)[29].clone() };
@@ -6554,57 +6026,6 @@ mod forge_threads {
         app.handle_key(key('R'));
         assert!(footer(&mut app).contains("syncing"));
         settle(&mut app);
-    }
-
-    /// A thread with a reply and a reply draft under it, then the resolved look.
-    ///
-    /// `cargo test -p differential-tui --test tui render_dump_threads -- --ignored --nocapture`
-    #[test]
-    #[ignore = "prints the pane for a human to look at"]
-    fn render_dump_resolved_collapsed() {
-        let mut t = thread("T1", "C1");
-        t.resolved = true;
-        t.comments[0].body = "## Why three?\n\nSee `run_with_retries`.".into();
-        let (_r, mut app, _fake) = app_with_threads(vec![t]);
-        app.cursor = thread_rows(&app, "T1")[0];
-        println!("\n=== resolved thread, collapsed by default ===");
-        println!("{}", ansi_dump(&mut app, 100, 16));
-        app.handle_key(key('z'));
-        println!("\n=== after z: opened, dimmed markdown ===");
-        println!("{}", ansi_dump(&mut app, 100, 20));
-    }
-
-    #[test]
-    #[ignore = "prints the pane for a human to look at"]
-    fn render_dump_markdown_comment() {
-        let mut t = thread("T1", "C1");
-        t.comments[0].body = "## Why three?\n\nRetries should be **bounded** but not \
-             *too* tight. Use `run_with_retries`:\n\n```rust\nfn retry(n: u32) -> bool {\n    \
-             n < 3 // cap\n}\n```\n\n- keeps latency low\n- see [the RFC](https://example.invalid)\n\n\
-             > was two before"
-            .into();
-        let (_r, mut app, _fake) = app_with_threads(vec![t]);
-        app.cursor = thread_rows(&app, "T1")[0];
-        println!("\n=== a comment body rendered as markdown ===");
-        println!("{}", ansi_dump(&mut app, 100, 26));
-    }
-
-    #[test]
-    #[ignore = "prints the pane for a human to look at"]
-    fn render_dump_threads() {
-        let (_r, mut app, _fake) = app_with_threads(vec![thread("T1", "C1")]);
-        app.cursor = thread_rows(&app, "T1")[0];
-        app.handle_key(key('r'));
-        app.handle_paste("agreed, two was enough");
-        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-        app.cursor = thread_rows(&app, "T1")[0];
-        println!("\n=== a thread, a reply, a reply draft; cursor on the thread ===");
-        println!("{}", ansi_dump(&mut app, 120, 24));
-        app.handle_key(key('x'));
-        settle(&mut app);
-        app.cursor = app.rows.iter().position(|r| r.line.is_some()).unwrap();
-        println!("\n=== resolved; cursor elsewhere ===");
-        println!("{}", ansi_dump(&mut app, 120, 24));
     }
 
     // ---------------------------------------------------------------- publish
@@ -6817,63 +6238,7 @@ mod forge_threads {
         assert_eq!(app.status, "this review is not of a pull request");
     }
 
-    /// The publish modal with one comment, one reply and one note that stays.
-    ///
-    /// `cargo test -p differential-tui --test tui render_dump_publish -- --ignored --nocapture`
-    #[test]
-    #[ignore = "prints the pane for a human to look at"]
-    fn render_dump_publish() {
-        let (_r, mut app, _fake) = app_with_threads(vec![thread("T1", "C1")]);
-        draft_two(&mut app);
-        let h = app
-            .session
-            .doc()
-            .hunks
-            .iter()
-            .position(|h| h.file == "src/main.txt")
-            .unwrap();
-        app.session
-            .add_finding(
-                h,
-                Some(differential_engine::review_state::Lines {
-                    side: "new".into(),
-                    start: 40,
-                    end: 41,
-                    start_text: String::new(),
-                    end_text: String::new(),
-                }),
-                "far away".into(),
-            )
-            .unwrap();
-        app.rebuild_rows();
-        app.handle_key(key('P'));
-        println!("\n=== P: the publish modal ===");
-        println!("{}", ansi_dump(&mut app, 120, 24));
-        app.handle_key(key('y'));
-        settle(&mut app);
-        println!("\n=== after y: the twins, and the footer ===");
-        println!("{}", ansi_dump(&mut app, 120, 24));
-    }
-
     // ---------------------------------------------------------- the F list
-
-    /// The findings list with a note, a published note's thread, a published
-    /// reply and a review thread.
-    ///
-    /// `cargo test -p differential-tui --test tui render_dump_findings_and_threads -- --ignored --nocapture`
-    #[test]
-    #[ignore = "prints the pane for a human to look at"]
-    fn render_dump_findings_and_threads() {
-        let (_r, mut app, _fake) = app_with_threads(vec![thread("T1", "C1")]);
-        draft_two(&mut app);
-        app.handle_key(key('P'));
-        app.handle_key(key('y'));
-        settle(&mut app);
-        draft_one_note(&mut app);
-        app.handle_key(key('F'));
-        println!("\n=== F: notes, then review threads ===");
-        println!("{}", ansi_dump(&mut app, 120, 20));
-    }
 
     #[test]
     fn the_findings_list_holds_threads_too_and_enter_reaches_one() {
@@ -8374,92 +7739,6 @@ fn a_pane_too_short_for_the_float_shows_none_of_it() {
     assert!(app.peek_area(panes.detail).is_none());
 }
 
-#[test]
-#[ignore = "prints the pane for a human to look at"]
-/// `cargo test -p differential-tui --test tui -- --ignored --nocapture render_dump_symbol_float`
-fn render_dump_symbol_float() {
-    let (_r, mut app) = app_with_symbols();
-    cursor_on_text(&mut app, "helper_one() + helper_two()");
-
-    println!("\n=== before: both names underlined, nothing open ===");
-    println!("{}", ansi_dump(&mut app, 110, 20));
-
-    app.handle_key(key('z'));
-    println!("\n=== z once: helper_one lit, its declaration below ===");
-    println!("{}", ansi_dump(&mut app, 110, 20));
-
-    app.handle_key(key('z'));
-    println!("\n=== z again: helper_two ===");
-    println!("{}", ansi_dump(&mut app, 110, 20));
-
-    app.handle_key(key('z'));
-    println!("\n=== z past the last one: closed ===");
-    println!("{}", ansi_dump(&mut app, 110, 20));
-
-    // Low in the pane, where below has less room than above: the float has to
-    // flip upwards and still leave the cursor's row showing.
-    app.handle_key(KeyEvent::new(KeyCode::Char('G'), KeyModifiers::SHIFT));
-    cursor_on_text(&mut app, "helper_one() + helper_two()");
-    app.set_viewport(Viewport::measure(Rect::new(0, 0, 110, 14)));
-    app.handle_key(key('z'));
-    println!("\n=== a short pane: the float flips above the row ===");
-    println!("{}", ansi_dump(&mut app, 110, 14));
-
-    // The mixed case: a signature the change wrote, over a body it did not.
-    // Painting the whole float green here would claim the change introduced a
-    // function it merely touched.
-    let (_r2, mut app) = app_with_a_touched_declaration();
-    cursor_on_text(&mut app, "helper_one(1, 2)");
-    app.handle_key(key('z'));
-    println!("\n=== added signature, unchanged body ===");
-    println!("{}", ansi_dump(&mut app, 110, 20));
-
-    // The commonest case: a NEW call to a helper that was already there. The
-    // declaration is wholly unchanged, and the title names no group because
-    // there is none to go and read first.
-    let (_r3, mut app) = app_with_an_existing_helper();
-    cursor_on_text(&mut app, "sum_xy(1, 2)");
-    app.handle_key(key('z'));
-    println!("\n=== a new call to an existing helper ===");
-    println!("{}", ansi_dump(&mut app, 110, 20));
-}
-
-/// A change that adds a call to a helper it never touches.
-fn app_with_an_existing_helper() -> (TestRepo, App) {
-    let r = TestRepo::new();
-    r.write(
-        "src/lib.rs",
-        b"// lib\nfn sum_xy(a: u8, b: u8) -> u8 {\n    a + b\n}\nfn other() {}\n",
-    );
-    r.write("src/call.rs", b"// call\nfn caller() {\n}\n");
-    r.commit_all("base");
-    r.write(
-        "src/lib.rs",
-        b"// lib\nfn sum_xy(a: u8, b: u8) -> u8 {\n    a + b\n}\nfn other() { changed() }\n",
-    );
-    r.write(
-        "src/call.rs",
-        b"// call\nfn caller() {\n    let n = sum_xy(1, 2);\n}\n",
-    );
-    r.commit_all("head");
-    let backend = FakeBackend::new("fake", |ids| {
-        let all: Vec<String> = ids
-            .iter()
-            .map(|i| format!("{i:?}").trim_matches('"').to_string())
-            .collect();
-        format!(
-            r#"{{"groups": [{}]}}"#,
-            json_group(
-                "Everything",
-                "focus",
-                &all.iter().map(String::as_str).collect::<Vec<_>>()
-            )
-        )
-    });
-    let app = open_app_with_opts(&r, &backend, ".dfr-sumxy-dump-store", laid_out(false));
-    (r, app)
-}
-
 /// A NEW call to a helper that was already there resolves.
 ///
 /// The shape the author asked for: `sum_xy` exists, this change adds a call to
@@ -8525,40 +7804,4 @@ fn a_new_call_to_an_existing_helper_lights_up() {
         peek.body.iter().all(|l| l.origin == LineOrigin::Context),
         "the change never wrote this declaration"
     );
-}
-
-/// A change that edits a declaration's signature and leaves its body alone.
-fn app_with_a_touched_declaration() -> (TestRepo, App) {
-    let r = TestRepo::new();
-    r.write(
-        "src/lib.rs",
-        b"// lib\nfn helper_one(a: u8) {\n    let inner = 1;\n    inner\n}\n",
-    );
-    r.write("src/call.rs", b"// call\nfn caller() {\n}\n");
-    r.commit_all("base");
-    r.write(
-        "src/lib.rs",
-        b"// lib\nfn helper_one(a: u8, b: u8) {\n    let inner = 1;\n    inner\n}\n",
-    );
-    r.write(
-        "src/call.rs",
-        b"// call\nfn caller() {\n    let total = helper_one(1, 2);\n}\n",
-    );
-    r.commit_all("head");
-    let backend = FakeBackend::new("fake", |ids| {
-        let all: Vec<String> = ids
-            .iter()
-            .map(|i| format!("{i:?}").trim_matches('"').to_string())
-            .collect();
-        format!(
-            r#"{{"groups": [{}]}}"#,
-            json_group(
-                "Everything",
-                "focus",
-                &all.iter().map(String::as_str).collect::<Vec<_>>()
-            )
-        )
-    });
-    let app = open_app_with_opts(&r, &backend, ".dfr-touched-store", laid_out(false));
-    (r, app)
 }

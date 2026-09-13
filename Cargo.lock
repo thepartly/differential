@@ -610,7 +610,6 @@ dependencies = [
  "ratatui",
  "similar",
  "syntect",
- "tempfile",
  "textwrap",
  "tui-textarea-2",
  "two-face",

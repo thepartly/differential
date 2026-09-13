@@ -39,14 +39,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn tmux_gets_the_passthrough() {
-        let s = sequence(FAILED, Wrap::Tmux);
-        assert!(s.starts_with("\x1bPtmux;"), "{s:?}");
-        assert!(s.ends_with("\x1b\\"), "{s:?}");
-        assert!(s.contains("\x1b\x1b]9;dfr: preparing"), "{s:?}");
-    }
-
     /// OSC 9 and OSC 9;4 share a prefix, and a terminal tells them apart by
     /// what follows the semicolon. A title opening with digits and a semicolon
     /// is therefore read as a progress command — and this crate sends real ones

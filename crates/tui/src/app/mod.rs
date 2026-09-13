@@ -488,9 +488,8 @@ impl App {
     /// Swap the palette. Rows bake their colours in at build time, so this
     /// rebuilds them rather than leaving the old ink on screen.
     ///
-    /// Test-only: the float-ground assertion and the ignored `render_dump_themes`
-    /// dump are the callers. A running reviewer picks its palette from config
-    /// once, at startup, and never swaps it.
+    /// Test-only: the float-ground assertion is the caller. A running reviewer
+    /// picks its palette from config once, at startup, and never swaps it.
     #[doc(hidden)]
     pub fn set_theme(&mut self, theme: Theme) {
         self.theme = theme;

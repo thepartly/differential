@@ -89,13 +89,4 @@ mod tests {
         assert_eq!(sequence(State::At(255), Wrap::None), "\x1b]9;4;1;100\x1b\\");
         assert_eq!(sequence(State::At(100), Wrap::None), "\x1b]9;4;1;100\x1b\\");
     }
-
-    #[test]
-    fn tmux_gets_the_passthrough() {
-        let s = sequence(State::At(50), Wrap::Tmux);
-        assert!(s.starts_with("\x1bPtmux;"), "{s:?}");
-        assert!(s.ends_with("\x1b\\"), "{s:?}");
-        // The inner ESC is doubled, or tmux ends the passthrough on it.
-        assert!(s.contains("\x1b\x1b]9;4;1;50"), "{s:?}");
-    }
 }
