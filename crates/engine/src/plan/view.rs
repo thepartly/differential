@@ -317,6 +317,22 @@ mod tests {
     use super::*;
     use crate::plan::test_support::{doc_with, group, hunk_ids};
 
+    #[test]
+    fn all_reviewed_needs_every_hunk_and_at_least_one() {
+        let hunks = [HunkId::from_index(0), HunkId::from_index(1)];
+        let marked = |ids: &[usize]| {
+            ids.iter()
+                .copied()
+                .collect::<std::collections::HashSet<_>>()
+        };
+
+        assert!(all_reviewed(&hunks, &marked(&[0, 1])));
+        assert!(!all_reviewed(&hunks, &marked(&[0])), "one hunk unmarked");
+        assert!(!all_reviewed(&hunks, &marked(&[])), "nothing marked");
+        // A binary file or a gitlink has no hunks: "all of nothing" is not done.
+        assert!(!all_reviewed(&[], &marked(&[0, 1])));
+    }
+
     fn two_group_doc() -> schema::PlanDocument {
         let mut doc = doc_with(
             &[("C0", &["h0", "h1"], "h0"), ("C1", &["h2"], "h2")],
