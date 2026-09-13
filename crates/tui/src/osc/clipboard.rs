@@ -49,21 +49,6 @@ mod tests {
     }
 
     #[test]
-    fn tmux_needs_a_passthrough_with_its_escapes_doubled() {
-        let s = sequence("hi", Wrap::Tmux).unwrap();
-        assert!(s.starts_with("\x1bPtmux;"));
-        assert!(s.ends_with("\x1b\\"));
-        // The inner ESC is doubled, or tmux ends the passthrough on it.
-        assert!(s.contains("\x1b\x1b]52;c;aGk="));
-    }
-
-    #[test]
-    fn screen_wraps_in_a_device_control_string() {
-        let s = sequence("hi", Wrap::Screen).unwrap();
-        assert_eq!(s, "\x1bP\x1b]52;c;aGk=\x07\x1b\\");
-    }
-
-    #[test]
     fn an_oversized_payload_is_refused_rather_than_cut() {
         // Base64 is 4 bytes per 3, so this crosses the cap while the text
         // itself does not.

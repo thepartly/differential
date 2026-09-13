@@ -8,7 +8,7 @@ use differential_engine::forgeio::GhForge;
 use differential_engine::gitio::Repo;
 
 #[test]
-#[ignore]
+#[ignore = "needs gh logged in and this repository's remote"]
 fn gh_reads_a_request_and_its_threads() {
     let repo = Repo::open(std::path::Path::new(env!("CARGO_MANIFEST_DIR"))).unwrap();
     let gh = GhForge::new(repo.root());

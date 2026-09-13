@@ -638,24 +638,4 @@ mod tests {
         assert_eq!(bar_state(3, Some(&miss)), State::At(87));
         assert_eq!(bar_state(STAGES.len(), Some(&miss)), State::Clear);
     }
-
-    /// Not an assertion — the grouping row at each point in the rotation, and
-    /// the narrow pane the budget exists for:
-    /// `cargo test -p differential-tui --lib -- --ignored --nocapture render_dump_splash`
-    #[test]
-    #[ignore = "prints the splash for a human to look at"]
-    fn render_dump_splash() {
-        let agent = ("Claude Code".to_string(), false);
-        for slot in 0..=WAITING.len() as u64 {
-            let secs = slot * MESSAGE_SECS;
-            println!("\n=== {secs}s ===");
-            for row in screen(90, 2, Some(&agent), Duration::from_secs(secs)) {
-                println!("{row}");
-            }
-        }
-        println!("\n=== 70 columns, the width the budget is for ===");
-        for row in screen(70, 2, Some(&agent), Duration::from_secs(MESSAGE_SECS * 5)) {
-            println!("{row}");
-        }
-    }
 }
