@@ -36,7 +36,7 @@ dfr clean [--repo <path>] [--dry-run]
 - `stack` builds and lands the review commit stack ([stack.md](stack.md)), printing the
   commit list and the `git log` line to review with. The grouping backend comes from
   `[grouping].agent` (default: `claude-code`; five names, four with read-only tools and
-  `pi` without — ADR 0032); the pinning cache
+  `pi` without — ADR 0033); the pinning cache
   lives under `<git-common-dir>/differential/cache/grouping` unless `--no-cache`. The
   document the model reads sits beside it, under `…/cache/document`.
 - `check` runs the core pipeline and reports invariants 1–4 — the self-test and CI entry
@@ -139,7 +139,7 @@ A `[grouping]` table in the REPO file is a hard error with a migration hint.
 [grouping]
 # Which agent runs the grouping call. Five names: "claude-code" (the default),
 # "codex", "droid", "copilot", "pi" — each a headless invocation this crate
-# builds whole (ADR 0032). Four are allowed to read the change and the
+# builds whole (ADR 0033). Four are allowed to read the change and the
 # repository and nothing else; "pi" can also write, because it ships no
 # sandbox and no per-command allowlist. A name nobody implements is a hard
 # error that says which ones exist.

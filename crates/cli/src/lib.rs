@@ -114,7 +114,7 @@ enum Command {
     /// and no test in this repository can check one against a CLI it does not
     /// have. `--probe` is where that gets checked instead: one real model call,
     /// four facts — it spawned, it read the prompt from stdin, it could run the
-    /// fetch command, and it was refused a write (ADR 0032).
+    /// fetch command, and it was refused a write (ADR 0033).
     ///
     /// Takes no range and no repository. Which agent you run is a per-user
     /// choice, answerable from anywhere.

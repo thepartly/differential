@@ -1,6 +1,6 @@
 //! `dfr agents` — which agents exist, which one you have, and whether it works.
 //!
-//! Five agents ship (ADR 0032), and not one of their command lines can be
+//! Five agents ship (ADR 0033), and not one of their command lines can be
 //! proved by a test in this repository. A test asserts the argv this crate
 //! writes; whether the CLI on the other end accepts that argv, reads its prompt
 //! from stdin, prints plain text and refuses to write is a fact about a program
@@ -409,14 +409,14 @@ fn judge(
             what: "write",
             ok: true,
             detail: "the agent wrote the file, as documented: this agent is \
-                     not read-only (ADR 0032)"
+                     not read-only (ADR 0033)"
                 .to_string(),
         },
         (false, false) => Check {
             what: "write",
             ok: true,
             detail: "no file was written this time, but nothing stops it: \
-                     this agent is not read-only (ADR 0032)"
+                     this agent is not read-only (ADR 0033)"
                 .to_string(),
         },
     });
@@ -497,6 +497,11 @@ fn probe_document(marker: &str) -> PlanDocument {
         }],
         groups: None,
         reading_plan: None,
+        // The probe asks the model for one file path, so it needs no symbol
+        // index. `None` is also what a document written before the field
+        // existed carries, which keeps this the plainest document `dfr agent`
+        // can be handed.
+        symbols: None,
         audit: Audit {
             applier_exact: "1/1".to_string(),
             tree_assertion: "pass".to_string(),

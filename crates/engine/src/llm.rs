@@ -12,7 +12,7 @@
 //! and a string. What changed is a flag in the argv below, not the trait.
 //!
 //! There are five agents, one constructor each, and the trait did not move to
-//! make room for them (ADR 0032). What differs between them is the argv, and
+//! make room for them (ADR 0033). What differs between them is the argv, and
 //! the part of the argv that matters is how each one is stopped from writing:
 //!
 //! - **An allowlist** — `claude_cli`, `copilot_cli`. The agent may run the
@@ -22,7 +22,7 @@
 //!   `fetch` does not appear in the argv.
 //! - **Nothing** — `pi_cli`. Pi ships no sandbox and no per-command allowlist,
 //!   and the shell tool it needs to fetch is the one that also lets it write.
-//!   That is a decision with a reason, recorded in ADR 0032 and in the
+//!   That is a decision with a reason, recorded in ADR 0033 and in the
 //!   constructor, and `config::Agent::read_only` is how a caller
 //!   tells a user about it.
 //!
@@ -230,7 +230,7 @@ impl CommandBackend {
     /// is rightly invalidated, move the binary and none of them are.
     ///
     /// **`--permission-mode default` is what makes the allowlist mean anything,
-    /// and it was missing for two releases** (ADR 0032). `--allowed-tools` ADDS
+    /// and it was missing for two releases** (ADR 0033). `--allowed-tools` ADDS
     /// permissions; it does not cap them. A user whose own settings set
     /// `defaultMode` to `auto`, `acceptEdits` or `bypassPermissions` was
     /// handing this call an agent that could write, commit and push, and
@@ -263,7 +263,7 @@ impl CommandBackend {
         ]
     }
 
-    /// Headless `codex exec`, read-only by OS sandbox (ADR 0032).
+    /// Headless `codex exec`, read-only by OS sandbox (ADR 0033).
     ///
     /// Codex has no tool allowlist and needs none: `--sandbox read-only` is
     /// enforced by the kernel — Seatbelt on macOS, bubblewrap on Linux — so the
@@ -301,7 +301,7 @@ impl CommandBackend {
     /// `--dangerously-bypass-approvals-and-sandbox`: each removes the boundary.
     ///
     /// `--ignore-user-config` and `--ignore-rules` are the same lesson Claude
-    /// Code taught (ADR 0032): the sandbox a flag asks for is not the sandbox
+    /// Code taught (ADR 0033): the sandbox a flag asks for is not the sandbox
     /// that runs if the user's own `config.toml` or execpolicy rules say
     /// otherwise. An argv that can be widened by a file this crate never reads
     /// is not a boundary, it is a request.
@@ -328,7 +328,7 @@ impl CommandBackend {
         ]
     }
 
-    /// Headless `droid exec`, read-only by default (ADR 0032).
+    /// Headless `droid exec`, read-only by default (ADR 0033).
     ///
     /// Droid is the one agent whose boundary is what this function does NOT
     /// pass. Its documented default is read-only file inspection plus git read
@@ -358,7 +358,7 @@ impl CommandBackend {
     }
 
     /// Headless `copilot`, read-only by allowlist and an explicit deny
-    /// (ADR 0032).
+    /// (ADR 0033).
     ///
     /// The closest of the five to Claude Code: an allowlist derived from
     /// `fetch`, so the prompt can never name a command the model may not run.
@@ -395,7 +395,7 @@ impl CommandBackend {
         ]
     }
 
-    /// Headless `pi`. **Read-only is NOT enforced here** (ADR 0032).
+    /// Headless `pi`. **Read-only is NOT enforced here** (ADR 0033).
     ///
     /// Every other constructor in this file hands the model a boundary. This
     /// one cannot, and the reason is Pi's design rather than an oversight in
@@ -747,7 +747,7 @@ mod tests {
              --sandbox read-only --color never -"
         );
         // A sandbox the user's own config can widen is not a sandbox. Same
-        // lesson as `--permission-mode default` on Claude Code (ADR 0032).
+        // lesson as `--permission-mode default` on Claude Code (ADR 0033).
         assert!(
             b.command().contains("--ignore-user-config"),
             "{}",
@@ -809,7 +809,7 @@ mod tests {
     fn pi_is_the_one_agent_that_can_write_and_says_so() {
         // This test states an exception, not a requirement. Pi ships no sandbox
         // and no per-command allowlist, so the shell tool it needs to run the
-        // fetch command is the same tool that lets it write (ADR 0032).
+        // fetch command is the same tool that lets it write (ADR 0033).
         //
         // `bash` being present is therefore the decision, and pinning it here is
         // what stops a later reader "fixing" it and silently taking the fetch

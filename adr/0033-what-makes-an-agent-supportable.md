@@ -1,4 +1,4 @@
-# 0032 — What makes an agent supportable, and the one that is not read-only
+# 0033 — What makes an agent supportable, and the one that is not read-only
 
 Status: accepted. Extends [0022](0022-the-model-fetches-its-own-context.md).
 

@@ -289,7 +289,7 @@ for promoting it.
 **Read that last row before choosing it.** Pi ships no sandbox and no per-command
 allowlist, and its tool switch is all-or-nothing: the shell tool the model needs to read
 your diff is the same one that lets it write. Only the prompt asks it not to. Every other
-agent is stopped by something. ADR 0032 records why Pi is offered anyway.
+agent is stopped by something. ADR 0033 records why Pi is offered anyway.
 
 On a machine that has one:
 

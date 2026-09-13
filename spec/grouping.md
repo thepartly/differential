@@ -5,7 +5,7 @@ and labels **class ids, never hunks** (ADR 0001): it cannot drop what it never n
 anything it omits is detected and back-filled. Runs inside the engine
 (`run_grouped_pipeline`); the backend is any `LlmBackend` (ADR 0016), selected by name via
 `[grouping].agent` in the user-level config — `claude-code` is the default, and `codex`,
-`droid`, `copilot` and `pi` are the others (ADR 0022, 0032). Agents are per-user, and the
+`droid`, `copilot` and `pi` are the others (ADR 0022, 0033). Agents are per-user, and the
 backend's identity is part of the cache key, so different agents get separate cache entries.
 
 The key is a **name, not an argv**. The stage hands its agent a tool allowlist, a fetch
@@ -17,7 +17,7 @@ Read-only is enforced three ways and, for one agent, not at all. `claude-code` a
 by its own default and is passed no flag that lifts it. **`pi` is not read-only** — it
 ships no sandbox and no per-command allowlist, and the shell tool the model needs to fetch
 is the one that lets it write. `config::Agent::read_only` is how a consumer asks, and a
-consumer that offers a user the list must show the answer. ADR 0032 records the five-point
+consumer that offers a user the list must show the answer. ADR 0033 records the five-point
 contract an agent must meet, the six CLIs that fail it, and why `pi` ships regardless.
 
 No test here can prove an argv against a CLI that is not installed. `dfr agents --probe

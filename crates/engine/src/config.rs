@@ -76,7 +76,7 @@ pub struct UserConfig {
 /// The name also answers what a reviewer is shown while they wait — the argv
 /// never could, at four times the width of the line it had.
 ///
-/// **Four of the five keep the model read-only; `Pi` does not** (ADR 0032).
+/// **Four of the five keep the model read-only; `Pi` does not** (ADR 0033).
 /// Read [`Agent::read_only_is_enforced`] before choosing one.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -91,7 +91,7 @@ pub enum Agent {
     Droid,
     /// Headless `copilot`, read-only by tool allowlist and an explicit deny.
     Copilot,
-    /// Headless `pi`, **read-only is NOT enforced** (ADR 0032).
+    /// Headless `pi`, **read-only is NOT enforced** (ADR 0033).
     ///
     /// Pi ships no sandbox and no per-command allowlist, and its `-t` flag
     /// toggles whole tools. The model needs `bash` to run the fetch command
@@ -194,7 +194,7 @@ pub enum ReadOnly {
     /// The agent is read-only until told otherwise, and it is not told.
     AgentDefault,
     /// **Nothing stops it.** The agent can write, commit and push, and only the
-    /// prompt asks it not to. See [`Agent::Pi`] and ADR 0032 for why one agent
+    /// prompt asks it not to. See [`Agent::Pi`] and ADR 0033 for why one agent
     /// is here and why that was a choice rather than an oversight.
     NotEnforced,
 }
@@ -698,7 +698,7 @@ attributes = ["linguist-generated", "custom-generated"]
     fn exactly_one_agent_does_not_enforce_read_only() {
         // The tier is a fact a user must be shown, so it is pinned here rather
         // than left to a doc comment. Pi ships no sandbox and no per-command
-        // allowlist (ADR 0032); the other four refuse a write.
+        // allowlist (ADR 0033); the other four refuse a write.
         let unenforced: Vec<&str> = Agent::ALL
             .iter()
             .filter(|a| !a.read_only().is_enforced())
