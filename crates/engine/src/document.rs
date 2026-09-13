@@ -157,11 +157,7 @@ pub fn assemble(
 
     Ok(schema::PlanDocument {
         schema_version: schema::SCHEMA_VERSION,
-        generator: schema::Generator {
-            tool: "differential".to_string(),
-            version: env!("CARGO_PKG_VERSION").to_string(),
-            stages: vec!["enumerate".to_string(), "classify".to_string()],
-        },
+        generator: schema::Generator::current(&["enumerate", "classify"]),
         source: schema::Source {
             kind: source.kind,
             base: source.base.clone(),
@@ -189,12 +185,7 @@ pub fn assemble(
             tree_assertion: tree_assertion(report),
             hunks_carried: report.hunks_total as u32,
             recount: report.tree.as_ref().map_or(0, |t| t.recount) as u32,
-            coverage: None,
-            classes_missing: None,
-            classes_duplicated: None,
-            classes_hallucinated: None,
-            read_hunks: None,
-            skipped_hunks: None,
+            ..schema::Audit::default()
         },
         // Moved in beside the class graph, from the same extraction. `classify`
         // produced it, so it needs no stage of its own in `generator.stages`.

@@ -13,10 +13,11 @@
 //! the fake and pass while proving nothing (ADR 0002). Tests use hermetic
 //! temporary repositories and real `git`.
 //!
-//! The two runtime-open abstractions in this crate — `llm::LlmBackend` and
-//! `lang::Language` — are deliberately NOT here. They are `dyn` because config
-//! and a plugin registry pick them at run time; nothing in this module is
-//! chosen at run time.
+//! The four runtime-open abstractions in this crate — `llm::LlmBackend`,
+//! `lang::Language`, `artefact::symbols::SymbolSource` (ADR 0023) and
+//! `forge::Forge` (ADR 0029) — are deliberately NOT here. They are `dyn`
+//! because config, a plugin registry or the request's host picks them at run
+//! time; nothing in this module is chosen at run time.
 //!
 //! There is no `trait Git: ObjectReader + …` convenience supertrait, and there
 //! must not be: the whole value is that a consumer's bounds name what it
@@ -27,6 +28,7 @@ use std::path::{Path, PathBuf};
 
 use crate::EngineError;
 use crate::forge::RemoteThread;
+use crate::plan::Staged;
 use crate::review_state::{Finding, ReviewState};
 use crate::schema;
 
@@ -202,6 +204,35 @@ pub enum IndexEntry {
     },
 }
 
+impl IndexEntry {
+    /// The index record a staging decision implies.
+    ///
+    /// `Remove` and `Recorded` need nothing beyond the decision. `Apply` needs
+    /// content written, and only the caller knows how — from a blob read fresh
+    /// or one it has memoised — so `write` is asked for the oid then, and never
+    /// otherwise. The three tree builders used to spell all three arms out for
+    /// themselves, and agreed only by inspection.
+    pub fn from_staged(
+        staged: Staged<'_>,
+        path: Vec<u8>,
+        write: impl FnOnce() -> Result<String, EngineError>,
+    ) -> Result<IndexEntry, EngineError> {
+        Ok(match staged {
+            Staged::Remove => IndexEntry::Remove { path },
+            Staged::Recorded { mode, oid } => IndexEntry::Set {
+                mode: mode.to_string(),
+                oid: oid.to_string(),
+                path,
+            },
+            Staged::Apply { mode } => IndexEntry::Set {
+                mode: mode.to_string(),
+                oid: write()?,
+                path,
+            },
+        })
+    }
+}
+
 /// Opening a scratch index. Never the user's index, never a checkout
 /// (ADR 0011).
 pub trait TreeBuilder {
@@ -316,7 +347,6 @@ pub trait CommitHistory {
 pub trait RepoLayout {
     /// The shared git directory, absolutised (worktree-safe).
     fn common_dir(&self) -> Result<PathBuf, EngineError>;
-    fn work_root(&self) -> &Path;
 }
 
 // ----------------------------------------------------------- persistence

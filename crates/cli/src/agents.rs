@@ -439,11 +439,7 @@ fn extract_json(text: &str) -> Option<&str> {
 fn probe_document(marker: &str) -> PlanDocument {
     PlanDocument {
         schema_version: SCHEMA_VERSION,
-        generator: Generator {
-            tool: "differential".to_string(),
-            version: env!("CARGO_PKG_VERSION").to_string(),
-            stages: vec!["enumerate".to_string(), "classify".to_string()],
-        },
+        generator: Generator::current(&["enumerate", "classify"]),
         source: Source {
             kind: SourceKind::Range,
             base: "0".repeat(40),
@@ -507,12 +503,7 @@ fn probe_document(marker: &str) -> PlanDocument {
             tree_assertion: "pass".to_string(),
             hunks_carried: 1,
             recount: 1,
-            coverage: None,
-            classes_missing: None,
-            classes_duplicated: None,
-            classes_hallucinated: None,
-            read_hunks: None,
-            skipped_hunks: None,
+            ..Audit::default()
         },
     }
 }

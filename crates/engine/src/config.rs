@@ -77,7 +77,7 @@ pub struct UserConfig {
 /// never could, at four times the width of the line it had.
 ///
 /// **Four of the five keep the model read-only; `Pi` does not** (ADR 0033).
-/// Read [`Agent::read_only_is_enforced`] before choosing one.
+/// Read [`Agent::read_only`] and [`ReadOnly::is_enforced`] before choosing one.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Agent {

@@ -120,8 +120,25 @@ pub struct Generator {
     pub tool: String,
     pub version: String,
     /// Pipeline stages that actually ran, in order: "enumerate", "classify",
-    /// "group", "order".
+    /// "group", "order", and "verify" when the separate verify stage ran
+    /// (ADR 0028). A consumer reads absence as "did not run", never as a pass.
     pub stages: Vec<String>,
+}
+
+impl Generator {
+    /// This build of the tool, having run `stages` so far.
+    ///
+    /// One spelling of the tool's name and version. The producer and the
+    /// `dfr agents` probe each wrote it out, and each read
+    /// `CARGO_PKG_VERSION` from its own crate — equal only because the
+    /// workspace shares one version.
+    pub fn current(stages: &[&str]) -> Generator {
+        Generator {
+            tool: "differential".to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            stages: stages.iter().map(|s| s.to_string()).collect(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -377,7 +394,7 @@ pub enum ReadAction {
 
 /// Structural audit. The first four fields exist for every document; the rest are
 /// `null` until the grouping stage runs.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Audit {
     /// "n/n" — files reconstructed byte-exactly from base + hunks.
     pub applier_exact: String,

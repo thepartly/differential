@@ -568,10 +568,6 @@ impl ports::RepoLayout for Repo {
     fn common_dir(&self) -> Result<PathBuf, EngineError> {
         Repo::common_dir(self)
     }
-
-    fn work_root(&self) -> &Path {
-        &self.root
-    }
 }
 
 /// One NUL-separated record, split into its fields.

@@ -23,7 +23,7 @@ pub use ids::{HunkId, PlanIndex};
 pub use source::{RangeSpec, ReviewSource, parse_range};
 pub use staging::{Staged, cumulative_state, final_state, missing_mode, zero_hunk_state};
 pub use tiers::{Deferral, Fold, ReadingSplit, class_is_generated, generated_files, reading_split};
-pub use view::{ClassMembers, Dependency, FileView, GroupView, ReviewView};
+pub use view::{ClassMembers, Dependency, FileView, GroupView, ReviewView, all_reviewed};
 
 use crate::schema;
 
@@ -191,14 +191,7 @@ pub(crate) mod test_support {
         schema::Audit {
             applier_exact: "0/0".into(),
             tree_assertion: "pass".into(),
-            hunks_carried: 0,
-            recount: 0,
-            coverage: None,
-            classes_missing: None,
-            classes_duplicated: None,
-            classes_hallucinated: None,
-            read_hunks: None,
-            skipped_hunks: None,
+            ..schema::Audit::default()
         }
     }
 }

@@ -15,32 +15,6 @@ use crate::EngineError;
 use crate::model::{DiffView, Disposition, FileChange, Hunk};
 use crate::paths::parse_diff_git_path;
 
-/// Parse `-z --name-status` output (`git diff-tree -r --no-renames -z --name-status`).
-/// Typechange (`T`) maps to `Modified`.
-pub fn parse_name_status_z(raw: &[u8]) -> Result<HashMap<Vec<u8>, Disposition>, EngineError> {
-    let mut out = HashMap::new();
-    let mut it = raw.split(|&b| b == 0).filter(|s| !s.is_empty());
-    while let Some(status) = it.next() {
-        let path = it.next().ok_or_else(|| EngineError::Parse {
-            line: 0,
-            msg: "name-status record missing path".into(),
-        })?;
-        let disp = match status.first() {
-            Some(b'A') => Disposition::Added,
-            Some(b'D') => Disposition::Deleted,
-            Some(b'M') | Some(b'T') => Disposition::Modified,
-            other => {
-                return Err(EngineError::Parse {
-                    line: 0,
-                    msg: format!("unexpected name-status {other:?} (renames must be off)"),
-                });
-            }
-        };
-        out.insert(path.to_vec(), disp);
-    }
-    Ok(out)
-}
-
 /// Parse the canonical `-U0 --no-renames` patch into a [`DiffView`].
 ///
 /// `dispositions` comes from a separate `--name-status -z` call; header hints
@@ -489,15 +463,5 @@ new file mode 120000\n\
         assert_eq!(v.files[0].old_mode.as_deref(), Some("100644"));
         assert_eq!(v.files[0].new_mode.as_deref(), Some("120000"));
         assert_eq!(v.hunks[1].file, 0);
-    }
-
-    #[test]
-    fn name_status_z_parses() {
-        let raw = b"A\0new.txt\0D\0gone.txt\0M\0mod.txt\0T\0type.txt\0";
-        let m = parse_name_status_z(raw).unwrap();
-        assert_eq!(m[b"new.txt".as_slice()], Disposition::Added);
-        assert_eq!(m[b"gone.txt".as_slice()], Disposition::Deleted);
-        assert_eq!(m[b"mod.txt".as_slice()], Disposition::Modified);
-        assert_eq!(m[b"type.txt".as_slice()], Disposition::Modified);
     }
 }

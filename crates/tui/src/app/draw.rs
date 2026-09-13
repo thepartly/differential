@@ -13,6 +13,8 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use unicode_width::UnicodeWidthStr;
 
+use differential_engine::plan::{self, LineCounts};
+
 use crate::rows::{Border, Fill, Gutter, Half, RowKind};
 use crate::theme::Theme;
 use crate::vendor::text_utils::{
@@ -461,7 +463,7 @@ impl App {
         };
         let head_style = Style::default().fg(self.theme.gutter_fg);
         let tail_glyph = if idx >= lo && idx < hi { "│ " } else { "  " };
-        let done = !g.hunks.is_empty() && g.hunks.iter().all(|h| reviewed.contains(&h.index()));
+        let done = plan::all_reviewed(&g.hunks, reviewed);
         // "?" rather than a tier letter: the back-fill was never classified.
         let tier = if g.unclassified {
             "?"
@@ -592,15 +594,8 @@ impl App {
         };
         let indent = guide;
         let files = self.files_of_tree_row(row);
-        let (adds, dels): (usize, usize) = files
-            .iter()
-            .map(|i| (self.files()[*i].counts.adds, self.files()[*i].counts.dels))
-            .fold((0, 0), |(a, d), (x, y)| (a + x, d + y));
-        let hunks: Vec<usize> = files
-            .iter()
-            .flat_map(|i| self.files()[*i].hunks.iter().map(|h| h.index()))
-            .collect();
-        let done = !hunks.is_empty() && hunks.iter().all(|h| reviewed.contains(h));
+        let LineCounts { adds, dels } = files.iter().map(|i| self.files()[*i].counts).sum();
+        let done = plan::all_reviewed(files.iter().flat_map(|i| &self.files()[*i].hunks), reviewed);
         let mark = if done { "✓" } else { " " };
         let name_style = bg(Style::default().fg(if done {
             self.theme.reviewed_fg
@@ -709,8 +704,7 @@ impl App {
             .map(|&i| {
                 let f = &self.files()[i];
                 let on = here == Some(i);
-                let done =
-                    !f.hunks.is_empty() && f.hunks.iter().all(|hk| reviewed.contains(&hk.index()));
+                let done = plan::all_reviewed(&f.hunks, reviewed);
                 let base = Style::default().fg(if done {
                     self.theme.reviewed_fg
                 } else {

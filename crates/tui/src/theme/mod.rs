@@ -114,7 +114,8 @@ pub fn chroma(c: Rgb) -> f32 {
 
 /// The RGB behind a `Color`. `None` for anything a palette should no longer
 /// contain, which is what the tests assert on.
-pub fn rgb_of(c: Color) -> Option<Rgb> {
+#[cfg(test)]
+fn rgb_of(c: Color) -> Option<Rgb> {
     match c {
         Color::Rgb(r, g, b) => Some(rgb(r, g, b)),
         _ => None,

@@ -88,36 +88,11 @@ pub fn build<G: ObjectReader>(
     // A declaration the change did not write has no class, and says so.
     let mut line_class: HashMap<(usize, u32), usize> = HashMap::new();
 
-    for (ci, members) in partition.classes.iter().enumerate() {
-        for &hi in members {
-            let h = &view.hunks[hi];
-            let file = view.file_of(h);
-            // Neither contributes a symbol, and each for its own reason.
-            // Generated content defines nothing — a lockfile would otherwise
-            // appear to define half the dependency tree. A gitlink's only added
-            // line is `Subproject commit <oid>`: diff prose about a commit this
-            // repository does not have, whose words are plausible identifiers.
-            //
-            // Both skips belong HERE rather than only in `parse_files`. A
-            // category excluded from the blob read still reaches the fallback,
-            // which is how the gitlink's prose used to become references.
-            if file.generated.is_some() || file.submodule.is_some() {
-                continue;
-            }
-            // No entry means no reader claimed the file, or none could read
-            // it. Either way the class gains no symbols from this hunk: the
-            // domain never substitutes one reader's answer for another's, and
-            // never invents one of its own.
-            if let Some(fs) = parsed.get(&h.file) {
-                for i in 0..h.added.len() {
-                    let line = h.new_start + i as u32;
-                    let at = |s: &Symbol| key(h.file, &fs.namespace, s);
-                    defs[ci].extend(fs.defines_at(line).iter().map(at));
-                    refs[ci].extend(fs.references_at(line).iter().map(at));
-                    line_class.insert((h.file, line), ci);
-                }
-            }
-        }
+    for (ci, file, fs, line) in written_lines(view, partition, &parsed) {
+        let at = |s: &Symbol| key(file, &fs.namespace, s);
+        defs[ci].extend(fs.defines_at(line).iter().map(at));
+        refs[ci].extend(fs.references_at(line).iter().map(at));
+        line_class.insert((file, line), ci);
     }
 
     // Only symbols defined by exactly ONE class create edges. A symbol two
@@ -245,43 +220,30 @@ pub fn build<G: ObjectReader>(
     // site gets nothing there. That was the author's call, and it is the right
     // way round: the change is the thing being read.
     let mut uses: Vec<sites::Use> = Vec::new();
-    for members in &partition.classes {
-        for &hi in members {
-            let h = &view.hunks[hi];
-            let file = view.file_of(h);
-            if file.generated.is_some() || file.submodule.is_some() {
+    for (_, file, fs, line) in written_lines(view, partition, &parsed) {
+        for sym in fs.references_at(line) {
+            let k = key(file, &fs.namespace, sym);
+            let Some(&def) = of_key.get(&k) else { continue };
+            // A declaration is not a use of itself. The crude reader
+            // has no veto — its reference regex takes every identifier
+            // on a line, the name it just declared included — so
+            // `fn helper()` reports `helper` as reading `helper`.
+            // Pointing a reader at the line they are standing on is the
+            // one answer never worth giving.
+            //
+            // Position, not name: the same name genuinely used again on
+            // its own declaring line — a default argument, a one-line
+            // recursive call — is a real use and stays.
+            let d = &definitions[def];
+            if d.file == file && d.line == line && d.site.start == sym.site.start {
                 continue;
             }
-            let Some(fs) = parsed.get(&h.file) else {
-                continue;
-            };
-            for i in 0..h.added.len() {
-                let line = h.new_start + i as u32;
-                for sym in fs.references_at(line) {
-                    let k = key(h.file, &fs.namespace, sym);
-                    let Some(&def) = of_key.get(&k) else { continue };
-                    // A declaration is not a use of itself. The crude reader
-                    // has no veto — its reference regex takes every identifier
-                    // on a line, the name it just declared included — so
-                    // `fn helper()` reports `helper` as reading `helper`.
-                    // Pointing a reader at the line they are standing on is the
-                    // one answer never worth giving.
-                    //
-                    // Position, not name: the same name genuinely used again on
-                    // its own declaring line — a default argument, a one-line
-                    // recursive call — is a real use and stays.
-                    let d = &definitions[def];
-                    if d.file == h.file && d.line == line && d.site.start == sym.site.start {
-                        continue;
-                    }
-                    uses.push(sites::Use {
-                        def,
-                        file: h.file,
-                        line,
-                        site: sym.site,
-                    });
-                }
-            }
+            uses.push(sites::Use {
+                def,
+                file,
+                line,
+                site: sym.site,
+            });
         }
     }
 
@@ -304,6 +266,46 @@ pub fn build<G: ObjectReader>(
             .collect(),
         depends_on,
     })
+}
+
+/// Every line the change WROTE, with the symbols read from its file: `(class,
+/// file, symbols, line)`, class by class and hunk by hunk. Both passes over the
+/// diff walk exactly these lines, and used to walk them in their own words.
+///
+/// Two kinds of file contribute nothing, and each for its own reason.
+/// Generated content defines nothing — a lockfile would otherwise appear to
+/// define half the dependency tree. A gitlink's only added line is
+/// `Subproject commit <oid>`: diff prose about a commit this repository does
+/// not have, whose words are plausible identifiers.
+///
+/// Both skips belong HERE rather than only in `parse_files`. A category
+/// excluded from the blob read still reaches the fallback, which is how the
+/// gitlink's prose used to become references.
+///
+/// No entry in `parsed` means no reader claimed the file, or none could read
+/// it. Either way the class gains no symbols from this hunk: the domain never
+/// substitutes one reader's answer for another's, and never invents one of its
+/// own.
+fn written_lines<'a>(
+    view: &'a DiffView,
+    partition: &'a Partition,
+    parsed: &'a HashMap<usize, FileSymbols>,
+) -> impl Iterator<Item = (usize, usize, &'a FileSymbols, u32)> + 'a {
+    partition
+        .classes
+        .iter()
+        .enumerate()
+        .flat_map(move |(ci, members)| {
+            members.iter().flat_map(move |&hi| {
+                let h = &view.hunks[hi];
+                let file = view.file_of(h);
+                let skipped = file.generated.is_some() || file.submodule.is_some();
+                let fs = if skipped { None } else { parsed.get(&h.file) };
+                fs.into_iter().flat_map(move |fs| {
+                    (0..h.added.len() as u32).map(move |i| (ci, h.file, fs, h.new_start + i))
+                })
+            })
+        })
 }
 
 /// Parse every file that can contribute a symbol, once — keyed by file index.

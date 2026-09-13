@@ -559,7 +559,6 @@ version = "0.9.0"
 dependencies = [
  "differential-engine",
  "differential-testutil",
- "tempfile",
 ]
 
 [[package]]

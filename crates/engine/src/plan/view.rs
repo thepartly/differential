@@ -91,6 +91,25 @@ pub struct ClassMembers {
     pub hunks: Vec<HunkId>,
 }
 
+/// Whether a set of hunks — a group's, a file's, a directory's — reads as done.
+///
+/// Every hunk marked, and at least one hunk to mark: a binary file or a
+/// gitlink carries no hunks, and "all of nothing" must not light it up as
+/// reviewed. Four rows in the TUI each re-derived that guard by hand.
+pub fn all_reviewed<'a>(
+    hunks: impl IntoIterator<Item = &'a HunkId>,
+    reviewed: &std::collections::HashSet<usize>,
+) -> bool {
+    let mut any = false;
+    for h in hunks {
+        if !reviewed.contains(&h.index()) {
+            return false;
+        }
+        any = true;
+    }
+    any
+}
+
 impl ReviewView {
     /// Project a document, validating it on the way through.
     ///
@@ -218,10 +237,6 @@ impl ReviewView {
 
     pub fn group_position(&self, id: &str) -> Option<usize> {
         self.groups.iter().position(|g| g.id == id)
-    }
-
-    pub fn group_by_id(&self, id: &str) -> Option<&GroupView> {
-        self.groups.iter().find(|g| g.id == id)
     }
 
     /// The group owning a hunk, via its class.
