@@ -272,10 +272,22 @@ impl CommandBackend {
     /// one, which is why `fetch` does not appear in this argv at all. The
     /// prompt still names the fetch command; nothing has to permit it.
     ///
-    /// `--ask-for-approval never` is the headless half. Without it a command
+    /// `-c approval_policy="never"` is the headless half. Without it a command
     /// the sandbox refuses escalates to a human who is not there, and the call
     /// sits until the deadline kills it. With it the refusal returns to the
     /// model as a tool failure, which is what we want it to see.
+    ///
+    /// It is a config override rather than the `--ask-for-approval` flag the
+    /// docs name, because **that flag does not exist on `codex exec`** — it is
+    /// on the interactive top-level command only, and `codex exec` rejects it
+    /// outright. Checked against 0.154.0, where passing it is
+    /// `error: unexpected argument`, which is a failure to spawn rather than a
+    /// bad grouping.
+    ///
+    /// `codex exec` already defaults to never asking, so this says out loud
+    /// what is currently true anyway. That is the point: a boundary resting on
+    /// another program's default is one release away from being no boundary,
+    /// and `--ignore-user-config` means nothing on disk can move it back.
     ///
     /// `--color never` keeps stdout clean. The response parser takes the text
     /// between the first `{` and the last `}`, and an escape sequence inside
@@ -306,10 +318,10 @@ impl CommandBackend {
             "exec".to_string(),
             "--ignore-user-config".to_string(),
             "--ignore-rules".to_string(),
+            "-c".to_string(),
+            "approval_policy=\"never\"".to_string(),
             "--sandbox".to_string(),
             "read-only".to_string(),
-            "--ask-for-approval".to_string(),
-            "never".to_string(),
             "--color".to_string(),
             "never".to_string(),
             "-".to_string(),
@@ -731,8 +743,8 @@ mod tests {
         // boundary IS these two flag pairs and nothing else says so.
         assert_eq!(
             b.command(),
-            "codex exec --ignore-user-config --ignore-rules --sandbox read-only \
-             --ask-for-approval never --color never -"
+            "codex exec --ignore-user-config --ignore-rules -c approval_policy=\"never\" \
+             --sandbox read-only --color never -"
         );
         // A sandbox the user's own config can widen is not a sandbox. Same
         // lesson as `--permission-mode default` on Claude Code (ADR 0032).

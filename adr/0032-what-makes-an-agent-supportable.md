@@ -36,7 +36,7 @@ and a headless call that asks sits until the 1200-second deadline kills it.
 | CLI | stdin | plain text | read-only from argv | |
 |---|---|---|---|---|
 | Claude Code `claude -p` | yes | yes | `--allowed-tools` | ships since 0022 |
-| Codex `codex exec` | yes, `-` | yes, default | `--sandbox read-only --ask-for-approval never` | **added** |
+| Codex `codex exec` | yes, `-` | yes, default | `--sandbox read-only`, approvals off | **added** |
 | Droid `droid exec` | yes, `-` | yes, `-o text` | read-only is the default | **added** |
 | Copilot `copilot` | yes, when no `-p` | `-s` | `--allow-tool` / `--deny-tool` / `--no-ask-user` | **added** |
 | Pi `pi -p` | yes | yes | **no** | **added anyway — see below** |
@@ -131,6 +131,29 @@ call and reports four facts, and each is a way this fails quietly:
   account of itself. An agent that reports a refusal and wrote the file anyway is the exact
   failure worth catching. For the four enforced agents a write is a failure; for Pi it is
   documented behaviour and the probe says so rather than pretending.
+
+### Two of the five argv were wrong, and both were found the same way
+
+Before any of this was verified, the section below could only say the argv were unproven.
+They are now proven for two agents, and **both of those turned up a defect**. That ratio is
+the useful number in this ADR.
+
+**Codex's argv would not have spawned.** It carried `--ask-for-approval never`, which the
+documentation names as the read-only CI recipe. The flag exists on the interactive top-level
+`codex` command and **not on `codex exec`**, which rejects it outright: `error: unexpected
+argument '--ask-for-approval' found`. Caught against 0.154.0 by reading the installed CLI's
+own `--help` before spending a call, which is the cheapest of the three ways to find this
+and the only one that costs nothing.
+
+`-c approval_policy="never"` replaces it. `codex exec` already defaults to never asking, so
+the override states what is currently true — deliberately, because a boundary resting on
+another program's default is one release away from being no boundary, and
+`--ignore-user-config` means nothing on disk can move it back.
+
+The lesson generalises past this one flag. **A CLI's documentation describes the product,
+not the subcommand.** Every argv here was written from prose that was accurate about the
+tool and wrong about the entry point this crate actually invokes, and nothing short of
+running the binary distinguishes those two cases.
 
 ### The probe found the default agent was not read-only
 
