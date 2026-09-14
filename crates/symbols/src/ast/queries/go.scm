@@ -23,5 +23,19 @@
 (var_spec name: (identifier) @local_def)
 (const_spec name: (identifier) @local_def)
 
+; A binding is a declaration wherever it is written, not only after `:=`. A
+; range clause, a type switch's alias, a receive and every parameter introduce a
+; name, and the spec already calls them file-local (spec/ordering.md). Without
+; these the catch-all below took them as READS, so a line declaring a name
+; pointed at whatever else in the file spelled it the same way.
+;
+; Go needs no convention rule here as Rust does: none of these positions can
+; hold anything but a new name.
+(range_clause left: (expression_list (identifier) @local_def))
+(type_switch_statement alias: (expression_list (identifier) @local_def))
+(receive_statement left: (expression_list (identifier) @local_def))
+(parameter_declaration name: (identifier) @local_def)
+(variadic_parameter_declaration name: (identifier) @local_def)
+
 (identifier) @local_ref
 (field_identifier) @local_ref

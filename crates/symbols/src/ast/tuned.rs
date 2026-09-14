@@ -69,31 +69,31 @@ impl Tuned {
 
 static TUNED: &[Tuned] = &[
     Tuned {
-        version: "rust-v3",
+        version: "rust-v4",
         extensions: &[b".rs"],
         language: rust,
         sources: &[include_str!("queries/rust.scm")],
     },
     Tuned {
-        version: "python-v3",
+        version: "python-v4",
         extensions: &[b".py", b".pyi"],
         language: python,
         sources: &[include_str!("queries/python.scm")],
     },
     Tuned {
-        version: "go-v3",
+        version: "go-v4",
         extensions: &[b".go"],
         language: go,
         sources: &[include_str!("queries/go.scm")],
     },
     Tuned {
-        version: "typescript-v3",
+        version: "typescript-v4",
         extensions: &[b".ts", b".mts", b".cts"],
         language: typescript,
         sources: &[include_str!("queries/typescript.scm")],
     },
     Tuned {
-        version: "tsx-v3",
+        version: "tsx-v4",
         extensions: &[b".tsx"],
         language: tsx,
         sources: &[
@@ -102,7 +102,7 @@ static TUNED: &[Tuned] = &[
         ],
     },
     Tuned {
-        version: "kotlin-v3",
+        version: "kotlin-v4",
         extensions: &[b".kt", b".kts"],
         language: kotlin,
         sources: &[include_str!("queries/kotlin.scm")],

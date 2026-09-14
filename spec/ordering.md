@@ -66,6 +66,20 @@ as a possible file-local reference, which is what lets a value declared in one h
 rendered in the next three be seen at all — the change that prompted this drew no edges
 whatever before it.
 
+**A binding is a declaration in every position that introduces one**, not only after the
+keyword that usually precedes it. `if let Some(first)`, a `for` target, an `except … as`
+alias, a catch parameter, a walrus and every destructuring shape all declare their names.
+The catch-all above is what makes this load-bearing: a binding a query fails to name is
+not merely missed, it is taken as a READ — so the line declaring a name points at
+whatever else in the file spells it the same way.
+
+Rust is the one language that needs a convention to decide it. It writes a binding and a
+unit variant with the same node — the `None` in `Ok(None)` is a bare identifier exactly
+as the `a` in `Ok(a)` is — and no grammar can separate them without resolving names. So
+the pattern captures read the case: a binding is snake_case, a variant or a const is not.
+It is the only such rule in the queries, and a match arm's own child is left out of it
+entirely, because there a variant path is the commoner shape.
+
 Nothing here can manufacture the failure above: a file-local name is compared only against
 its own file's answers, so the worst a wrong one costs is an ordering inside one file.
 

@@ -48,6 +48,22 @@
 (import_specifier name: (identifier) @local_def)
 (namespace_import (identifier) @local_def)
 
+; A binding is a declaration wherever it is written, not only after `const`.
+; Array destructuring, a renamed object key, a rest element, a default, a catch
+; parameter, a `for…in` target, a bare arrow parameter and a default import all
+; introduce a name, and the spec already calls them file-local
+; (spec/ordering.md). Without these the catch-all below took them as READS, so a
+; line declaring a name pointed at whatever else in the file spelled it the same
+; way.
+(array_pattern (identifier) @local_def)
+(pair_pattern value: (identifier) @local_def)
+(rest_pattern (identifier) @local_def)
+(assignment_pattern left: (identifier) @local_def)
+(catch_clause parameter: (identifier) @local_def)
+(for_in_statement left: (identifier) @local_def)
+(arrow_function parameter: (identifier) @local_def)
+(import_clause (identifier) @local_def)
+
 ; Every identifier might be reading one of them. `(identifier)` does not match
 ; a `property_identifier`, so `data.rule` offers `data` and not `rule`.
 (identifier) @local_ref
