@@ -353,7 +353,10 @@ rows either side yields the float entirely, the same rule the group map follows.
 them in column order; past the last one it closes rather than wrapping, since a wrap answers
 a question already answered and offers no way out through the key being pressed. `esc`
 closes it, and so does moving the cursor — a highlight pointing at a row the cursor has left
-is worse than no highlight.
+is worse than no highlight. **Every way of leaving counts**, not only `j` and `k`: `g`, `G`,
+a half page, `n`, a jump from a list and a click all close it, and so does focus leaving the
+diff pane, because the underlines leave with the focus and a float over an unmarked row is
+an answer with no visible question.
 
 **Only what the change itself declares.** The tool parses the files a diff touches and no
 others, so a call into an untouched helper lights nothing and `z` keeps the meaning it

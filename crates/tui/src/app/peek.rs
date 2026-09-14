@@ -19,7 +19,7 @@
 
 use differential_engine::schema;
 
-use super::{App, Peek};
+use super::{App, Focus, Peek};
 use crate::rows::TAB_WIDTH;
 use crate::vendor::diff_types::expand_tabs;
 
@@ -90,6 +90,28 @@ impl App {
         self.peek = self.build_peek(next);
         if self.peek.is_none() {
             self.status = "nothing to show for that symbol".to_string();
+        }
+    }
+
+    /// Drop a float that no longer belongs to where the reader is standing.
+    ///
+    /// The float answers a question asked ON one row, with the diff pane in
+    /// hand, so it is keyed on both. `spec/tui.md` has always said the cursor
+    /// moving closes it — "a highlight pointing at a row the cursor has left is
+    /// worse than no highlight" — and `move_cursor` was the only mover that
+    /// said so. The rest set the cursor directly and left the float behind.
+    ///
+    /// Stated as what must be TRUE afterwards rather than as a line in each
+    /// mover, so the next one to be written cannot forget it. Called once per
+    /// event, on the way out of `handle_key` and `handle_mouse`.
+    ///
+    /// The focus half is the same fact one step out: the marks are drawn only
+    /// while the diff pane has focus ([`super::draw`]), so a float open under
+    /// the plan pane is an answer with no visible question.
+    pub(super) fn settle_peek(&mut self) {
+        let Some(peek) = &self.peek else { return };
+        if peek.row != self.cursor || self.focus != Focus::Detail {
+            self.peek = None;
         }
     }
 
