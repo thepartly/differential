@@ -28,8 +28,15 @@ jobs:
           persist-credentials: false
           token: ${{ secrets.RELEASE_PLZ_TOKEN }}
 
-      # The toolchain pinned in rust-toolchain.toml, as CI uses.
+      # Stable, not the 1.92.0 pinned in rust-toolchain.toml: cargo-semver-checks
+      # builds rustdoc JSON and refuses a rustc below 1.93. This job computes a
+      # version number and builds nothing that ships, so the pin buys nothing
+      # here — and dropping semver-checks instead would cost the one signal that
+      # catches a breaking change nobody wrote [feat] on. CI, publish.yml and
+      # release-tag.yml all still use the pin.
       - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
 
       - uses: release-plz/action@v0.5
         with:
