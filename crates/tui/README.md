@@ -61,7 +61,7 @@ Directories nest and show aggregate counts. Selecting a directory shows every hu
 it. Selecting a file shows that file's hunks in position order, whatever group they belong
 to, each header carrying its group's label.
 
-Reviewed marks are shared between the two views. They key on class content either way.
+Reviewed marks are shared between the two views. They key on the hunk's digest either way.
 
 ## The diff pane
 
@@ -163,7 +163,7 @@ diff cursor.
 | key | pane | action |
 |---|---|---|
 | `space` | left | Mark the whole selected group or file reviewed. |
-| `space` | diff | Mark the hunk's **class** reviewed. One exemplar verifies the shape. |
+| `space` | diff | Mark the **hunk** under the cursor reviewed. |
 | `v` | either | Start a line selection at the diff cursor. `j` and `k` then extend it. |
 | `v` | either, while selecting | Drop the selection. |
 | `esc` | either, while selecting | Drop the selection. |
