@@ -1,0 +1,45 @@
+name: Release PR
+
+# The button that starts a release: Actions -> Release PR -> Run workflow.
+# release-plz opens one PR that bumps [workspace.package].version and the
+# internal path deps in [workspace.dependencies]. release-plz.toml says how it
+# sizes the bump from the commit subjects since the last tag.
+#
+# It stops there. Tagging and publishing stay in publish.yml, behind a v* tag
+# that only an admin can push, so a human still decides that a commit ships.
+on:
+  workflow_dispatch:
+
+jobs:
+  release-pr:
+    name: release pr
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      # A GitHub App token, not GITHUB_TOKEN. A pull request opened by
+      # GITHUB_TOKEN starts no workflow, so the required `test` check would
+      # never run and the release PR could never merge.
+      - name: Mint a token for the app
+        id: token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.RELEASE_PLZ_APP_ID }}
+          private-key: ${{ secrets.RELEASE_PLZ_APP_PRIVATE_KEY }}
+
+      - uses: actions/checkout@v4
+        with:
+          # release-plz reads history back to the previous release tag.
+          fetch-depth: 0
+          # The app token pushes the branch; no credentials are left behind.
+          persist-credentials: false
+          token: ${{ steps.token.outputs.token }}
+
+      # The toolchain pinned in rust-toolchain.toml, as CI uses.
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - uses: release-plz/action@v0.5
+        with:
+          command: release-pr
+        env:
+          GITHUB_TOKEN: ${{ steps.token.outputs.token }}

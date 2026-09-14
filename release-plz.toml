@@ -1,0 +1,21 @@
+# How the release PR picks the next version. The release itself is unchanged:
+# .github/workflows/publish.yml still runs on a v* tag, and the release-tags
+# ruleset still restricts that tag to an admin.
+
+[workspace]
+# This repo writes "[feat] engine: soft wrap", which no conventional-commit
+# parser accepts as a type. release-plz therefore matches this regex against
+# the whole subject, and a feature moves 0.9.0 to 0.10.0 rather than 0.9.1.
+# Every other type stays a patch. cargo-semver-checks can still force the
+# bump up on its own, when it finds a breaking change in a library crate.
+custom_minor_increment_regex = "^\\[feat\\]"
+
+# No CHANGELOG.md is committed here: git-cliff writes the notes at tag time,
+# straight into the GitHub Release. release-plz must not start a second one.
+changelog_update = false
+
+# The PR title is the squash subject, so it carries a bracketed type like any
+# other subject. cliff.toml already drops [release] commits from the notes.
+# The guard is what the release-plz docs require of a multi-package workspace;
+# every crate here inherits one version, so the name is normally filled in.
+pr_name = "[release]{% if version %} v{{ version }}{% endif %}"

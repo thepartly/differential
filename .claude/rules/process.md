@@ -86,7 +86,14 @@ Branches, commits, PRs, reviews and releases. Linked from
   checks, so run them before pushing.
 - Releases are tag-driven: bump `[workspace.package].version` AND the version fields on
   the internal path deps in `[workspace.dependencies]` in a PR, merge, then the
-  author tags the merge commit (`git tag vX.Y.Z && git push origin vX.Y.Z`). The Release
+  author tags the merge commit (`git tag vX.Y.Z && git push origin vX.Y.Z`). **That bump
+  PR is a button**: Actions → Release PR → Run workflow (`release-pr.yml`) has release-plz
+  open it. It only opens the PR — the tag and the publish stay a human act, which is the
+  point. It sizes the bump from the subjects since the last tag: a `[feat]` moves the
+  minor, everything else the patch, and `cargo-semver-checks` can force it higher on a
+  breaking change in a library crate (`release-plz.toml` says so, and why the bracketed
+  type needs a regex there). Disagree with the number by editing the PR, or with
+  `release-plz set-version X.Y.Z`. The Release
   workflow (`.github/workflows/publish.yml`) then generates the changelog from commits
   since the previous tag (git-cliff, config in `cliff.toml` — grouped by the component
   prefix, with the bracketed type on each line, so keep writing both) into a GitHub
