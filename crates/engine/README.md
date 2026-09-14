@@ -290,7 +290,7 @@ let config = Config::load(&OsConfigSource, repo.root(), repo_path, user_path)?;
 Two files. The repo file (`.differential.toml`) holds classification hints. The user file
 (`~/.config/differential/config.toml`) holds the grouping backend and the reviewer's context
 settings. Full key tables:
-<https://github.com/thepartly/differential/blob/main/crates/cli/README.md#config>
+<https://github.com/thepartly/differential/blob/main/docs/cli.md#config>
 
 **Config can never remove a file or a hunk from enumeration.** Enumeration is total,
 always. Every invariant depends on that. Path filtering was the single worst coverage bug
