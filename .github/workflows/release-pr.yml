@@ -1,0 +1,38 @@
+name: Release PR
+
+# The button that starts a release: Actions -> Release PR -> Run workflow.
+# release-plz opens one PR that bumps [workspace.package].version and the
+# internal path deps in [workspace.dependencies]. release-plz.toml says how it
+# sizes the bump from the commit subjects since the last tag.
+#
+# Merging that PR is the decision to release. release-tag.yml takes it from
+# there.
+on:
+  workflow_dispatch:
+
+jobs:
+  release-pr:
+    name: release pr
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # release-plz reads history back to the previous release tag.
+          fetch-depth: 0
+          # A pull request opened with GITHUB_TOKEN starts no workflow, so the
+          # required `test` check would never run and the PR could never merge.
+          # RELEASE_PLZ_TOKEN is a personal access token; the PR is authored by
+          # whoever owns it.
+          persist-credentials: false
+          token: ${{ secrets.RELEASE_PLZ_TOKEN }}
+
+      # The toolchain pinned in rust-toolchain.toml, as CI uses.
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - uses: release-plz/action@v0.5
+        with:
+          command: release-pr
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}

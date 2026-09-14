@@ -1,0 +1,50 @@
+# How a release starts. Two steps, and release-plz does the mechanical half of
+# each: it opens the version-bump PR, and on merge it pushes the tag. The tag
+# is what .github/workflows/publish.yml already waits for, so the notes and the
+# crates.io publish are untouched.
+
+[workspace]
+# This repo writes "[feat] engine: soft wrap", which no conventional-commit
+# parser reads as a type. release-plz therefore matches this regex against the
+# whole subject, and a feature moves 0.9.0 to 0.10.0 rather than 0.9.1. Every
+# other type stays a patch. cargo-semver-checks still overrides both when a
+# library crate breaks its API.
+custom_minor_increment_regex = "^\\[feat\\]"
+
+# No CHANGELOG.md is committed here: git-cliff writes the notes at tag time,
+# straight into the GitHub Release. release-plz must not start a second one.
+changelog_update = false
+
+# The PR title is the squash subject, so it carries a bracketed type like any
+# other subject. cliff.toml already drops [release] commits from the notes.
+# The guard is what the release-plz docs require of a multi-package workspace;
+# every crate here inherits one version, so the name is normally filled in.
+pr_name = "[release]{% if version %} v{{ version }}{% endif %}"
+
+# publish.yml owns both of these, and keeps owning them. Its cargo publish runs
+# inside the crates-io environment, whose deployment policy accepts v* tags and
+# nothing else — so the registry token stays behind a tag, as it is today.
+publish = false
+git_release_enable = false
+
+# Five public crates would otherwise tag five times, as differential-engine-vX.
+# One version means one tag. v{{ version }} is the name publish.yml triggers on,
+# the release-tags ruleset restricts, and cliff.toml's tag_pattern matches.
+git_tag_name = "v{{ version }}"
+
+# So exactly one crate creates it. differential, the binary, is that crate.
+[[package]]
+name = "differential-engine"
+git_tag_enable = false
+
+[[package]]
+name = "differential-symbols"
+git_tag_enable = false
+
+[[package]]
+name = "differential-stack"
+git_tag_enable = false
+
+[[package]]
+name = "differential-tui"
+git_tag_enable = false
