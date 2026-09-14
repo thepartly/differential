@@ -26,8 +26,8 @@ Linked from [`AGENTS.md`](../../AGENTS.md), which carries the one-line form.
   (ADR 0029, decision 4). Bytes
   in/out; UTF-8 only at display boundaries. Domain code reaches git through the
   `engine::ports` traits, whose only implementation is `gitio::Repo`; never add a second
-  one, a fake git included (ADR 0020). The migration completes when `Repo::run` is
-  private to `gitio` — until then, don't add call sites outside it.
+  one, a fake git included (ADR 0020). `Repo::run` is private to `gitio`, so a function's
+  trait bounds say exactly how much git it can touch; it stays private.
 - **The core is a library** (ADR 0014, 0018). Renderers are library crates
   (`crates/stack`, `crates/tui`); `crates/cli` is the application layer owning the
   `dfr`/`differential` binaries — presentation and dispatch only, pipeline logic lives

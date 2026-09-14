@@ -20,7 +20,7 @@ Commit `0dacb6b`. MIT License, Copyright (c) 2025 tuicr contributors.
 - [`crates/tui/src/vendor/text_utils.rs`](crates/tui/src/vendor/text_utils.rs) — one span
   truncation helper.
 
-The cached process-wide highlighter in `crates/tui/src/theme.rs` follows tuicr's
+The cached process-wide highlighter in `crates/tui/src/theme/mod.rs` follows tuicr's
 `OnceLock<Arc<..>>` pattern. The single row builder in `crates/tui/src/rows.rs` applies a
 lesson learned from reading tuicr.
 
@@ -33,7 +33,8 @@ Commit `f600389`. MIT License, Copyright (c) 2024 Sahaj Jain.
 - [`crates/tui/src/vendor/diff_types.rs`](crates/tui/src/vendor/diff_types.rs) — the row
   and segment types, plus tab expansion.
 
-The colour field schema in `crates/tui/src/theme.rs` is modelled on lumen's `DiffColors`.
+The colour field schema in `crates/tui/src/theme/mod.rs` is modelled on lumen's
+`DiffColors`.
 
 ## Prior art
 

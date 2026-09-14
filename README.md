@@ -13,7 +13,9 @@ an LLM, and orders them so that definitions precede their references. It renders
 result as a terminal reviewer or as a stack of synthetic git commits.
 
 Enumeration is total: every hunk in the range is assigned to exactly one group, and the
-partition is checked by four structural invariants before any output is produced.
+partition is checked by six structural invariants. The ones that only read run inside the
+pipeline, before any document is emitted. The two that rebuild a tree run in a separate
+`verify` stage, which `dfr check` and `dfr stack` run and `dfr review` does not.
 
 https://github.com/user-attachments/assets/afa7a1e6-47db-43a9-932f-f9d2b5cee321
 
@@ -56,8 +58,8 @@ Work down the plan from the top. `tab` switches panes. `j` and `k` move. `space`
 hunk's shape class reviewed, so one exemplar clears the whole class. `c` writes a finding
 against the line under the cursor, and `F` lists every finding you have written. `y` copies
 them all to the clipboard as markdown; over SSH it sends them to your own terminal instead,
-and names the command that prints them. `?` shows every key. `q` quits; state is written on
-every change.
+and names the command that prints them. `?` answers for where the reader is standing. `q`
+quits; state is written on every change.
 
 Run it with no range at all:
 
@@ -115,10 +117,14 @@ Full detail: [`crates/stack/README.md`](crates/stack/README.md).
 | `dfr stack <range>` | Build the review commit stack and land it on a ref. |
 | `dfr check <range>` | Run the structural invariants. Use this in CI. |
 | `dfr findings <range>` | Print the review's findings as JSON. |
+| `dfr agent --doc <path>` | Print every class the grouping model may group. The model runs this, not you. |
+| `dfr agents [--probe <name>]` | List the supported agents and mark the proven ones. `--probe` runs one for real. |
 | `dfr clean [--dry-run]` | Delete the regenerable cache. Never touches findings. |
 
-Every command takes `--repo`; all but `dfr clean` also take `--config` and `--user-config`. Exit codes: `0` success,
-`1` invariant or pipeline failure, `2` usage or config error.
+Every command that opens a repository takes `--repo`: `review`, `stack`, `check`,
+`findings` and `clean`; all but `clean` also take `--config` and `--user-config`. `agent`
+and `agents` open no repository and take no `--repo`; `agents` takes `--user-config`. Exit
+codes: `0` success, `1` invariant or pipeline failure, `2` usage or config error.
 
 Full reference, including every flag and every key in the reviewer:
 [`crates/cli/README.md`](crates/cli/README.md).

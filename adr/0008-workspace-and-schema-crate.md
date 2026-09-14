@@ -1,6 +1,9 @@
 # 0008 — Multi-crate workspace; the schema is its own crate
 
-Status: accepted
+Status: accepted (the packaging half is superseded by
+[ADR 0018](0018-crate-consolidation-and-renderer-crates.md): the schema lives in
+`engine::schema`, a reviewed module boundary rather than a crate; the boundary discipline
+below stands)
 
 ## Context
 

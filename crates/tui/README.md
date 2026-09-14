@@ -226,7 +226,7 @@ not a key in the composer, where it is a character, nor in a question, where eve
 | `k` / `↑` | Previous finding. |
 | `enter` | Close and jump to that finding, wherever in the review it lives. |
 | `dd` | Delete the selected finding. The list stays open. |
-| `D` | Ask before clearing every finding: `delete all N findings?  y / n`, or `delete this finding?  y / n` when there is only one. |
+| `D` | Clear the notes not on the request, asking first: `delete all N notes?  y / n`, or `delete this note?` when there is only one. When published notes or threads are in the list the question says so — `delete all N local notes? (K on the request stay)` — and those stay. |
 | `y` | Copy the summary of open findings not yet on the request. The list stays open. |
 | `y`, while `D` waits | Yes. Only a bare `y` counts, and any other key cancels. |
 | `P` | Publish the open findings. The float asks first. |

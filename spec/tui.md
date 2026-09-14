@@ -462,9 +462,10 @@ The full reference. `?` shows the subset that applies where the reader is standi
 
 | key | action |
 |---|---|
-| `j`/`k` | move (groups pane: switch group · diff pane: move over rows) |
+| `j`/`k`, `↓`/`↑` | move (groups pane: switch group · diff pane: move over rows) |
 | `J`/`K`, `{`/`}` | previous / next group |
-| `tab`, `enter` | switch pane focus |
+| `tab` | switch pane focus |
+| `enter` | plan pane only: open the group or file in the diff pane · file view, on a directory: fold or unfold it |
 | `ctrl-d`/`ctrl-u` | half page |
 | `g`/`G` | top / bottom |
 | `n`/`N` | next / previous hunk (skipping hunks crossed in from other groups) |

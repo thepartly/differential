@@ -24,7 +24,7 @@ Branches, commits, PRs, reviews and releases. Linked from
 
   The types are `[feat]`, `[fix]`, `[refactor]`, `[perf]`, `[test]`, `[doc]`, `[ci]`,
   `[chore]` and `[release]`. The component prefix that follows is the existing one —
-  `engine`, `symbols`, `tui`, `cli`, `schema`, `llm` — and it is **required on
+  `engine`, `symbols`, `tui`, `stack`, `cli`, `schema`, `llm` — and it is **required on
   `[feat]`**: a feature the reader cannot place is a feature they cannot decide to care
   about. Everything else keeps a component when it has one.
 
