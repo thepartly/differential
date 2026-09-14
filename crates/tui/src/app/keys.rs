@@ -138,7 +138,7 @@ impl App {
     /// The event loop hands over only the kinds this reads — the wheel's
     /// four directions and a left press — so a pointer moving across the
     /// screen never reaches the model, let alone repaints it.
-    pub fn handle_mouse(&mut self, m: MouseEvent) -> Vec<Effect> {
+    fn on_mouse(&mut self, m: MouseEvent) -> Vec<Effect> {
         let at = Position::new(m.column, m.row);
         // A held key and the wheel is the sideways wheel. Most mice have no
         // wheel of their own for it, and a terminal reports the held key as a
@@ -363,13 +363,32 @@ impl App {
     /// A click on a footer hint presses the keys it names, one after another
     /// — `dd` is two — through the same handler a hand would reach.
     fn press_each(&mut self, presses: Vec<KeyEvent>) -> Vec<Effect> {
-        presses
-            .into_iter()
-            .flat_map(|k| self.handle_key(k))
-            .collect()
+        // The inner handler, because this is still inside one event: the
+        // click that reached the footer settles once, on its way out.
+        presses.into_iter().flat_map(|k| self.on_key(k)).collect()
     }
 
+    /// A key, and then the one thing that has to be true after any event.
+    ///
+    /// The float is settled HERE rather than inside each thing that moves a
+    /// cursor. Seven of them do, and one had the line — so `g`, `G`, `ctrl+d`,
+    /// `n`, a jump from the findings list and a click all left an answer
+    /// pointing at a row the reader had gone from. A rule kept in one place is
+    /// a rule that cannot be forgotten by the eighth.
     pub fn handle_key(&mut self, key: KeyEvent) -> Vec<Effect> {
+        let effects = self.on_key(key);
+        self.settle_peek();
+        effects
+    }
+
+    /// The mouse, settled the same way and for the same reason.
+    pub fn handle_mouse(&mut self, m: MouseEvent) -> Vec<Effect> {
+        let effects = self.on_mouse(m);
+        self.settle_peek();
+        effects
+    }
+
+    fn on_key(&mut self, key: KeyEvent) -> Vec<Effect> {
         // One latch, taken before anything reads a key. It used to be taken
         // inside the normal-mode block, which a modal's early return never
         // reaches — so `dd` could only ever mean one thing in one place.

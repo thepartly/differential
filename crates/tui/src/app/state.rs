@@ -292,9 +292,9 @@ impl App {
         if let Some(next) = self.next_selectable(start.max(0) as usize, dir) {
             self.cursor = next;
         }
-        // The symbol float belongs to the row it was opened on. A highlight
-        // pointing at a row the cursor has left is worse than no highlight.
-        self.peek = None;
+        // The symbol float is not closed here. It belongs to the row it was
+        // opened on, and every mover has to honour that — so the rule lives
+        // where it cannot be forgotten, in `settle_peek`, once per event.
         self.follow_cursor();
     }
 

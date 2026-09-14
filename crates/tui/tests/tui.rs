@@ -7688,6 +7688,94 @@ fn moving_the_cursor_closes_the_float() {
     );
 }
 
+/// EVERY way of leaving the row closes it, not only `j` and `k`.
+///
+/// Seven things move the cursor and one of them cleared the float, so `G`,
+/// `ctrl+d`, a jump and a click each left an answer pointing at a row the
+/// reader had gone from. The rule is now one invariant, settled once per
+/// event, and this is what holds it there.
+#[test]
+fn every_way_of_leaving_the_row_closes_the_float() {
+    let leavers: &[(&str, KeyEvent)] = &[
+        ("G", key('G')),
+        ("g", key('g')),
+        (
+            "ctrl+d",
+            KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL),
+        ),
+        (
+            "ctrl+u",
+            KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL),
+        ),
+        ("n", key('n')),
+    ];
+    for (named, press) in leavers {
+        let (_r, mut app) = app_with_symbols();
+        let row = cursor_on_text(&mut app, "helper_one() + helper_two()");
+        app.handle_key(key('z'));
+        assert!(app.peek.is_some(), "{named}: the float opened");
+
+        app.handle_key(*press);
+        if app.cursor == row {
+            continue; // That key had nowhere to go on this document.
+        }
+        assert!(
+            app.peek.is_none(),
+            "{named} left the row and the float stayed"
+        );
+    }
+}
+
+/// A click on another row closes it too — the click sets the cursor directly.
+#[test]
+fn a_click_on_another_row_closes_the_float() {
+    let (_r, mut app) = app_with_symbols();
+    sized(&mut app);
+    let row = cursor_on_text(&mut app, "helper_one() + helper_two()");
+    app.handle_key(key('z'));
+    assert!(app.peek.is_some());
+
+    // A selectable row that is not the cursor's, and whose screen line the
+    // float does not cover — the float swallows a click on itself by design.
+    let panes = layout(app.viewport().area);
+    let float = app.peek_area(panes.detail).expect("the float has a place");
+    let mut top = 0usize;
+    let mut hit = None;
+    for i in 0..app.rows.len() {
+        let (_, y) = on_line(panes.detail, top as u16);
+        if i != row && app.rows[i].kind.selectable() && !(float.y..float.bottom()).contains(&y) {
+            hit = Some((i, top));
+            break;
+        }
+        top += app.row_height(i);
+    }
+    let (target, line) = hit.expect("some other row is clickable");
+
+    let (x, y) = on_line(panes.detail, line as u16);
+    app.handle_mouse(click(x, y));
+    assert_eq!(app.cursor, target, "the click moved the cursor");
+    assert!(app.peek.is_none(), "and the float went with it");
+}
+
+/// Focus leaving the diff pane closes it, because the marks leave with it.
+///
+/// The underlines are drawn only while the diff pane has focus, so a float
+/// open under the plan pane is an answer with no visible question.
+#[test]
+fn focus_leaving_the_diff_pane_closes_the_float() {
+    let (_r, mut app) = app_with_symbols();
+    sized(&mut app);
+    cursor_on_text(&mut app, "helper_one() + helper_two()");
+    app.handle_key(key('z'));
+    assert!(app.peek.is_some());
+
+    let panes = layout(app.viewport().area);
+    let (x, y) = inside(panes.plan);
+    app.handle_mouse(click(x, y));
+    assert_eq!(app.focus, Focus::Groups, "the click took focus");
+    assert!(app.peek.is_none(), "the float closed with the marks");
+}
+
 #[test]
 fn z_on_a_row_with_no_symbol_still_folds_the_group() {
     let (_r, mut app) = app_with_symbols();
