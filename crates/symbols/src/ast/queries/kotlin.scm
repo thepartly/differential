@@ -23,4 +23,13 @@
 ; function or a class body that the file-scope rule above drops (ADR 0030).
 (variable_declaration (identifier) @local_def)
 
+; A binding is a declaration wherever it is written. `variable_declaration`
+; above already covers `for`, a lambda's parameters, a `when` subject and
+; destructuring; these three are what it does not reach. The spec already calls
+; every one of them file-local (spec/ordering.md), and without them the
+; catch-all below took them as READS.
+(parameter (identifier) @local_def)
+(class_parameter (identifier) @local_def)
+(catch_block (identifier) @local_def)
+
 (identifier) @local_ref

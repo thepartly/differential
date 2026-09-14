@@ -57,6 +57,40 @@ fn read(reader: &dyn SymbolSource, path: &[u8], src: &str) -> Read {
     }
 }
 
+/// One line's answer, both ways, for a test about an OCCURRENCE.
+///
+/// The sets above are over the whole file, so they cannot say "this token here
+/// is a declaration and not a read" — a name declared on one line and read on
+/// the next is honestly in both. A binding site is exactly that question, so it
+/// is asked a line at a time.
+struct Line {
+    defines: Vec<String>,
+    references: Vec<String>,
+}
+
+fn read_line(reader: &dyn SymbolSource, path: &[u8], src: &str, holding: &str) -> Line {
+    let s: FileSymbols = reader
+        .file_symbols(path, src.as_bytes())
+        .expect("the reader claimed this file");
+    let at = src
+        .lines()
+        .position(|l| l.contains(holding))
+        .unwrap_or_else(|| panic!("no line holds {holding:?}"));
+    let names = |rows: &[Vec<Symbol>]| -> Vec<String> {
+        rows.get(at)
+            .map(|row| {
+                row.iter()
+                    .map(|s| String::from_utf8_lossy(&s.name).into_owned())
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    Line {
+        defines: names(&s.defines),
+        references: names(&s.references),
+    }
+}
+
 fn has(set: &[String], want: &[&str]) {
     for w in want {
         assert!(set.contains(&w.to_string()), "missing {w:?} in {set:?}");
@@ -326,6 +360,187 @@ fn deep_nesting_costs_neither_stack_nor_quadratic_time() {
 
 // ------------------------------------------------------------ file-local names
 
+/// A binding is a declaration in every position that introduces one.
+///
+/// `if let Some(first)` DECLARES `first`; it does not read it. While only
+/// `let` and a parameter counted, the catch-all `(identifier) @local_ref` took
+/// every other binding as a read — so the reviewer's line underlined the name
+/// it was declaring and the float pointed at whatever else in the file spelled
+/// it the same way.
+#[test]
+fn rust_reads_every_binding_position_as_a_declaration() {
+    const SRC: &str = r#"
+pub fn read_them(rows: Vec<u8>) -> u8 {
+    if let Some(first) = head(&rows) {
+        drop(first);
+    }
+    for each in &rows { drop(each); }
+    let pair = (1u8, 2u8);
+    let (left, right) = pair;
+    let Widget { size } = make();
+    let add = |lifted: u8| lifted + 1;
+    match rows.len() { other => drop(other) }
+    drop(size); drop(left); drop(right); add(0)
+}
+"#;
+    let r = read(&AstSymbols::new(), b"src/bind.rs", SRC);
+    has(
+        &r.local_defines,
+        &["first", "each", "left", "right", "size", "lifted"],
+    );
+    // A later line that genuinely READS one still says so.
+    has(&r.local_references, &["size", "left", "right"]);
+    // A match arm's child is a variant path far more often than a binding, so
+    // no arm captures one: `other` stays a read.
+    lacks(&r.local_defines, &["other"]);
+
+    // The reported line, asked as an OCCURRENCE: `first` is declared here and
+    // is not read here. Before this, the catch-all made it a read, so the row
+    // underlined the name it was declaring.
+    let l = read_line(
+        &AstSymbols::new(),
+        b"src/bind.rs",
+        SRC,
+        "if let Some(first)",
+    );
+    has(&l.defines, &["first"]);
+    lacks(&l.references, &["first"]);
+    // The line's genuine read is untouched: `rows` is being consumed.
+    has(&l.references, &["rows"]);
+}
+
+/// The case convention is what separates a binding from a unit variant.
+///
+/// Rust writes both as a bare `identifier` inside a pattern, and no grammar can
+/// tell them apart without resolving names. Capturing `None` as a declaration
+/// would point a later use of it at a match arm.
+#[test]
+fn a_rust_pattern_declares_a_binding_and_never_a_variant() {
+    let r = read(
+        &AstSymbols::new(),
+        b"src/variant.rs",
+        r#"
+pub fn pick(got: Result<Option<u8>, u8>) -> u8 {
+    if let Ok(None) = got { return LIMIT; }
+    if let Ok(Some(taken)) = got { return taken; }
+    0
+}
+"#,
+    );
+    has(&r.local_defines, &["taken"]);
+    lacks(&r.local_defines, &["None", "Ok", "Some", "LIMIT"]);
+}
+
+/// Python: a loop target, an `as` alias, a walrus and an unpacking all declare.
+#[test]
+fn python_reads_every_binding_position_as_a_declaration() {
+    let r = read(
+        &AstSymbols::new(),
+        b"bind.py",
+        r#"
+def read_them(rows, limit=10):
+    for each in rows:
+        drop(each)
+    with open_it() as handle:
+        drop(handle)
+    try:
+        drop(limit)
+    except ValueError as err:
+        drop(err)
+    left, right = rows
+    if (found := lookUpName()):
+        drop(found)
+    drop(left)
+    drop(right)
+"#,
+    );
+    has(
+        &r.local_defines,
+        &["each", "handle", "err", "left", "right", "found", "limit"],
+    );
+    has(&r.local_references, &["each", "left", "right"]);
+}
+
+/// Go: a range clause, a type switch's alias and every parameter declare.
+#[test]
+fn go_reads_every_binding_position_as_a_declaration() {
+    let r = read(
+        &AstSymbols::new(),
+        b"bind.go",
+        r#"
+package p
+func ReadThem(rows []string, rest ...string) {
+	for index, each := range rows {
+		drop(index)
+		drop(each)
+	}
+	switch taken := any(rows).(type) {
+	default:
+		drop(taken)
+	}
+	drop(rest)
+}
+"#,
+    );
+    has(
+        &r.local_defines,
+        &["rows", "rest", "index", "each", "taken"],
+    );
+    has(&r.local_references, &["rows", "each", "taken"]);
+}
+
+/// TypeScript: destructuring, a catch parameter and a bare arrow parameter
+/// all declare.
+#[test]
+fn typescript_reads_every_binding_position_as_a_declaration() {
+    let r = read(
+        &AstSymbols::new(),
+        b"bind.ts",
+        r#"
+export function readThem(rows: string[]) {
+  const [first, second] = rows;
+  const { size: measured, ...rest } = shapeOf(rows);
+  const add = lifted => lifted + 1;
+  try {
+    drop(first);
+  } catch (err) {
+    drop(err);
+  }
+  for (const key in rows) { drop(key); }
+  return add(second) + measured + rest;
+}
+"#,
+    );
+    has(
+        &r.local_defines,
+        &[
+            "first", "second", "measured", "rest", "lifted", "err", "key",
+        ],
+    );
+    has(&r.local_references, &["first", "second", "measured"]);
+}
+
+/// Kotlin: a function parameter and a catch parameter declare.
+///
+/// `variable_declaration` already reached `for`, a lambda's parameters, a
+/// `when` subject and destructuring, so these two are the whole gap.
+#[test]
+fn kotlin_reads_every_binding_position_as_a_declaration() {
+    let r = read(
+        &AstSymbols::new(),
+        b"Bind.kt",
+        r#"
+class Holder(val size: Int)
+fun readThem(rows: List<String>) {
+    for (each in rows) { drop(each) }
+    try { drop(rows) } catch (err: Exception) { drop(err) }
+}
+"#,
+    );
+    has(&r.local_defines, &["rows", "each", "err", "size"]);
+    has(&r.local_references, &["rows", "each"]);
+}
+
 /// The change that made this whole distinction necessary, in miniature.
 ///
 /// A React component is `export const Panel = …`, its dependencies are
@@ -536,12 +751,12 @@ fn the_crude_reader_places_a_name_but_claims_no_body() {
 #[test]
 fn every_query_version_pins_its_patterns() {
     const PINNED: &[(&str, &str)] = &[
-        ("rust-v3", "714cdaa7ba1c48f03fa5f7d5c8930b80cefd3753"),
-        ("python-v3", "b60630bca55fa7759a1bdc68512e98daef1c48d9"),
-        ("go-v3", "390fb0cf48f3bf526e585f9c8b091baad394aa8d"),
-        ("typescript-v3", "9940745968bfbae0ce51fa46ef992ccb1c5252f4"),
-        ("tsx-v3", "34b3fe8b79a4da32583d0391bc92a268f1ad4943"),
-        ("kotlin-v3", "9fb6256cbccb80fcb82cfd4fb2b307219a34ee40"),
+        ("rust-v4", "96ca20c967959d58aba41990b2f7ec03a00703d2"),
+        ("python-v4", "d0dcef048323407d43643a013e70ed1437bdd39f"),
+        ("go-v4", "05c59b455dc516f49383cfe7d3577ee54f254ffe"),
+        ("typescript-v4", "a959775f12a0d9f24e79423d12a92fe11aa46bdd"),
+        ("tsx-v4", "7d991606e98d9ae2aee744df90d114c9448aab3d"),
+        ("kotlin-v4", "64b5b5aa082f00fc71ee8e5500577d532a30f0cf"),
     ];
     let actual: Vec<(String, String)> = AstSymbols::queries()
         .into_iter()
@@ -681,8 +896,8 @@ fn every_reader_fingerprint_pins_its_answers() {
 
     const PINNED: &[(&str, &str)] = &[
         (
-            "ast-tuned-v2[go-v3,kotlin-v3,python-v3,rust-v3,tsx-v3,typescript-v3]",
-            "eebeb73419f0e35f3573f3aa781ec21614f8f6c9",
+            "ast-tuned-v2[go-v4,kotlin-v4,python-v4,rust-v4,tsx-v4,typescript-v4]",
+            "3daa183a1262c364fb8acf8107650a6dbee9b62d",
         ),
         ("ast-fields-v3", "7d1eb9f41d9cb7aff66aa240710a0337c62ba2c6"),
         ("naive-v3", "3b6a6cfece0afc2ea5d6172739e6e6d8747305bc"),
