@@ -84,20 +84,35 @@ Branches, commits, PRs, reviews and releases. Linked from
 - CI (`.github/workflows/ci.yml`) runs fmt, clippy `-D warnings`, tests and a release
   build on every PR and on main after merge — the done-criteria below are exactly what CI
   checks, so run them before pushing.
-- Releases are tag-driven: bump `[workspace.package].version` AND the version fields on
-  the internal path deps in `[workspace.dependencies]` in a PR, merge, then the
-  author tags the merge commit (`git tag vX.Y.Z && git push origin vX.Y.Z`). **That bump
-  PR is a button**: Actions → Release PR → Run workflow (`release-pr.yml`) has release-plz
-  open it. It only opens the PR — the tag and the publish stay a human act, which is the
-  point. It sizes the bump from the subjects since the last tag: a `[feat]` moves the
-  minor, everything else the patch, and `cargo-semver-checks` can force it higher on a
-  breaking change in a library crate (`release-plz.toml` says so, and why the bracketed
-  type needs a regex there). Disagree with the number by editing the PR, or with
-  `release-plz set-version X.Y.Z`. The Release
-  workflow (`.github/workflows/publish.yml`) then generates the changelog from commits
-  since the previous tag (git-cliff, config in `cliff.toml` — grouped by the component
-  prefix, with the bracketed type on each line, so keep writing both) into a GitHub
-  Release, and runs
-  `cargo publish --workspace`. The tag must equal the workspace version or the publish
-  fails. A tag ruleset restricts `v*` tags to repo admins; the `CARGO_REGISTRY_TOKEN`
-  lives on the `crates-io` environment (deployments restricted to `v*` tags).
+- Releases are still tag-driven, and **merging the release PR is the decision to
+  release.** That is the one human act; release-plz does the mechanical halves either
+  side of it, configured in `release-plz.toml`.
+
+  1. Actions → Release PR → Run workflow (`release-pr.yml`). release-plz opens one PR
+     that bumps `[workspace.package].version` AND the version fields on the internal
+     path deps in `[workspace.dependencies]` — the pair that used to be two hand edits
+     that had to agree. It sizes the bump from the subjects since the last tag: a
+     `[feat]` moves the minor, everything else the patch, and `cargo-semver-checks` can
+     force it higher on a breaking change in a library crate. The bracketed type is why
+     that needs a `custom_minor_increment_regex`: no conventional-commit parser reads
+     `[feat] engine` as a type, so the regex matches the whole subject instead.
+     Disagree with the number by editing the PR, or with `release-plz set-version X.Y.Z`.
+  2. Merge it. `release-tag.yml` then has release-plz push `vX.Y.Z` and stop there —
+     `publish = false` and `git_release_enable = false` hand the rest back to
+     `publish.yml`, and one `[[package]]` entry per library crate turns its tag off, so
+     five public crates make one tag and not five.
+  3. The Release workflow (`.github/workflows/publish.yml`) fires on that tag, exactly as
+     it did on a hand-pushed one. It generates the changelog from commits since the
+     previous tag (git-cliff, config in `cliff.toml` — grouped by the component prefix,
+     with the bracketed type on each line, so keep writing both) into a GitHub Release,
+     and runs `cargo publish --workspace`. The tag must equal the workspace version or
+     the publish fails.
+
+  Two things carry that chain, and breaking either one stops it silently. `publish.yml`
+  fires because the tag arrives from `RELEASE_PLZ_TOKEN`, a personal access token: a tag
+  pushed by `GITHUB_TOKEN` starts no workflow, and neither would the `test` check on the
+  release PR. And the tag is created at all because that token's owner is the bypass
+  actor on the `release-tags` ruleset, which otherwise restricts `v*` to repo admins.
+  The `CARGO_REGISTRY_TOKEN` is untouched by any of this: it lives on the `crates-io`
+  environment, whose deployments are restricted to `v*` tags, so the registry stays
+  behind a tag and never behind a branch.

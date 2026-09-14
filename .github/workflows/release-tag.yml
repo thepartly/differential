@@ -1,0 +1,42 @@
+name: Release tag
+
+# The second half of a release. When the version bump reaches main, release-plz
+# pushes the matching v* tag and stops: release-plz.toml turns its publish and
+# its release notes off, because publish.yml already owns both.
+#
+# The tag fires publish.yml, because a personal access token starts workflows
+# and GITHUB_TOKEN does not. The token's owner is a bypass actor on the
+# release-tags ruleset, which is what lets the tag be created at all.
+#
+# On any other commit release-plz finds the version already on crates.io and
+# does nothing. workflow_dispatch is the handle for re-running a failed one.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: release-tag
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    name: tag
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # release-plz reads history back to the previous release tag.
+          fetch-depth: 0
+          persist-credentials: false
+          token: ${{ secrets.RELEASE_PLZ_TOKEN }}
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - uses: release-plz/action@v0.5
+        with:
+          command: release
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
