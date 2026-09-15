@@ -8,20 +8,26 @@
 
 # differential
 
-**A terminal reviewer for diffs too large to read top to bottom.**
+**A TUI reviewer with semantic grouping.**
 
-Most of a large branch is one decision repeated. A signature change reaches every call
-site. A rename reaches every import. A lockfile is regenerated whole. The changes that
-need careful reading are a small part of it, and a plain diff will not tell you which part.
+> A differential is a gear system in vehicles that lets driven wheels rotate at different
+> speeds while still receiving power from the engine.
 
-`differential` works that structure out **mechanically, before any model sees the change**:
-which hunks are the same edit repeated, and which changes depend on which. A model then
-labels what the mechanism found. The result is a reading plan, and `dfr review` opens a
-reviewer over it.
+Agents made writing code easy. Reading it is the new bottleneck, and `differential` is an
+attempt to make that part easier.
 
-Enumeration is total. Every hunk in the range lands in exactly one group, and the partition
-is checked by six structural invariants. No file is skipped, no extension is filtered, and
-config cannot change that.
+It is a terminal program. It runs where the agent worked — your machine or a remote one —
+beside the worktree, and it needs no forge and no remote.
+
+Reading a large diff well takes four things:
+
+- separate the important changes from the unimportant ones;
+- group the changes by semantic similarity;
+- read the group the others depend on first;
+- show the context a hunk needs to make sense.
+
+[What it does that a diff viewer does not](#what-it-does-that-a-diff-viewer-does-not) is
+how `differential` answers each one.
 
 https://github.com/user-attachments/assets/afa7a1e6-47db-43a9-932f-f9d2b5cee321
 
@@ -33,7 +39,7 @@ https://github.com/user-attachments/assets/afa7a1e6-47db-43a9-932f-f9d2b5cee321
   [`codex`](https://developers.openai.com/codex/cli),
   [`droid`](https://docs.factory.ai/droid-exec/overview),
   [`copilot`](https://docs.github.com/en/copilot/how-tos/copilot-cli) and
-  [`pi`](https://pi.dev). Each runs headless and allowed to read, never to write —
+  [`pi`](https://pi.dev). Each runs headless, allowed to read and never to write —
   **except `pi`, which can write**. Run `dfr agents` to see what you have installed.
   See [Agents](#agents).
 - Rust stable to build from source. The version is pinned in `rust-toolchain.toml`.
@@ -50,49 +56,21 @@ That installs two binaries, `dfr` and `differential`. They are the same program.
 
 ```sh
 cd your-repo
-dfr review main..feature
-```
-
-![The dfr review reviewer, mid-review](https://raw.githubusercontent.com/thepartly/differential/main/assets/screenshot.png)
-
-Two panes: the reading plan on the left, the diff on the right. Each group carries its
-effort tier, its label, and an `after:` line naming the groups it follows. Selecting one
-draws a connector to everything it depends on.
-
-The first run on a range calls the LLM once. On a big merge request that takes a minute or
-two. A splash screen shows the stages while it runs, and your terminal gets a progress bar
-and a desktop notification, so you can switch windows. The result is cached, so a later run
-on the same range does not call the LLM again.
-
-Work down the plan from the top. `tab` switches panes. `j` and `k` move. `space` marks the
-hunk under the cursor reviewed, or the whole selected group in the left pane. `z` on a
-symbol shows what declares it. `c` writes a finding against the line under the cursor, and
-`F` lists every finding you have written. `y` copies them all to the clipboard as markdown;
-over SSH it sends them to your own terminal instead, and names the command that prints them.
-`?` answers for where the reader is standing. `q` quits; state is written on every change.
-
-Full detail, and every key: [`crates/tui/README.md`](https://github.com/thepartly/differential/blob/main/crates/tui/README.md).
-
-### Reviewing what an agent just wrote
-
-This is the case it was built for. An agent writes a branch on your machine, and you have
-to read it before it becomes yours. There is no pull request yet, often no commit, and
-nothing to push.
-
-So it is a terminal program. It runs where the agent worked, beside the worktree, and it
-needs no forge, no remote and no network.
-
-```sh
-dfr review
+dfr review                # pick a base, and include uncommitted work
+dfr review main..feature  # or name the range yourself
 ```
 
 With no range it opens a picker. Choose the base commit, and tick the box to include
 uncommitted work. Staged changes and a dirty worktree are review sources like any other.
 
+![The dfr review reviewer, mid-review](https://raw.githubusercontent.com/thepartly/differential/main/assets/screenshot.png)
+
+Full detail, and every key: [`crates/tui/README.md`](https://github.com/thepartly/differential/blob/main/crates/tui/README.md).
+
 ### As a commit stack
 
-To read the same plan in an IDE, in `tig`, or with plain `git log`, render it as a stack of
-synthetic commits:
+The same plan can also be rendered as a stack of synthetic commits, which you can then
+read in your IDE, in `tig`, or with plain `git log`.
 
 ```sh
 dfr stack main..feature
@@ -121,16 +99,11 @@ callers. Then read one exemplar per shape in `[skim 1/2]`. Then skip `[skim 2/2]
 `[noise]` on their subject lines alone. Every hunk in them repeats a shape you already
 checked.
 
-The stack never touches your worktree, your index, or your branches. It is built with git
-plumbing and lands one ref.
-
 Full detail: [`crates/stack/README.md`](https://github.com/thepartly/differential/blob/main/crates/stack/README.md).
 
 ## What it does that a diff viewer does not
 
-Five things. The first two need no model at all.
-
-### A floor that needs no model
+### The echo filter, as the floor
 
 Every hunk gets a **shape class**: its diff text hashed after the parts that vary are
 normalised away. Strings become `"S"`, numbers become `N`, identifiers of four characters
@@ -149,81 +122,78 @@ or more become `I`, and runs of whitespace collapse to one space.
 Any other hunk that reduces to those two lines is the same shape. **One signature change
 reaching two hundred call sites is one class.** Both the removed and the added side are
 hashed, each side sorted, so a deletion-only hunk cannot collapse into the same class as
-everything else that deletes (ADR 0004).
+everything else that deletes.
 
-This is regex, not a parser, and deliberately. Every hunk in every file needs a class — a
-lockfile, a translation catalogue, a language nobody has written a grammar for. **Coverage
-is 100% by construction**, and no model is involved. It is the floor, and it holds on its
-own.
+This is regex, not a parser, and deliberately so. It does not pay off on every diff. But it
+is cheap, it needs no model, and on the diffs that do echo it removes a great deal. That is
+why it is the floor.
 
 ### It works out what depends on what
 
-The engine builds a **class dependency graph** — definitions to uses — **from the classes,
-before the model runs** (ADR 0022). So it is a fact about the diff, not about the grouping,
-and the model cannot change what depends on what.
+The engine builds a **symbol dependency graph** from the AST. It is a cheap way to work out
+what leans on what. The graph is a fact about the diff, not about the grouping, so the model
+cannot change what depends on what.
 
 The ordering stage then contracts that graph onto groups and sorts them foundation-first,
-so you meet an abstraction before its consumers. The failure it fixes was measured: in the
-model's own order, the group introducing the trait everything else consumed landed **9th of
-13**.
+so you meet an abstraction before its consumers.
 
-Each edge carries `via`, the symbol that produced it, so you can judge the edge rather than
-trust it. Each group gets a role from its edges: `foundation`, `consumer`, `mechanical` or
+Each group gets a role from its edges: `foundation`, `consumer`, `mechanical` or
 `noise`. A cycle is reported, never hidden.
 
 Full rules: [`spec/ordering.md`](https://github.com/thepartly/differential/blob/main/spec/ordering.md).
 
-### The model raises the ceiling
+### LLM semantic grouping, as the ceiling
 
-The LLM merges and labels **class ids, never hunks** (ADR 0001). It never sees or names a
-hunk, so it cannot drop one. The alternative was measured and rejected: asked to assign
-hunks to groups directly, a model silently dropped up to **~73%** of them on large refactors
-while reporting success.
+The LLM merges and labels **class ids, never hunks**. There are far fewer classes than
+hunks, so the call stays small and fast.
 
-It reads the same graph you do. The engine writes the pre-group document to disk and the
-model fetches its own context with `dfr agent --doc <path>` — one command, one answer —
-which prints every class with its `defines:`, `uses:` and `used by:` lines (ADR 0022).
+It reads the same graph you do. The mechanical layer hands it every shape class with its
+`defines:`, `uses:` and `used by:` lines. From there the model is free to open the files it
+wants, or to group on the paths alone.
 
-If it omits a class id, an audit catches that and back-fills the class into a group that
-must be read. The answer is cached by content, so a second run on the same range is
-deterministic and free.
+The answer is cached by content, so a second run on the same range is deterministic and free.
 
 Full rules: [`spec/grouping.md`](https://github.com/thepartly/differential/blob/main/spec/grouping.md).
 
 ### A symbol says what declares it
 
-Stand on a code row and every name on it the change declares is underlined. Press `z` and a
-float opens over the declaration:
+Stand on a code row and every reference the change can resolve is underlined. Press `z` and
+a float opens showing where it is declared:
 
 ```
-tokenise · crates/engine/src/shape.rs:88 · C12 · g2
+ shape_hash · crates/engine/src/shape.rs:61 · C12 · g2
+ 61 │ pub fn shape_hash(
+ 62 │     hunk: &Hunk,
+ 63 │     disposition_letter: u8,
+ 64 │     generated: bool,
+ 65 │     lang: &dyn Language,
+ 66 │ ) -> String {
 ```
 
-It shows the declaration's own lines, syntax-highlighted, with their own line numbers. A
-line the change wrote takes the addition colour; a line that was already there takes none.
-`z` again steps to the next symbol on the row, left to right; past the last one it closes.
-It never covers the row it is about.
+The float carries the declaration's own lines, syntax-highlighted, with their own line
+numbers. Its title says which shape class wrote it and which group that class landed in, so
+the next move — go and read `g2` first — is on the screen already.
 
-Only what the change itself declares can be resolved, so a call into an untouched helper
-lights nothing. What it can resolve, it resolves on any line it draws — context included.
+### Designed for incremental review
+
+`differential` is built for local iteration, and nobody wants to re-read a hunk they have
+already read. A review is filed under its base, and a reviewed mark keys on the hunk's own
+content. So when a new commit lands, the review carries forward: what you had marked stays
+marked, and your findings re-anchor themselves.
 
 ### A pull request, reviewed where you are
 
 ```sh
 dfr review --pr 123      # a GitHub pull request
 dfr review --mr 123      # a GitLab merge request
-dfr review --pr          # the current branch's, asked of the tool
+dfr review --pr          # the current branch's request
 ```
 
-The request's review threads render under their lines, author and date on each, replies
-stepped in. `r` replies to a thread. `x` resolves or reopens it, on the forge, at once. `P`
-publishes your open findings back as one review, after showing what would go and what would
-stay and why. `c` and `dd` edit and delete your own comments; on anyone else's they say
-`not your comment`.
+The request's review threads render under their lines, author and date on each. You can reply, comment, resolve or reopen them.
 
-There is **no token, no hostname and no HTTP client**. It runs `gh` or `glab`, which must be
-installed and logged in (ADR 0029). A publish is idempotent by a hidden marker, so a publish
-whose answer never came back heals on the next one.
+It runs `gh` or `glab`, which must be installed and logged in. Publishing is idempotent:
+every comment carries a hidden marker, so a publish whose answer never came back heals on
+the next one.
 
 The review is filed under the request itself, so a force-push reopens the same review rather
 than starting a new one.
@@ -251,19 +221,13 @@ document reports the two separately:
 - `read_hunks` — focus hunks, plus one exemplar per skim class.
 - `skipped_hunks` — skim remainders, plus folded noise.
 
-`skipped_hunks` is the saving. `read_hunks` is not. On the validation range, 283 hunks were
-77 focus plus 126 exemplars plus 80 remainder — a genuine saving of **28%**, not 73%.
+`skipped_hunks` is the saving. `read_hunks` is not.
 
 ## Themes
 
-Eleven palettes: `dark` (the default), `one-dark`, `one-light`, `gruvbox-dark`,
+Eleven palettes ship with it: `dark` (the default), `one-dark`, `one-light`, `gruvbox-dark`,
 `gruvbox-light`, `solarized-dark`, `solarized-light`, `catppuccin-mocha`,
 `catppuccin-latte`, `dracula` and `monokai`.
-
-A theme is a name, not a colour list. Each is derived from one seed — a syntax theme plus
-six declared accents, with thirty-odd more colours mixed against the syntax theme's ground —
-so the chrome and the code cannot disagree (ADR 0024). It is a user setting only: a theme in
-the repository's config file is rejected, because a palette is the reader's choice.
 
 **[Screenshots of all eleven](https://github.com/thepartly/differential/blob/main/docs/cli.md#themes)** — the same change in the same reviewer,
 only the palette differs.
@@ -288,13 +252,12 @@ Full reference, every flag and every default: [`docs/cli.md`](https://github.com
 ## Languages
 
 Every file is read and every hunk is counted, whatever the language — that never depends on
-a parser. What a parser buys is the **reading order**: which change to open before which.
+a parser. What a parser buys is **accuracy in the dependency graph**: which change to open
+before which.
 
-Rust, TypeScript, Python, Go and Kotlin get the most precise ordering. JavaScript, Java, C,
-C++ and C# follow. Seventeen more are read by a regex, and anything else contributes no
-dependency edges — it is still enumerated, classified and read.
+Rust, TypeScript, Python, Go and Kotlin get the most precise ordering.
 
-Full table, and what each rung costs:
+See the full language coverage tables:
 [`crates/symbols/README.md`](https://github.com/thepartly/differential/blob/main/crates/symbols/README.md).
 
 ## Embedding it
@@ -320,23 +283,17 @@ let out = run_pipeline(&repo, &src, &config,
 `run_grouped_pipeline` adds the model stage, with the backend, the cache and the progress
 sink all injected — composition is the caller's job.
 
-The JSON plan document is the contract every renderer reads. It is frozen at
-`schema_version` 3, additive changes only. Ids are document-local and positional;
-`hunks[].digest` is the stable anchor that survives regeneration.
-
 Full surface: [`crates/engine/README.md`](https://github.com/thepartly/differential/blob/main/crates/engine/README.md) and
 [`spec/consumers.md`](https://github.com/thepartly/differential/blob/main/spec/consumers.md).
 
 ## Config
 
-Config is optional, and **it never removes a file or a hunk from analysis**. It tunes
-classification hints and tool behaviour only. Every invariant depends on that.
-
-Two files, split by who owns the setting:
+Config is optional. There are two config files, split by who owns the setting:
 
 - **`.differential.toml`** at the repository root — classification hints only, shared by
-  everyone reviewing the repo. Which globs count as generated, and which never do.
-- **`~/.config/differential/config.toml`** — yours. Which agent to run, which theme to wear,
+  everyone reviewing the repo. Which globs count as generated, and which never do. It
+  honours GitHub's and GitLab's generated-file attributes by default.
+- **`~/.config/differential/config.toml`** — personal. Which agent to run, which theme to wear,
   how much context the reviewer shows, and which diff layout it opens in.
 
 A missing file means defaults. A malformed file, or an unknown key, is a hard error.
@@ -355,21 +312,10 @@ Five, by name. `dfr agents` lists them and says which are on your PATH.
 | `droid` | `droid` | its own default; we pass no flag that lifts it | **no** |
 | `copilot` | `copilot` | a tool allowlist, plus an explicit `--deny-tool write` | **no** |
 
-**The last column is not a formality.** Every command line here was written from its
-agent's documentation, and a test can check the string this repo builds but never that the
-real CLI accepts it. Three have now been run. **Two of those three were broken** — Claude
-Code's allowlist did not bind without `--permission-mode default`, and Codex was being
-passed `--ask-for-approval`, which its `exec` subcommand rejects outright. Both errors came
-from docs that were right about the product and wrong about the subcommand.
-
-So treat `droid` and `copilot` as probably wrong rather than merely unconfirmed. If you have
-one, `dfr agents --probe <name>` settles it in one call — and a passing run is the evidence
-for promoting it.
-
 **Read that last row before choosing it.** Pi ships no sandbox and no per-command
 allowlist, and its tool switch is all-or-nothing: the shell tool the model needs to read
 your diff is the same one that lets it write. Only the prompt asks it not to. Every other
-agent is stopped by something. ADR 0033 records why Pi is offered anyway.
+agent is stopped by something.
 
 ```sh
 dfr agents                 # free: what is installed, and what is configured
@@ -398,22 +344,9 @@ Dependency direction is strict: `cli → {tui, stack} → engine`.
 
 ## Status
 
-Shipped: the full pipeline, the review TUI (`dfr review`) with findings that survive
-regeneration, and the shadow-branch renderer (`dfr stack`).
-
-Shipped, first cut: reviewing a GitHub pull request or a GitLab merge request in place —
-`dfr review --pr 123` / `--mr 123` shows the request's review threads under their lines,
-`P` publishes the open findings back as one review, `x` resolves a thread. It runs `gh` or
-`glab`, which must be installed and logged in ([spec/forge.md](https://github.com/thepartly/differential/blob/main/spec/forge.md)). GitLab is
+`differential` is still in active development. The pipeline, the reviewer and the commit
+stack are shipped; reviewing a pull or merge request in place is a first cut, and GitLab is
 not yet verified against a live instance.
-
-## Name
-
-> A differential is a gear system in vehicles that lets driven wheels rotate at different
-> speeds while still receiving power from the engine.
-
-The word already contains "diff", and the gear is the arrangement: each group is read at
-its own speed, and every hunk is still carried.
 
 ## Learn more
 
