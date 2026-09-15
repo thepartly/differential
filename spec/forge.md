@@ -244,18 +244,19 @@ line is `type: old`, `<sha>_<old>_<newpos>`, with `old_line` only; an **unchange
 `type: expanded`, `<sha>_<old>_<new>`, with both numbers and both `*_line` fields. This is
 confirmed against the web UI's captured requests, added side and deleted side alike.
 
-Two limits remain, until the adapter has met a live instance: a **position recorded against
+Two edges are known and neither has bitten in daily use: a **position recorded against
 another head is outdated** and counted rather than drawn, because the REST answer carries no
 diff text to place it by; and a **publish that fails part-way** may leave draft notes on the
 request, because GitLab has no batch create — the next publish does not know them, so they
-are cleared by hand. The
+would be cleared by hand. Both stay recorded because the code still allows them, not because
+they have been seen. The
 **three-line diff check is GitHub's** and is not applied here: GitLab positions a note by
 `old_line` / `new_line` against the request's diff refs, an unchanged line carries both
 numbers (the other side's computed from the hunks before it), and any line of the file is
-sent. Whether GitLab accepts every such line is unmeasured; a refusal comes back as the
+sent. No line has been refused in daily use; were one refused, it would come back as the
 tool's own error. The GitHub
-table above is verified against a live request; this one is written from the API
-reference and pinned by tests on the shapes it expects.
+table above is verified against a live request; this one was written from the API reference,
+is pinned by tests on the shapes it expects, and is now carried by daily use.
 
 ## Later
 
@@ -269,5 +270,6 @@ flag the defaults do not give. Reactions are not planned.
 Implemented: the engine types and trait, both adapters, `--pr` and `--mr`, threads in the
 reviewer, replies, resolve, publish, edit and delete of the reader's own comments, and the
 findings list with threads. Verified live on GitHub: reading a request and its threads, and
-one publish. Not verified live: editing and deleting on GitHub, `gh api user`, and anything
-GitLab.
+one publish. **Verified live on GitLab by daily use**: reading a request and its threads,
+replying, resolving and publishing. Not verified live: editing and deleting on GitHub, and
+`gh api user`.

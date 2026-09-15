@@ -345,8 +345,8 @@ Dependency direction is strict: `cli → {tui, stack} → engine`.
 ## Status
 
 `differential` is still in active development. The pipeline, the reviewer and the commit
-stack are shipped; reviewing a pull or merge request in place is a first cut, and GitLab is
-not yet verified against a live instance.
+stack are shipped, and so is reviewing a GitHub pull request or a GitLab merge request in
+place.
 
 ## Learn more
 
