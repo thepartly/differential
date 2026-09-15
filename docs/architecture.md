@@ -197,7 +197,7 @@ orphan is listed, never silently dropped. See
 | [`crates/symbols`](../crates/symbols) | The symbol readers: tree-sitter with tuned queries, tree-sitter with generic field rules, and a regex floor. Depends on the engine, never the reverse. |
 | [`crates/stack`](../crates/stack/README.md) | The shadow-branch renderer. The diff as a synthetic commit stack. |
 | [`crates/tui`](../crates/tui/README.md) | The terminal reviewer. Vendored `tuicr` and `lumen` pieces live here. |
-| [`crates/cli`](../crates/cli/README.md) | The application layer: the `dfr` and `differential` binaries. Argument parsing and dispatch only. |
+| [`crates/cli`](cli.md) | The application layer: the `dfr` and `differential` binaries. Argument parsing and dispatch only. |
 | `crates/testutil` | Shared test fixtures. `publish = false`. |
 
 Inside the engine, four module boundaries carry weight:
