@@ -158,7 +158,7 @@ Full rules: [`spec/grouping.md`](https://github.com/thepartly/differential/blob/
 ### A symbol says what declares it
 
 Stand on a code row and every reference the change can resolve is underlined. Press `z` and
-a float opens showing where it is declared:
+a **peek modal** opens showing where it is declared:
 
 ```
  shape_hash · crates/engine/src/shape.rs:61 · C12 · g2
@@ -170,7 +170,7 @@ a float opens showing where it is declared:
  66 │ ) -> String {
 ```
 
-The float carries the declaration's own lines, syntax-highlighted, with their own line
+The modal carries the declaration's own lines, syntax-highlighted, with their own line
 numbers. Its title says which shape class wrote it and which group that class landed in, so
 the next move — go and read `g2` first — is on the screen already.
 
@@ -252,8 +252,9 @@ Full reference, every flag and every default: [`docs/cli.md`](https://github.com
 ## Languages
 
 Every file is read and every hunk is counted, whatever the language — that never depends on
-a parser. What a parser buys is **accuracy in the dependency graph**: which change to open
-before which.
+a parser. What a parser buys is the **symbols**. They pay for two things: accuracy in the
+dependency graph, which decides what to read before what, and the peek modal, which can only
+show a declaration a parser found.
 
 Rust, TypeScript, Python, Go and Kotlin get the most precise ordering.
 
@@ -344,9 +345,7 @@ Dependency direction is strict: `cli → {tui, stack} → engine`.
 
 ## Status
 
-`differential` is still in active development. The pipeline, the reviewer and the commit
-stack are shipped, and so is reviewing a GitHub pull request or a GitLab merge request in
-place.
+`differential` is still in active development.
 
 ## Learn more
 
