@@ -182,9 +182,9 @@ line itself previewed under it and the word marked.
 
 ```
  reading_split                                      28 found
- ▸ crates/engine/src/plan/tiers.rs:118        g2 focus C12
-   crates/tui/src/rows.rs:791                 g2 focus C31
-   crates/stack/src/lib.rs:44                    g5 skim
+  crates/engine/src/plan/tiers.rs:118         g2 focus C12
+  crates/tui/src/rows.rs:791                  g2 focus C31
+  crates/stack/src/lib.rs:44                     g5 skim
 ```
 
 Each row says which group reads the line, at what tier, and which shape class the hunk

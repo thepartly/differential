@@ -474,7 +474,6 @@ impl App {
     ) -> Vec<Line<'static>> {
         let dim = Style::default().fg(self.theme.gutter_fg);
         let text = Style::default().fg(self.theme.context_fg);
-        let accent = Style::default().fg(self.theme.header_fg);
 
         if s.entries.is_empty() {
             let words = if s.query().is_empty() {
@@ -496,7 +495,16 @@ impl App {
             .map(|(_, e)| UnicodeWidthStr::width(e.badge.as_str()))
             .max()
             .unwrap_or(0);
-        let room = inner_w.saturating_sub(badge_col + 5);
+        // The lead the findings list uses, and no cursor glyph: the selected
+        // row is a band edge to edge, which says it once. A `▸` would have
+        // said it twice, and it already means a FOLDED DIRECTORY in the group
+        // map — one glyph, two meanings, on one screen.
+        const LEAD: usize = 2;
+        const GAP: usize = 2;
+        // Exactly what is left: the lead, the path padded to `room`, the gap,
+        // and the badge hard against the border, where the hit count sits one
+        // row down.
+        let room = inner_w.saturating_sub(badge_col + LEAD + GAP);
 
         let mut lines: Vec<Line> = shown()
             .map(|(i, e)| {
@@ -517,9 +525,9 @@ impl App {
                 let at = elide_head(&format!("{}:{}", e.path, e.line), room);
                 let pad = room.saturating_sub(UnicodeWidthStr::width(at.as_str()));
                 let mut line = Line::from(vec![
-                    Span::styled(if on { " ▸ " } else { "   " }.to_string(), bg(accent)),
+                    Span::styled(" ".repeat(LEAD), bg(dim)),
                     Span::styled(at, style),
-                    Span::styled(" ".repeat(pad + 2), bg(dim)),
+                    Span::styled(" ".repeat(pad + GAP), bg(dim)),
                     Span::styled(e.badge.clone(), bg(dim)),
                 ]);
                 if on {
