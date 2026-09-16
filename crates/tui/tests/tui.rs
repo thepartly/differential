@@ -8639,6 +8639,39 @@ fn the_reading_survives_a_close() {
     );
 }
 
+/// The caret is a CHARACTER index and the window is a COLUMN count, and the
+/// two are the same number only until the query holds a wide character.
+#[test]
+fn the_caret_lands_on_its_character_in_a_wide_query() {
+    let (_r, mut app) = make_app();
+    sized(&mut app);
+    app.handle_key(key('/'));
+    for c in "\u{3042}\u{3044}x".chars() {
+        app.handle_key(key(c));
+    }
+    // Two characters back from the end: the caret sits on the second kana,
+    // which is at column 2 and char 1.
+    app.handle_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
+    app.handle_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
+    let area = search_modal_area(layout(SCREEN).body);
+    let inner = pane_inner(area);
+    let buf = buffer_of(&app);
+    let reversed: String = (inner.x..inner.right())
+        .filter(|x| {
+            buf[(*x, inner.y)]
+                .style()
+                .add_modifier
+                .contains(ratatui::style::Modifier::REVERSED)
+        })
+        .map(|x| buf[(x, inner.y)].symbol().to_string())
+        .collect();
+    assert_eq!(
+        reversed.trim(),
+        "\u{3044}",
+        "the caret is on the character it indexes, not on the one at that column"
+    );
+}
+
 #[test]
 fn the_query_row_carries_no_lead_character() {
     let (_r, mut app) = make_app();

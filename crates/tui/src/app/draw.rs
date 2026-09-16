@@ -11,14 +11,15 @@ use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
-use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+use unicode_width::UnicodeWidthStr;
 
 use differential_engine::plan::{self, LineCounts};
 
 use crate::rows::{Border, Fill, Gutter, Half, RowKind};
 use crate::theme::Theme;
 use crate::vendor::text_utils::{
-    drop_columns, slice_pairs, split_pairs_at_ranges, truncate_or_pad_spans, wrap_pairs,
+    drop_columns, slice_pairs, split_pairs_at_ranges, take_columns, truncate_or_pad_spans,
+    wrap_pairs,
 };
 
 use super::text::{
@@ -410,39 +411,39 @@ impl App {
         // pill's own width: what is left is what the query is drawn in, and
         // what it scrolls sideways against.
         let room = inner_w.saturating_sub(badge_w + 3);
-        let scroll = s.input.visual_scroll(room);
-        let caret = s.input.visual_cursor().saturating_sub(scroll);
-        let shown: String = s
-            .query()
-            .chars()
-            .scan(0usize, |at, c| {
-                let col = *at;
-                *at += UnicodeWidthChar::width(c).unwrap_or(0);
-                Some((col, c))
-            })
-            .filter(|(col, _)| *col >= scroll && *col < scroll + room)
-            .map(|(_, c)| c)
-            .collect();
 
-        let mut row = vec![Span::styled(" ", dim)];
-        // Split at the caret so the character under it is drawn reversed.
-        let (before, under) = match shown.char_indices().nth(caret) {
-            Some((i, c)) => (&shown[..i], Some(c)),
-            None => (shown.as_str(), None),
-        };
-        row.push(Span::styled(before.to_string(), typed));
-        match under {
+        // Split at the caret first, on the WHOLE query and by char index,
+        // which is what `Input::cursor` counts. Doing it after the window was
+        // cut meant splitting a display column count on a char boundary, and
+        // the two are the same number only until the query holds a wide
+        // character.
+        let value = s.query();
+        let cut = value
+            .char_indices()
+            .nth(s.input.cursor())
+            .map_or(value.len(), |(i, _)| i);
+        let (before, rest) = value.split_at(cut);
+        let mut pairs = vec![(typed, before.to_string())];
+        match rest.chars().next() {
+            // The caret is drawn ON the character it sits on, reversed, so a
+            // caret inside a word reads as a caret and not as a gap in it.
             Some(c) => {
-                row.push(Span::styled(
-                    c.to_string(),
-                    typed.add_modifier(Modifier::REVERSED),
-                ));
-                let rest: String = shown.chars().skip(caret + 1).collect();
-                row.push(Span::styled(rest, typed));
+                pairs.push((typed.add_modifier(Modifier::REVERSED), c.to_string()));
+                pairs.push((typed, rest[c.len_utf8()..].to_string()));
             }
             // Past the last character, so the caret is a block of its own.
-            None => row.push(Span::styled("▏".to_string(), accent)),
+            None => pairs.push((accent, "▏".to_string())),
         }
+
+        // The window, in display columns both ends, from the pair the diff
+        // pane's own sideways shift is cut with.
+        let mut row = vec![Span::styled(" ", dim)];
+        let scrolled = drop_columns(&pairs, s.input.visual_scroll(room));
+        row.extend(
+            take_columns(&scrolled, room)
+                .into_iter()
+                .map(|(st, t)| Span::styled(t, st)),
+        );
 
         if !badge.is_empty() {
             let used: usize = row
@@ -483,9 +484,10 @@ impl App {
             } else {
                 "no occurrence of that"
             };
-            let mut lines = vec![Line::from(Span::styled(format!("  {words}"), dim))];
-            lines.resize(rows.max(1), Line::from(""));
-            return lines;
+            return pad_rows(
+                vec![Line::from(Span::styled(format!("  {words}"), dim))],
+                rows,
+            );
         }
 
         // The badges are right-aligned so the paths line up on the left, where
@@ -506,7 +508,7 @@ impl App {
         // row down.
         let room = inner_w.saturating_sub(badge_col + LEAD + GAP);
 
-        let mut lines: Vec<Line> = shown()
+        let lines: Vec<Line> = shown()
             .map(|(i, e)| {
                 let on = i == s.selected;
                 let mut style = text;
@@ -536,8 +538,7 @@ impl App {
                 line
             })
             .collect();
-        lines.resize(rows.max(lines.len()), Line::from(""));
-        lines
+        pad_rows(lines, rows)
     }
 
     /// The selected hit's line and its neighbours, in the pane's own language:
@@ -2722,6 +2723,16 @@ pub fn file_list_modal_area(body: Rect, entries: &[FileListEntry]) -> Rect {
     // a path worth reading.
     let width = (lead + widest + 2).max(70).min(body.width as usize) as u16;
     centered_rect(body, width, height)
+}
+
+/// Blank rows out to `rows`, so a box that holds fewer draws the same height.
+///
+/// Never shorter than what it is given: the list is windowed before it gets
+/// here, and cutting a row it decided to show would be this function quietly
+/// overruling that.
+fn pad_rows(mut lines: Vec<Line<'static>>, rows: usize) -> Vec<Line<'static>> {
+    lines.resize(rows.max(lines.len()), Line::from(""));
+    lines
 }
 
 /// The search box: a fixed size, centred on the body and clamped to it.

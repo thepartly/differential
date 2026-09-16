@@ -600,10 +600,14 @@ impl App {
                 continue;
             };
             // The file's hunks once, with the group each one landed in.
-            let hunks: Vec<Hunk> = plan
-                .files
-                .iter()
-                .find(|v| v.path == f.path)
+            //
+            // Through `file_index`, which the model already holds: finding the
+            // projection's entry by comparing paths was a scan per file, and
+            // a scan per file over the file list is the whole corpus squared.
+            let hunks: Vec<Hunk> = self
+                .file_index
+                .get(f.path.as_str())
+                .and_then(|i| plan.files.get(*i))
                 .map(|v| {
                     v.hunks
                         .iter()
