@@ -147,6 +147,19 @@ pub(super) struct Seed {
     /// The middle effort tier. Focus takes `del` and noise is derived, so this
     /// is the only tier with an ink of its own.
     pub skim: Rgb,
+    /// The palette's own attention colour: its yellow, at FILL strength.
+    ///
+    /// What a search hit is painted with today, and the seed anything else
+    /// that has to say *this is the thing you asked for* derives from.
+    ///
+    /// A sixth accent rather than a derivation of `skim`, which is the same
+    /// hue in every palette — because the two have opposite jobs. `skim` is an
+    /// INK and has to read on the ground, which on a light theme makes it a
+    /// dark brown; this is a FILL that the ground's own ink has to read on,
+    /// which on the same theme makes it a bright amber. One value cannot be
+    /// both, and `reviewed_fg`'s lesson was about a field whose eleven values
+    /// were identical to another's, not about a field with its own job.
+    pub highlight: Rgb,
     pub finding: Rgb,
 }
 
@@ -254,6 +267,18 @@ pub struct Theme {
     pub add_fg: Color,
     pub del_fg: Color,
     pub finding_fg: Color,
+    /// A search hit, in the box `/` opens: the palette's `highlight` accent
+    /// as a filled block, with whichever of its extremes reads on it.
+    ///
+    /// A fill rather than the underline the symbol float marks with, and the
+    /// two are marking different things: a symbol mark says "there is
+    /// something here to ask about" on a row the reader is already reading,
+    /// where this says "this is the thing you went looking for". It can be a
+    /// background here and not there because nothing in this box goes through
+    /// `step_band`, which dispatches on colour VALUES and is what a new
+    /// background in the diff pane would have to be told apart by.
+    pub highlight_bg: Color,
+    pub highlight_fg: Color,
     pub status_bg: Color,
     /// Built from the same syntect theme the colours above were derived from,
     /// so the code and the chrome can never be two palettes.
@@ -589,6 +614,19 @@ fn derive(seed: &Seed, syntect: syntect::highlighting::Theme) -> Theme {
         add_fg: color(add),
         del_fg: color(del),
         finding_fg: color(seed.finding),
+        highlight_bg: color(seed.highlight),
+        // Reversed out of the fill, by the same rule the cursor's gutter ink
+        // is chosen: the palette's own extremes first, and a near-white or a
+        // near-black pulled towards the ground when neither is enough. A
+        // highlight has to be readable before it has to be tasteful.
+        highlight_fg: color(
+            [fg, bg, mix(bg, WHITE, 0.94), mix(bg, BLACK, 0.94)]
+                .into_iter()
+                .max_by(|a, b| {
+                    contrast(*a, seed.highlight).total_cmp(&contrast(*b, seed.highlight))
+                })
+                .expect("four candidates"),
+        ),
         status_bg: q(fg, 0.93),
         highlighter: Arc::new(SyntaxHighlighter::with_theme(
             syntect,
@@ -832,6 +870,69 @@ mod tests {
                 let got = contrast(must_rgb(c), bg);
                 if got < want {
                     bad.push(format!("{name:?}.{what}: {got:.2}:1, want {want:.2}:1"));
+                }
+            }
+        }
+        assert!(bad.is_empty(), "{}", bad.join("\n"));
+    }
+
+    /// A search hit is the one fill in this reviewer, so it is held to the
+    /// two things a fill has to be: readable, and not mistakable for anything
+    /// else the palette says.
+    ///
+    /// The absolute 4.5:1 rather than the theme's own ceiling, because the ink
+    /// on it is chosen from four candidates rather than being the theme's
+    /// foreground — a fill that cannot clear AA with a near-black available is
+    /// a fill that was picked wrong.
+    #[test]
+    fn a_search_hit_is_readable_and_unmistakable() {
+        let mut bad = Vec::new();
+        for name in ALL {
+            let t = Theme::named(name);
+            let seed = seed(name);
+            let fill = must_rgb(t.highlight_bg);
+            let ink = must_rgb(t.highlight_fg);
+
+            let got = contrast(ink, fill);
+            if got < 4.5 {
+                bad.push(format!(
+                    "{name:?}: ink on the fill is {got:.2}:1, want 4.50:1"
+                ));
+            }
+            // It has to read as a BLOCK, and what makes it one is CHROMA, not
+            // luminance — the same lesson `a_semantic_ink_is_tellable_from_
+            // ordinary_text` records, and it bites harder here. A light theme's
+            // ground is near-white, so a yellow that clears 3:1 against it is a
+            // dark brown, which is `skim` again and not a highlight at all.
+            // Every editor's yellow-on-white search mark is low-contrast and
+            // perfectly visible, because a saturated hue on a neutral ground is
+            // not a lightness difference.
+            let ch = chroma(fill);
+            if ch < 0.10 {
+                bad.push(format!(
+                    "{name:?}: the fill's chroma is {ch:.3}, want 0.100"
+                ));
+            }
+            // And it must not BE the ground: a fill the same colour as what it
+            // sits on is no fill.
+            let apart = (lightness(fill) - lightness(must_rgb(t.bg))).abs();
+            if apart < 0.05 && (ch - chroma(must_rgb(t.bg))).abs() < 0.10 {
+                bad.push(format!(
+                    "{name:?}: the fill is the ground, {apart:.3} apart"
+                ));
+            }
+            // And it has to be its own colour. A fill the reader has already
+            // learned as "skim" or "an addition" says the wrong thing before
+            // they read a character of it.
+            for (what, other) in [
+                ("skim", seed.skim),
+                ("add", seed.add),
+                ("del", seed.del),
+                ("accent", seed.accent),
+                ("finding", seed.finding),
+            ] {
+                if fill == other {
+                    bad.push(format!("{name:?}: the fill IS {what}"));
                 }
             }
         }

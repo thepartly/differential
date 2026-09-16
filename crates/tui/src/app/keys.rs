@@ -12,7 +12,7 @@ use crate::rows::RowKind;
 use super::draw::{
     centered_x, composer_area, composer_footer, delete_comment_area, delete_comment_footer,
     file_list_modal_area, findings_modal_area, findings_question, footer_fits, footer_row,
-    pane_inner, publish_area, publish_footer,
+    pane_inner, publish_area, publish_footer, search_modal_area,
 };
 use super::text::{
     Hint, basename, file_list_rows, findings_entry_at_line, findings_rows, findings_skip, hint_at,
@@ -73,8 +73,12 @@ impl App {
     /// Only the composer takes it: in normal mode there is no text field for
     /// it to land in, and a paste there is a mis-aimed one.
     pub fn handle_paste(&mut self, text: &str) {
-        if let Mode::Editing { editor, .. } = &mut self.mode {
-            editor.insert_str(text);
+        match &mut self.mode {
+            Mode::Editing { editor, .. } => {
+                editor.insert_str(text);
+            }
+            Mode::Search(_) => self.search_paste(text),
+            _ => {}
         }
     }
 
@@ -251,6 +255,19 @@ impl App {
                     }
                 }
             }
+            Mode::Search(_) => {
+                if step != 0 {
+                    self.search_wheel(step > 0);
+                } else if click {
+                    // Which row of the box is a row of the LIST is the search
+                    // module's rule, not this one's. Here there are two cases:
+                    // a click inside the box, and one outside it.
+                    match content_line(search_modal_area(panes.body), at) {
+                        Some(line) => self.search_click(line),
+                        None => self.close_search(),
+                    }
+                }
+            }
             Mode::Normal => {
                 // The symbol float is a map too, and unlike the other two it
                 // appears in every view — so its guard is not inside the
@@ -339,6 +356,10 @@ impl App {
                 let lines = self.delete_comment_lines(own).len();
                 let area = delete_comment_area(panes.body, lines);
                 float_footer_presses(&delete_comment_footer(), area, lines, at)
+            }
+            Mode::Search(_) => {
+                let area = search_modal_area(panes.body);
+                footer_presses(&self.modal_footer(), footer_row(area), false, at)
             }
             Mode::Findings {
                 entries,
@@ -441,6 +462,10 @@ impl App {
                         step_list(selected, scroll, entries.len(), rows, false);
                     }
                     KeyCode::Enter => self.jump_to_listed_file(),
+                    // `/` reaches the search from here too: it is a key of
+                    // the review rather than of a pane, and a reader who has
+                    // opened the wrong list should not have to close it first.
+                    KeyCode::Char('/') => self.open_search(),
                     KeyCode::Esc | KeyCode::Char('f') | KeyCode::Char('q') => {
                         self.mode = Mode::Normal;
                     }
@@ -522,6 +547,7 @@ impl App {
                         self.offer_publish();
                     }
                     (KeyCode::Enter, _) => self.jump_to_listed_finding(),
+                    (KeyCode::Char('/'), _) => self.open_search(),
                     (KeyCode::Esc, _) | (KeyCode::Char('F'), _) | (KeyCode::Char('q'), _) => {
                         self.mode = Mode::Normal;
                     }
@@ -642,6 +668,12 @@ impl App {
                         return Vec::new();
                     }
                 }
+            }
+            // Every printable key types, which is why this arm takes the
+            // whole event and why `?` is a character here and not help.
+            Mode::Search(_) => {
+                self.search_key(key);
+                return Vec::new();
             }
             Mode::Normal => {}
         }
@@ -771,6 +803,11 @@ impl App {
             // Every finding at once, from either pane. It is a fact about the
             // review rather than about a pane, unlike `f`.
             (KeyCode::Char('F'), _) => self.open_findings(),
+            // And so is a word. `/` is the one key in this reviewer that does
+            // NOT act on the pane it is pressed in: what a name is and where
+            // it lives is a fact about the branch, and the reader asking has
+            // by definition not found the pane it is in yet.
+            (KeyCode::Char('/'), _) => self.open_search(),
             (KeyCode::Char('f'), KeyModifiers::NONE) => match self.focus {
                 Focus::Groups => self.toggle_file_view(),
                 Focus::Detail => self.open_file_list(),

@@ -18,12 +18,14 @@ use differential_engine::plan::{self, LineCounts};
 use crate::rows::{Border, Fill, Gutter, Half, RowKind};
 use crate::theme::Theme;
 use crate::vendor::text_utils::{
-    drop_columns, slice_pairs, split_pairs_at_ranges, truncate_or_pad_spans, wrap_pairs,
+    drop_columns, slice_pairs, split_pairs_at_ranges, take_columns, truncate_or_pad_spans,
+    wrap_pairs,
 };
 
 use super::text::{
-    Hint, Ink, basename, counts_columns, elide_head, file_list_rows, findings_rows, findings_skip,
-    joined, pad_to_width, plain, truncate_width,
+    Hint, Ink, SEARCH_BOX_ROWS, basename, counts_columns, elide_head, file_list_rows,
+    findings_rows, findings_skip, joined, pad_to_width, plain, search_list_rows,
+    search_preview_rows, truncate_width,
 };
 use super::*;
 use crossterm::event::KeyCode;
@@ -314,8 +316,295 @@ impl App {
                     area,
                 );
             }
+            Mode::Search(s) => self.draw_search(frame, panes.body, s),
             Mode::Normal => {}
         }
+    }
+
+    /// The search box: the query, the ranked occurrences, and the selected
+    /// one previewed under them with every hit on the shown lines marked.
+    ///
+    /// The list above and the preview below, rather than side by side: a line
+    /// of code cut in half is a line nobody can read, and the list's rows are
+    /// short.
+    fn draw_search(&self, frame: &mut Frame, body: Rect, s: &super::Search) {
+        let area = search_modal_area(body);
+        let inner_w = usize::from(area.width.saturating_sub(2));
+        let body_rows = usize::from(body.height);
+        let dim = Style::default().fg(self.theme.gutter_fg);
+
+        let mut lines = vec![self.search_query_line(s, inner_w)];
+        lines.extend(self.search_list_lines(s, inner_w, search_list_rows(body_rows)));
+        // The rule between the two halves, so the preview reads as an answer
+        // to the row above it rather than as more list.
+        lines.push(Line::from(Span::styled("─".repeat(inner_w), dim)));
+        lines.extend(self.search_preview_lines(s, inner_w, search_preview_rows(body_rows)));
+
+        let found = match s.entries.len() {
+            // A pattern that does not compile finds nothing, and so does a
+            // word nothing holds. Saying which is the difference between a
+            // typo the reader can fix and an answer they should believe.
+            0 if s.bad_regexp() => " bad regexp ".to_string(),
+            0 => String::new(),
+            n if n >= super::search::MOST_HITS => format!(" {n}+ found "),
+            n => format!(" {n} found "),
+        };
+        clear_to_ground(frame, &self.theme, area);
+        frame.render_widget(
+            Paragraph::new(lines).block(
+                pane(&self.theme, " search ".into(), true)
+                    .title_bottom(Line::from(Span::styled(found, dim)).right_aligned()),
+            ),
+            area,
+        );
+        frame.render_widget(
+            Paragraph::new(footer_line(&self.theme, &self.modal_footer())),
+            footer_row(area),
+        );
+    }
+
+    /// The query, its caret, and the pill that says how it is being read.
+    ///
+    /// **No lead character.** A `/` in front of the words would be a second
+    /// thing saying what the box already is, and a `/~` in front of them a
+    /// second thing saying what the pill says — and both cost a column the
+    /// query could have had.
+    ///
+    /// The caret is drawn rather than placed: a terminal cursor would have to
+    /// be shown and hidden around every other mode, and this box is the only
+    /// one with no widget of its own to own one. It is drawn ON the character
+    /// it sits on, reversed, so a caret inside a word reads as a caret and not
+    /// as a gap in the word.
+    ///
+    /// A query carried back from the last `/` is drawn SELECTED, on the band a
+    /// selected list row wears — so the reader can see, without pressing
+    /// anything, that one character will replace it.
+    fn search_query_line(&self, s: &super::Search, inner_w: usize) -> Line<'static> {
+        let dim = Style::default().fg(self.theme.gutter_fg);
+        let accent = Style::default().fg(self.theme.header_fg);
+        let mut typed = accent.add_modifier(Modifier::BOLD);
+        if s.picked {
+            typed = typed.bg(self.theme.selected_bg);
+        }
+
+        // Reading a regexp is a FACT about what the next keystroke will do,
+        // which is exactly what a pill says — as `selecting 4 lines` does on
+        // the window footer. It appears while the reading is on and goes when
+        // it goes, so there is no pill that means "literal": the absence is
+        // the statement, and the default needs no badge.
+        let badge: Vec<Span> = match s.reading {
+            super::Reading::Regexp => {
+                let (_, fill) = self.theme.pill();
+                pill(vec![(self.theme.header_fg, "regexp".to_string())], fill)
+                    .into_iter()
+                    .map(|(st, t)| Span::styled(t, st))
+                    .collect()
+            }
+            super::Reading::Literal => Vec::new(),
+        };
+        let badge_w: usize = badge
+            .iter()
+            .map(|s| UnicodeWidthStr::width(s.content.as_ref()))
+            .sum();
+
+        // One lead column, one for the caret past the last character, and the
+        // pill's own width: what is left is what the query is drawn in, and
+        // what it scrolls sideways against.
+        let room = inner_w.saturating_sub(badge_w + 3);
+
+        // Split at the caret first, on the WHOLE query and by char index,
+        // which is what `Input::cursor` counts. Doing it after the window was
+        // cut meant splitting a display column count on a char boundary, and
+        // the two are the same number only until the query holds a wide
+        // character.
+        let value = s.query();
+        let cut = value
+            .char_indices()
+            .nth(s.input.cursor())
+            .map_or(value.len(), |(i, _)| i);
+        let (before, rest) = value.split_at(cut);
+        let mut pairs = vec![(typed, before.to_string())];
+        match rest.chars().next() {
+            // The caret is drawn ON the character it sits on, reversed, so a
+            // caret inside a word reads as a caret and not as a gap in it.
+            Some(c) => {
+                pairs.push((typed.add_modifier(Modifier::REVERSED), c.to_string()));
+                pairs.push((typed, rest[c.len_utf8()..].to_string()));
+            }
+            // Past the last character, so the caret is a block of its own.
+            None => pairs.push((accent, "▏".to_string())),
+        }
+
+        // The window, in display columns both ends, from the pair the diff
+        // pane's own sideways shift is cut with.
+        let mut row = vec![Span::styled(" ", dim)];
+        let scrolled = drop_columns(&pairs, s.input.visual_scroll(room));
+        row.extend(
+            take_columns(&scrolled, room)
+                .into_iter()
+                .map(|(st, t)| Span::styled(t, st)),
+        );
+
+        if !badge.is_empty() {
+            let used: usize = row
+                .iter()
+                .chain(badge.iter())
+                .map(|s| UnicodeWidthStr::width(s.content.as_ref()))
+                .sum();
+            // Hard against the right edge, so it sits where the hit count does
+            // one border down and the two read as one column of state.
+            row.push(Span::styled(
+                " ".repeat(inner_w.saturating_sub(used).saturating_sub(1)),
+                Style::default(),
+            ));
+            row.extend(badge);
+        }
+        Line::from(row)
+    }
+
+    /// The occurrence list, drawn at its full height whatever it holds.
+    ///
+    /// A box that grew and shrank under a query being typed would move the
+    /// preview under the reader's eyes on every keystroke, so the blanks are
+    /// part of the answer.
+    fn search_list_lines(
+        &self,
+        s: &super::Search,
+        inner_w: usize,
+        rows: usize,
+    ) -> Vec<Line<'static>> {
+        let dim = Style::default().fg(self.theme.gutter_fg);
+        let text = Style::default().fg(self.theme.context_fg);
+
+        if s.entries.is_empty() {
+            let words = if s.query().is_empty() {
+                "type to search every changed file"
+            } else if s.bad_regexp() {
+                "that expression does not compile"
+            } else {
+                "no occurrence of that"
+            };
+            return pad_rows(
+                vec![Line::from(Span::styled(format!("  {words}"), dim))],
+                rows,
+            );
+        }
+
+        // The badges are right-aligned so the paths line up on the left, where
+        // the eye scans them.
+        let shown = || s.entries.iter().enumerate().skip(s.scroll).take(rows);
+        let badge_col = shown()
+            .map(|(_, e)| UnicodeWidthStr::width(e.badge.as_str()))
+            .max()
+            .unwrap_or(0);
+        // The lead the findings list uses, and no cursor glyph: the selected
+        // row is a band edge to edge, which says it once. A `▸` would have
+        // said it twice, and it already means a FOLDED DIRECTORY in the group
+        // map — one glyph, two meanings, on one screen.
+        const LEAD: usize = 2;
+        const GAP: usize = 2;
+        // Exactly what is left: the lead, the path padded to `room`, the gap,
+        // and the badge hard against the border, where the hit count sits one
+        // row down.
+        let room = inner_w.saturating_sub(badge_col + LEAD + GAP);
+
+        let lines: Vec<Line> = shown()
+            .map(|(i, e)| {
+                let on = i == s.selected;
+                let mut style = text;
+                if on {
+                    style = style
+                        .bg(self.theme.selected_bg)
+                        .add_modifier(Modifier::BOLD);
+                }
+                let bg = |st: Style| match on {
+                    true => st.bg(self.theme.selected_bg),
+                    false => st,
+                };
+                // Whole when it fits, cut at its HEAD when it does not: the
+                // file name and the line number identify the hit, and the
+                // directories above them do not.
+                let at = elide_head(&format!("{}:{}", e.path, e.line), room);
+                let pad = room.saturating_sub(UnicodeWidthStr::width(at.as_str()));
+                let mut line = Line::from(vec![
+                    Span::styled(" ".repeat(LEAD), bg(dim)),
+                    Span::styled(at, style),
+                    Span::styled(" ".repeat(pad + GAP), bg(dim)),
+                    Span::styled(e.badge.clone(), bg(dim)),
+                ]);
+                if on {
+                    pad_to_width(&mut line, inner_w, self.theme.selected_bg);
+                }
+                line
+            })
+            .collect();
+        pad_rows(lines, rows)
+    }
+
+    /// The selected hit's line and its neighbours, in the pane's own language:
+    /// a line the change wrote wears the addition tint here too.
+    fn search_preview_lines(
+        &self,
+        s: &super::Search,
+        inner_w: usize,
+        rows: usize,
+    ) -> Vec<Line<'static>> {
+        // The number column is as wide as its widest number, so the code
+        // starts in one place — the symbol float's rule, and for its reason.
+        let num_w = s
+            .preview
+            .iter()
+            .map(|l| l.number.to_string().len())
+            .max()
+            .unwrap_or(1);
+        let room = inner_w.saturating_sub(num_w + 4);
+        let hit = s.hit().map(|e| e.line);
+        // Shift the preview so the hit is on it. A match two hundred columns
+        // into a long line is a match the reader cannot see, and a preview
+        // that marks nothing reads as a preview of the wrong line.
+        let shift = s
+            .hit()
+            .filter(|e| e.hit.end > room)
+            .map_or(0, |e| e.hit.end + 2 - room.min(e.hit.end));
+
+        s.preview
+            .iter()
+            .take(rows.saturating_sub(1))
+            .map(|l| {
+                let code_bg = self.theme.line_bg(l.origin);
+                let mut num = Style::default().fg(self.theme.gutter_fg);
+                if hit == Some(l.number) {
+                    num = num.fg(self.theme.header_fg).add_modifier(Modifier::BOLD);
+                }
+                if let Some(bg) = self.theme.gutter_bg(l.origin) {
+                    num = num.bg(bg);
+                }
+                let mut spans = vec![Span::styled(
+                    format!(" {n:>num_w$} │ ", n = l.number, num_w = num_w),
+                    num,
+                )];
+                let mut drawn = 0usize;
+                for (st, t) in slice_pairs(&l.pairs, shift, shift + room) {
+                    drawn += t.chars().count();
+                    let st = match code_bg {
+                        Some(bg) if st.bg.is_none() => st.bg(bg),
+                        _ => st,
+                    };
+                    spans.push(Span::styled(t, st));
+                }
+                // The tint runs to the box's edge, so a changed line reads as
+                // a band rather than stopping where its text happens to end.
+                if let Some(bg) = code_bg
+                    && drawn < room
+                {
+                    spans.push(Span::styled(
+                        " ".repeat(room - drawn),
+                        Style::default().bg(bg),
+                    ));
+                }
+                Line::from(spans)
+            })
+            .collect()
     }
 
     pub(super) fn draw_groups(&self, frame: &mut Frame, area: Rect) {
@@ -2433,6 +2722,32 @@ pub fn file_list_modal_area(body: Rect, entries: &[FileListEntry]) -> Rect {
     // the border and took the file NAME with them, which is the one part of
     // a path worth reading.
     let width = (lead + widest + 2).max(70).min(body.width as usize) as u16;
+    centered_rect(body, width, height)
+}
+
+/// Blank rows out to `rows`, so a box that holds fewer draws the same height.
+///
+/// Never shorter than what it is given: the list is windowed before it gets
+/// here, and cutting a row it decided to show would be this function quietly
+/// overruling that.
+fn pad_rows(mut lines: Vec<Line<'static>>, rows: usize) -> Vec<Line<'static>> {
+    lines.resize(rows.max(lines.len()), Line::from(""));
+    lines
+}
+
+/// The search box: a fixed size, centred on the body and clamped to it.
+///
+/// **Over the whole body, not over the diff pane.** Nearly every key in this
+/// reviewer acts on the pane it is pressed in; `/` is the exception, because
+/// a name the reader is hunting for is a fact about the branch and not about
+/// the pane their cursor is parked in. A box measured against one pane would
+/// have said the opposite.
+///
+/// Wide, because two of the three things in it are long: a repository path,
+/// and a line of code. Shared with the hit test.
+pub fn search_modal_area(body: Rect) -> Rect {
+    let width = body.width.saturating_sub(8).clamp(40, 110);
+    let height = u16::try_from(SEARCH_BOX_ROWS).unwrap_or(u16::MAX);
     centered_rect(body, width, height)
 }
 

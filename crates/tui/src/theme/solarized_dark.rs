@@ -20,6 +20,8 @@ pub(super) fn seed() -> Seed {
         del: rgb(0xFF, 0x6E, 0x6B),
         accent: rgb(0x35, 0xB9, 0xAF),
         skim: rgb(0xCA, 0x9A, 0x00),
+        // Solarized yellow, lifted to fill strength — `base3` on it is unreadable.
+        highlight: rgb(0xE8, 0xB9, 0x23),
         finding: rgb(0xEE, 0x74, 0xAA),
     }
 }

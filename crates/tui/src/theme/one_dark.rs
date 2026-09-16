@@ -15,6 +15,8 @@ pub(super) fn seed() -> Seed {
         del: rgb(0xE8, 0x79, 0x7F),
         accent: rgb(0x61, 0xAF, 0xEF),
         skim: rgb(0xE8, 0xBC, 0x5F),
+        // Brighter and purer than One's warning gold, which `skim` already wears.
+        highlight: rgb(0xFF, 0xD2, 0x4A),
         finding: rgb(0xC6, 0x78, 0xDD),
     }
 }

@@ -15,6 +15,8 @@ pub(super) fn seed() -> Seed {
         del: rgb(0xF9, 0x5C, 0x8E),
         accent: rgb(0x66, 0xD9, 0xEF),
         skim: rgb(0xE6, 0xDB, 0x74),
+        // Monokai's yellow, warmed off the yellow-green its own `skim` sits on.
+        highlight: rgb(0xFF, 0xD8, 0x66),
         finding: rgb(0xAE, 0x81, 0xFF),
     }
 }

@@ -15,6 +15,8 @@ pub(super) fn seed() -> Seed {
         del: rgb(0xFB, 0x69, 0x54),
         accent: rgb(0x8E, 0xC0, 0x7C),
         skim: rgb(0xFA, 0xBD, 0x2F),
+        // Gruvbox's brightest yellow, a clear step past the gold `skim` takes.
+        highlight: rgb(0xFF, 0xDD, 0x33),
         finding: rgb(0xD9, 0x86, 0xB8),
     }
 }

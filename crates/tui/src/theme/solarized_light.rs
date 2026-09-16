@@ -17,6 +17,8 @@ pub(super) fn seed() -> Seed {
         del: rgb(0xC2, 0x2B, 0x28),
         accent: rgb(0x1E, 0x6F, 0xA8),
         skim: rgb(0x8A, 0x68, 0x00),
+        // The same, a shade brighter, so it lifts off Solarized Light's cream.
+        highlight: rgb(0xF5, 0xC2, 0x11),
         finding: rgb(0xB0, 0x2B, 0x6C),
     }
 }

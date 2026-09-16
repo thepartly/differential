@@ -370,6 +370,114 @@ a half page, `n`, a jump from a list and a click all close it, and so does focus
 diff pane, because the underlines leave with the focus and a float over an unmarked row is
 an answer with no visible question.
 
+**A word, found anywhere in the changed files.** `/` opens a box over the whole window;
+typing into it lists every line that holds the word, and `enter` puts the cursor on the one
+picked. Under the list sits the line itself with three lines either side, syntax-highlighted
+and with every hit on them marked. The box is a fixed size whatever the query finds, because
+a box that grew and shrank under a query being typed would move the preview under the
+reader's eyes on every keystroke.
+
+**A hit is a filled block, not an underline.** It wears the palette's own `highlight` accent
+— its yellow, at fill strength — with whichever of the theme's extremes reads on it reversed
+out. The symbol float's underline is the other kind of mark and says the other thing: it
+marks a name on a row the reader is ALREADY reading and has to stay out of the way, where
+this marks the thing they went looking for, on a line they have not read yet, and being out
+of the way is the one thing it must not be. A fill is possible here and not in the diff pane
+because nothing in this box goes through the colour-value dispatch the pane's tints are told
+apart by. The accent is each palette's own, and it is a seed rather than a shade of the skim
+tier's yellow: a skim ink has to read ON the ground, which on a light theme makes it a dark
+brown, where this is a fill the ground's ink has to read on.
+
+**`/` is the one key that does not act on the pane you are in.** Every other key does, and
+says so at the top of this file. A name a reader is hunting for is a fact about the branch,
+and the reader asking has by definition not found the pane it is in yet — so `/` opens from
+the plan pane, from the diff pane, over an open selection, which it drops, and out of the
+file list and the findings list, which close as it opens. Not from the composer, where it is
+a character being typed, and not from a question, where every key but `y` is the answer no.
+The box is centred on the whole body for the same reason, not on the diff pane.
+
+**What is searched is the files as they are now, not the diff.** Every changed file's head
+side, unchanged lines included — which is where most of the names a reader is hunting for
+are, and a search that only saw the hunks would answer "no" to half the questions worth
+asking. Two things follow and are worth saying out loud, because a reader will meet them: a
+line the change **removed** is not in the file any more and so is not found, and a **deleted
+file** holds nothing at all. A binary file holds no text to find either; it is still
+enumerated and still counted, and a search is a view, never a filter (ADR 0005, 0012). A
+lockfile is searched like anything else.
+
+**Literal, and smart about case.** The query is a literal, so `a.c` finds `a.c` and not
+`abc`. An all-lowercase query ignores case; one uppercase letter in it is the case the
+reader meant. One row per matching LINE, not per hit: a line with four of them is one thing
+to go and read, and the preview marks all four.
+
+**`ctrl-r` reads the query as a regular expression instead.** A toggle rather than a second
+box, because the word a reader typed as a literal is usually most of the expression they now
+want. Smart case holds either way. One that does not compile finds nothing and the box says
+`bad regexp` where it otherwise says `28 found`: a typo the reader can fix and an answer they
+should believe must not look the same. The choice survives a close, as the query does.
+
+**The reading is a pill, and nothing else says it.** A `regexp` pill sits at the right of the
+query row — the badge a group's role and a hunk's class wear, and the one `selecting 4 lines`
+wears on the window footer. It is a fact about what the next keystroke will do, which is what
+a pill says. It appears while the reading is on and goes when it goes, so there is no pill
+meaning "literal": the absence is the statement, and the default needs no badge. **Nothing
+leads the query.** A `/` in front of the words would be a second thing saying what the box
+already is, and a `/~` a second thing saying what the pill says — and both cost a column the
+query could have had. The key is on the box's own footer and not among its quiet rows, and it
+is the one key here that has to be — `?` types in this box, so the help modal cannot be
+reached from it and the footer is the only place the key is written down. Its label says what
+the press WILL do: `ctrl-r regexp` while reading a literal, `ctrl-r literal` while reading an
+expression.
+
+**What ranks first is where the reader already is.** Then the hits inside a hunk, because
+the change is what this tool is for and a match in code the branch never touched is context.
+Then plan order, which is the order the groups are read in. A group's rank already fixes its
+tier, so the tier settles nothing here — but every row carries it, because a hit inside a
+deferred skim remainder or a folded noise group is reachable and the reader is owed the fact
+before they go.
+
+**A row says `g1 skim C0`: the group, its tier, and the shape class of the hunk holding the
+line.** The class is the answer to "have I read this already?", which is what a reader
+looking at four hits in four files is really asking — four hits in one class are one shape,
+and the plan may well have deferred three of them for exactly that reason. A line inside no
+hunk has no class, and the gap is the statement: the badge that names one is the badge on a
+line the change wrote. Deferring is an opinion, not a prohibition (ADR 0006), and `enter`
+opens the fold. A hit count is not coverage: it changes nothing about `read_hunks` or
+`skipped_hunks`.
+
+**`enter` opens whatever is in the way.** Reaching a row is a navigation and never a row
+index, exactly as it is from the findings list: select the group that owns the line — for a
+line inside no hunk, the first group by plan order that owns any hunk in that file — let the
+rows rebuild, then find the row again. If the hunk is behind a fold, the fold opens. If the
+line is outside every window, the nearest hunk's gap is pulled open towards it, which crosses
+nothing, because by "nearest" no hunk lies in that gap. Past four thousand lines it stops and
+the footer says how far the line still is: every revealed line is a row and a syntect pass,
+and a generated file can put a match a very long way from anything.
+
+**The query is a real one-line field.** `←` and `→` move a caret inside it, `home` and `end`
+go to its two ends, and what is typed lands at the caret rather than at the end. `ctrl-u`
+clears it and `ctrl-w` takes the word before the caret. A query wider than the box scrolls
+sideways to follow the caret. None of that is hand-rolled: it is `tui-input`, which is state
+and no drawing, because this row is composed — a field, a pill, and the space between them.
+
+**`↑` and `↓` are the LIST's, and they are the only arrows that are not the query's.** A
+one-line field has nothing for them to do, and the occurrence list is what the reader is
+moving in. It is the one place in this reviewer where an arrow belongs to something other
+than the thing under the caret, and it is written down here for that reason.
+
+**Every other printable key types.** That is the price of a box a reader can search a path
+in, and it settles the rest: `?` is a character here rather than help, and only `esc` closes.
+The query and the hit it was left on survive a close, so finding the next occurrence is `/`
+and an arrow rather than the word typed again.
+
+**A query that comes back is SELECTED**, and drawn on the band a selected list row wears. It
+has to be: reopening on the old word is what a reader walking its hits wants, and exactly
+what is in the way of a reader looking for something else. Selected serves both without a
+second key — a key that WRITES replaces the whole of it, and a key that only moves the caret
+leaves it standing, which is what a selection means in any text field and is why `←` does not
+throw away the word the reader came back to. The reader can see which state they are in
+before they press anything.
+
 **Only what the change itself declares.** The tool parses the files a diff touches and no
 others, so a call into an untouched helper lights nothing and `z` keeps the meaning it
 already had on that row. What it can resolve, it resolves on **any** line it draws, context
@@ -488,6 +596,7 @@ The full reference. `?` shows the subset that applies where the reader is standi
 | `s` | toggle side-by-side / unified diff layout (persisted) |
 | `w` | soft wrap long lines (persisted) |
 | `h`/`l`, `0` | shift the diff pane eight columns sideways · back to the left edge. Diff pane only; refused while `w` is on |
+| `/` | **search — a word, anywhere in the changed files.** The one key that does not act on the pane you are in: it opens from either pane, over a selection, and out of the file list and the findings list. The files as they are NOW, so a removed line is not found. Literal and smart case; `ctrl-r` reads the query as a regular expression instead. `enter` jumps to the line, opening a fold or a context gap to reach it · `↑`/`↓` move the list, the only arrows that are not the query's · `←`/`→` and `home`/`end` move the caret · `ctrl-u`/`ctrl-w` clear the query or the word before the caret · every other printable key types · `esc` closes, keeping the query selected for the next `/` |
 | `f` | files, in the pane you are in — plan pane: toggle reading plan ↔ file tree (persisted) · diff pane: the file-list modal (`enter` jumps to the file) |
 | `space` | mark reviewed — the whole selected group/file in the left pane, the **hunk** under the cursor in the diff pane |
 | `v` | start a line selection at the cursor · `j`/`k` extend it · `v` or `esc` drops it · `c` writes a finding over it |

@@ -245,6 +245,13 @@ pub enum Mode {
     DeleteComment {
         own: differential_engine::forge::OwnComment,
     },
+    /// `/` — a word, found anywhere in the changed files (see [`search`]).
+    ///
+    /// One payload, which that module owns: every printable key types into it,
+    /// so the box carries a query, how it is read, what it found and where the
+    /// reader is in that — seven fields, and naming them here would be seven
+    /// places outside the module that know its shape.
+    Search(search::Search),
 }
 
 pub struct FindingEntry {
@@ -492,6 +499,15 @@ pub struct App {
     forge: Option<forge::ForgeLink>,
     /// The one forge call that may be out. See `app::forge`.
     inflight: Option<forge::Inflight>,
+    /// What `/` was last asked for, and which hit it was left on.
+    ///
+    /// Transient, like `folds_open` and `expanded`: what a reader went
+    /// looking for is a reading aid for this sitting, not a finding, so
+    /// nothing here reaches the sidecar store. Kept so that finding the NEXT
+    /// occurrence is `/` and an arrow rather than the word typed again.
+    last_query: String,
+    last_reading: search::Reading,
+    last_hit: usize,
 }
 
 impl App {
@@ -559,6 +575,9 @@ impl App {
             pending_d: false,
             forge: None,
             inflight: None,
+            last_query: String::new(),
+            last_reading: search::Reading::Literal,
+            last_hit: 0,
         };
         // The document is fixed for the session's life, so this is built once
         // rather than found by scanning the file list per row.
@@ -568,6 +587,15 @@ impl App {
             .enumerate()
             .map(|(i, f)| (f.path.clone(), i))
             .collect();
+        // Every changed file, read once, before the reviewer draws anything.
+        //
+        // It is the search corpus (see [`search`]): one `git` call here is
+        // what lets `/` answer on the keystroke rather than stop to read a
+        // few hundred blobs the first time it is pressed. The rows would have
+        // read most of these anyway, one group at a time.
+        let paths: Vec<String> = app.files().iter().map(|f| f.path.clone()).collect();
+        let paths: Vec<&str> = paths.iter().map(String::as_str).collect();
+        app.factory.prefetch(&paths);
         app.build_map_tree();
         app.rebuild_tree();
         // The persisted cursor names a path; reveal it in the tree.
@@ -611,6 +639,7 @@ mod forge;
 mod help;
 mod keys;
 mod peek;
+mod search;
 mod state;
 mod text;
 
@@ -620,9 +649,10 @@ mod text;
 pub use draw::{
     FRAME_ROWS, centered_x, composer_area, composer_footer, delete_comment_area,
     delete_comment_footer, file_list_modal_area, findings_modal_area, findings_question,
-    footer_row, pane_inner, publish_area, publish_footer,
+    footer_row, pane_inner, publish_area, publish_footer, search_modal_area,
 };
 pub use help::{Act, Area, HelpSection};
+pub use search::{Occurrence, Reading, Search};
 pub use text::{Hint, Ink, hints_width};
 
 pub use forge::ForgeLink;

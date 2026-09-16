@@ -21,8 +21,12 @@ syntect = "5"
 two-face = { version = "0.5", default-features = false, features = ["syntect-default-fancy"] }
 unicode-width = "0.2"
 tui-textarea = { package = "tui-textarea-2", version = "0.13" }
+# One-line input, state only: the search box composes its own row, so a widget
+# that draws itself would have to be squeezed between the lead and the pill.
+tui-input = { version = "0.15", default-features = false, features = ["crossterm"] }
 arboard = "3"
 palette = { workspace = true }
+regex = { workspace = true }
 textwrap = { version = "0.16", default-features = false, features = ["unicode-width"] }
 pulldown-cmark = { version = "0.13", default-features = false }
 

@@ -16,6 +16,8 @@ pub(super) fn seed() -> Seed {
         del: rgb(0xFF, 0x55, 0x55),
         accent: rgb(0x6F, 0xE3, 0xFB),
         skim: rgb(0xF1, 0xFA, 0x8C),
+        // Warmer than Dracula's acid `skim` yellow, which is nearly a green.
+        highlight: rgb(0xFF, 0xD8, 0x66),
         finding: rgb(0xBD, 0x93, 0xF9),
     }
 }

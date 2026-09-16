@@ -179,6 +179,43 @@ pub fn drop_columns(pairs: &[(Style, String)], cols: usize) -> Vec<(Style, Strin
     out
 }
 
+/// The first `cols` display columns of `pairs`, styles kept.
+///
+/// The mirror of [`drop_columns`], and written because the search box needs
+/// both: it drops what has scrolled off the left of the query and keeps what
+/// fits before the pill on the right. Same rule at the far edge — a character
+/// the cut falls inside cannot be drawn in part, so a space holds its columns.
+pub fn take_columns(pairs: &[(Style, String)], cols: usize) -> Vec<(Style, String)> {
+    let mut out: Vec<(Style, String)> = Vec::new();
+    let mut left = cols;
+    for (style, text) in pairs {
+        if left == 0 {
+            break;
+        }
+        let w = text.width();
+        if w <= left {
+            left -= w;
+            out.push((*style, text.clone()));
+            continue;
+        }
+        let mut kept = String::new();
+        for c in text.chars() {
+            let cw = unicode_width::UnicodeWidthChar::width(c).unwrap_or(0);
+            if cw > left {
+                kept.push_str(&" ".repeat(left));
+                left = 0;
+                break;
+            }
+            kept.push(c);
+            left -= cw;
+        }
+        if !kept.is_empty() {
+            out.push((*style, kept));
+        }
+    }
+    out
+}
+
 /// The pairs covering `start..end` of the concatenated text, styles kept.
 pub fn slice_pairs(pairs: &[(Style, String)], start: usize, end: usize) -> Vec<(Style, String)> {
     let mut out = Vec::new();
@@ -399,5 +436,42 @@ mod tests {
         let out = drop_columns(&pairs, 2);
         let plain: String = out.iter().map(|(_, t)| t.as_str()).collect();
         assert_eq!(plain, "\u{3044}ok");
+    }
+
+    #[test]
+    fn taking_columns_cuts_from_the_right_and_keeps_every_style() {
+        let st = |n: u8| Style::default().fg(ratatui::style::Color::Indexed(n));
+        let pairs = vec![(st(1), "let ".to_string()), (st(2), "x = 1;".to_string())];
+
+        assert!(take_columns(&pairs, 0).is_empty());
+
+        // Inside the first pair, and the second is never reached.
+        assert_eq!(take_columns(&pairs, 2), vec![(st(1), "le".to_string())]);
+
+        // Into the second, which keeps its own style.
+        assert_eq!(
+            take_columns(&pairs, 6),
+            vec![(st(1), "let ".to_string()), (st(2), "x ".to_string())]
+        );
+
+        // More than there is.
+        assert_eq!(take_columns(&pairs, 40), pairs);
+    }
+
+    /// The far edge follows the same rule as the near one: a character the cut
+    /// falls inside cannot be drawn in part, so a space holds its columns and
+    /// the width the caller asked for is the width they get.
+    #[test]
+    fn taking_columns_pads_a_wide_character_it_cuts_through() {
+        let st = Style::default();
+        let pairs = vec![(st, "ok\u{3042}\u{3044}".to_string())];
+        let out = take_columns(&pairs, 3);
+        let plain: String = out.iter().map(|(_, t)| t.as_str()).collect();
+        assert_eq!(plain, "ok ");
+        assert_eq!(plain.width(), 3, "exactly the columns asked for");
+
+        let out = take_columns(&pairs, 4);
+        let plain: String = out.iter().map(|(_, t)| t.as_str()).collect();
+        assert_eq!(plain, "ok\u{3042}");
     }
 }

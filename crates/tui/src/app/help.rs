@@ -30,6 +30,7 @@
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
+use super::search::Reading;
 use super::text::{Hint, Ink, joined};
 use super::{App, Focus, Mode, ViewMode};
 
@@ -52,6 +53,8 @@ pub enum Area {
     },
     FileList,
     Findings,
+    /// `/` — the search box. Every printable key types into it.
+    Search,
     /// Writing a finding.
     Composer,
     /// A question only `y` answers: a publish, a comment's deletion.
@@ -82,6 +85,7 @@ impl Area {
             Area::Thread { own: true, .. } => "your own comment",
             Area::FileList => "the file list",
             Area::Findings => "the findings list",
+            Area::Search => "the search",
             Area::Composer => "writing a finding",
             Area::Question => "the question",
             Area::Reading => "here",
@@ -130,6 +134,13 @@ fn presses_for(key: &str) -> Vec<KeyEvent> {
         "esc" => bare(KeyCode::Esc),
         "space" => bare(KeyCode::Char(' ')),
         "dd" => vec![KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE); 2],
+        // A chord ONE press can send. Without this a footer button naming one
+        // would read and do nothing, and `ctrl-r` is on a footer precisely
+        // because the footer is the only place its key is written down.
+        _ if first.len() == 6 && first.starts_with("ctrl-") => {
+            let c = first.chars().next_back().expect("six characters");
+            vec![KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL)]
+        }
         _ => match first.chars().next() {
             Some(c) if first.chars().count() == 1 => bare(KeyCode::Char(c)),
             // A row whose key no single press can send — the wheel, "any
@@ -189,6 +200,7 @@ fn everywhere() -> Vec<Act> {
             "h/l  ·  0",
             "shift the diff sideways · back to the left edge",
         ),
+        Act::quiet("/", "find a word in any changed file"),
         Act::quiet("F", "every finding and thread, in one list"),
         Act::quiet("y", "copy the open findings"),
         Act::quiet("P", "publish the open findings (asks first)"),
@@ -219,6 +231,7 @@ impl App {
             Mode::Help(_) | Mode::Notice { .. } => Area::Reading,
             Mode::FileList { .. } => Area::FileList,
             Mode::Findings { .. } => Area::Findings,
+            Mode::Search(_) => Area::Search,
             Mode::Editing { .. } => Area::Composer,
             Mode::Publish { .. } | Mode::DeleteComment { .. } => Area::Question,
             Mode::Normal => match self.focus {
@@ -243,6 +256,9 @@ impl App {
     pub(super) fn help_opens(&self) -> bool {
         match &self.mode {
             Mode::Normal | Mode::FileList { .. } => true,
+            // A box the query owns takes `?` as a character, exactly as the
+            // composer does — and a reader may well be searching for one.
+            Mode::Search(_) => false,
             // While `D` waits for its answer, the next key IS the answer.
             Mode::Findings { confirming, .. } => !confirming,
             _ => false,
@@ -337,6 +353,31 @@ impl App {
                 Act::footer("enter", "jump", "jump to the file"),
                 Act::footer("esc", "close", "close the list · so does f"),
                 Act::quiet("j/k", "move over the files"),
+            ],
+            // The arrows, not `j`/`k`: every printable key types into the
+            // query, which is the price of a box you can search a path in.
+            Area::Search => vec![
+                Act::footer("enter", "open", "jump to the occurrence"),
+                // On the footer, and it is the one key here that HAS to be:
+                // `?` types in this box, so the help modal cannot be opened
+                // from it and the footer is the only place a reader finds
+                // this. A label says what the key WILL do, not which reading
+                // is already on — the pill on the query row says that.
+                match self.search_reading() {
+                    Reading::Literal => {
+                        Act::footer("ctrl-r", "regexp", "read the query as a regular expression")
+                    }
+                    Reading::Regexp => {
+                        Act::footer("ctrl-r", "literal", "read the query as a literal again")
+                    }
+                },
+                Act::footer("esc", "close", "close the search"),
+                // No quiet rows, and they could not be read if there were.
+                // This is the one place `?` is a character rather than help,
+                // so `help_area` is never `Search` and nothing would ever
+                // draw them. The box's other keys are written down in
+                // `spec/tui.md` and this crate's README, which is where a
+                // reader who cannot press `?` goes.
             ],
             Area::Findings => vec![
                 Act::footer("enter", "jump", "jump to the note or thread"),

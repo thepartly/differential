@@ -174,6 +174,33 @@ The modal carries the declaration's own lines, syntax-highlighted, with their ow
 numbers. Its title says which shape class wrote it and which group that class landed in, so
 the next move — go and read `g2` first — is on the screen already.
 
+### A word, found anywhere in the change
+
+`/` opens a search over every changed file — the files as they are now, unchanged lines
+included, not just the hunks. Type, and every line holding the word is listed with the
+line itself previewed under it and the word marked.
+
+```
+ reading_split                                      28 found
+  crates/engine/src/plan/tiers.rs:118         g2 focus C12
+  crates/tui/src/rows.rs:791                  g2 focus C31
+  crates/stack/src/lib.rs:44                     g5 skim
+```
+
+Each row says which group reads the line, at what tier, and which shape class the hunk
+holding it belongs to. A line inside no hunk carries no class — that is how a row says it is
+unchanged code.
+
+What ranks first is where you already are, then the hits inside a hunk, then plan order. A
+hit inside something the plan deferred tells you before you go. `enter` puts the cursor on
+the line and opens whatever was in the way — a folded skim remainder, or a context gap the
+pane was not showing.
+
+The query is a literal. `ctrl-r` reads it as a regular expression instead.
+
+Two things it cannot find, both for the same reason: a line the change **removed**, and a
+**deleted** file. Neither is in the file any more.
+
 ### Designed for incremental review
 
 `differential` is built for local iteration, and nobody wants to re-read a hunk they have
