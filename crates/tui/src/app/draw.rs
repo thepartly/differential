@@ -1070,6 +1070,7 @@ impl App {
     pub(super) fn compute_map_rows(&self) -> Vec<MapRow> {
         let tree = &self.tree;
         let mine = &self.map_files;
+        let plan = self.session.plan();
         let n = tree.len();
 
         // A row is live if it IS a file the group touches, or holds one.
@@ -1152,7 +1153,6 @@ impl App {
                     // Sized here rather than at draw time, for the same reason
                     // the rows are built here: this runs when the selection
                     // moves, and drawing runs on every keypress.
-                    let plan = self.session.plan();
                     out.push(MapRow::File {
                         depth,
                         file_idx: *file_idx,
