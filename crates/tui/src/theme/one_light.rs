@@ -17,6 +17,8 @@ pub(super) fn seed() -> Seed {
         del: rgb(0xC9, 0x38, 0x2C),
         accent: rgb(0x01, 0x6A, 0x99),
         skim: rgb(0x8F, 0x62, 0x00),
+        // A saturated amber: the ground is near-white, so the fill has to carry.
+        highlight: rgb(0xFF, 0xC4, 0x00),
         finding: rgb(0xA6, 0x26, 0xA4),
     }
 }

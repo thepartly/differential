@@ -203,7 +203,7 @@ pub(super) fn file_list_rows(entries: usize, body_rows: usize) -> usize {
 /// A fixed box, unlike the two lists, which take their height from what they
 /// hold: a list that grows and shrinks under a query being typed moves the
 /// preview under the reader's eyes on every keystroke.
-pub(super) const SEARCH_BOX_ROWS: usize = 22;
+pub(super) const SEARCH_BOX_ROWS: usize = 26;
 
 /// The rows inside the search box that are neither its frame, its query row
 /// nor its key footer — the list and the preview between them.
@@ -218,10 +218,14 @@ fn search_inner(body_rows: usize) -> usize {
 /// against — one function for the keys, the mouse and the draw, for the reason
 /// `findings_rows` gives.
 ///
-/// Half of what is left, at least one: a list with no rows is a list nobody
-/// can move in, however short the terminal.
+/// A THIRD of what is left, and never more than eight. The two halves are not
+/// worth the same: a list row is a path and a badge, and eight of them is
+/// already more than a reader compares at once, where the preview is code and
+/// every line of it is a line they might not have to go and open at all. The
+/// floor of one is what keeps a list a reader can move in on a terminal too
+/// short for any of this.
 pub(super) fn search_list_rows(body_rows: usize) -> usize {
-    (search_inner(body_rows) / 2).max(1)
+    (search_inner(body_rows) / 3).clamp(1, 8)
 }
 
 /// Rows the preview is drawn in: whatever the list did not take.

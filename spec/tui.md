@@ -373,10 +373,20 @@ an answer with no visible question.
 **A word, found anywhere in the changed files.** `/` opens a box over the whole window;
 typing into it lists every line that holds the word, and `enter` puts the cursor on the one
 picked. Under the list sits the line itself with three lines either side, syntax-highlighted
-and with every hit on them marked — the same accent and bold underline the symbol float
-lights its chosen name with. The box is a fixed size whatever the query finds, because a box
-that grew and shrank under a query being typed would move the preview under the reader's
-eyes on every keystroke.
+and with every hit on them marked. The box is a fixed size whatever the query finds, because
+a box that grew and shrank under a query being typed would move the preview under the
+reader's eyes on every keystroke.
+
+**A hit is a filled block, not an underline.** It wears the palette's own `highlight` accent
+— its yellow, at fill strength — with whichever of the theme's extremes reads on it reversed
+out. The symbol float's underline is the other kind of mark and says the other thing: it
+marks a name on a row the reader is ALREADY reading and has to stay out of the way, where
+this marks the thing they went looking for, on a line they have not read yet, and being out
+of the way is the one thing it must not be. A fill is possible here and not in the diff pane
+because nothing in this box goes through the colour-value dispatch the pane's tints are told
+apart by. The accent is each palette's own, and it is a seed rather than a shade of the skim
+tier's yellow: a skim ink has to read ON the ground, which on a light theme makes it a dark
+brown, where this is a fill the ground's ink has to read on.
 
 **`/` is the one key that does not act on the pane you are in.** Every other key does, and
 says so at the top of this file. A name a reader is hunting for is a fact about the branch,
@@ -400,12 +410,36 @@ lockfile is searched like anything else.
 reader meant. One row per matching LINE, not per hit: a line with four of them is one thing
 to go and read, and the preview marks all four.
 
+**`ctrl-r` reads the query as a pattern instead.** A toggle rather than a second box,
+because the word a reader typed as a literal is usually most of the pattern they now want.
+Smart case holds either way. A pattern that does not compile finds nothing and the box says
+`bad pattern` where it otherwise says `28 found`: a typo the reader can fix and an answer
+they should believe must not look the same. The choice survives a close, as the query does.
+
+**The reading is on the query row twice: as the lead, and as a pill.** `/word` for a
+literal and `/~word` for a pattern, and in a pattern the row also carries a `pattern` pill —
+the badge a group's role and a hunk's class wear, and the one `selecting 4 lines` wears on
+the window footer. It is a fact about what the next keystroke will do, which is what a pill
+says. It appears while the reading is on and goes when it goes, so there is no pill meaning
+"literal": the absence is the statement, and the default needs no badge. The key is on the
+box's own footer and not among its quiet rows, and it is the one key here that has to be —
+`?` types in this box, so the help modal cannot be reached from it and the footer is the
+only place the key is written down. Its label says what the press WILL do: `ctrl-r pattern`
+while reading a literal, `ctrl-r literal` while reading a pattern.
+
 **What ranks first is where the reader already is.** Then the hits inside a hunk, because
 the change is what this tool is for and a match in code the branch never touched is context.
 Then plan order, which is the order the groups are read in. A group's rank already fixes its
-tier, so the tier settles nothing here — but every row carries it (`g1 skim`), because a hit
-inside a deferred skim remainder or a folded noise group is reachable and the reader is owed
-the fact before they go. Deferring is an opinion, not a prohibition (ADR 0006), and `enter`
+tier, so the tier settles nothing here — but every row carries it, because a hit inside a
+deferred skim remainder or a folded noise group is reachable and the reader is owed the fact
+before they go.
+
+**A row says `g1 skim C0`: the group, its tier, and the shape class of the hunk holding the
+line.** The class is the answer to "have I read this already?", which is what a reader
+looking at four hits in four files is really asking — four hits in one class are one shape,
+and the plan may well have deferred three of them for exactly that reason. A line inside no
+hunk has no class, and the gap is the statement: the badge that names one is the badge on a
+line the change wrote. Deferring is an opinion, not a prohibition (ADR 0006), and `enter`
 opens the fold. A hit count is not coverage: it changes nothing about `read_hunks` or
 `skipped_hunks`.
 
@@ -423,6 +457,13 @@ it settles the rest of the keys: the list moves on `↑`/`↓`, `?` is a charact
 than help, and only `esc` closes. `ctrl-u` clears the query and `ctrl-w` drops its last word.
 The query and the hit it was left on survive a close, so finding the next occurrence is `/`
 and an arrow rather than the word typed again.
+
+**A query that comes back is SELECTED**, and drawn on the band a selected list row wears. It
+has to be: reopening on the old word is what a reader walking its hits wants, and exactly
+what is in the way of a reader looking for something else. Selected serves both without a
+second key — the next character typed replaces the whole of it, backspace takes all of it,
+and anything that is not typing drops the selection and leaves the word alone. The reader
+can see which state they are in before they press anything.
 
 **Only what the change itself declares.** The tool parses the files a diff touches and no
 others, so a call into an untouched helper lights nothing and `z` keeps the meaning it
@@ -542,7 +583,7 @@ The full reference. `?` shows the subset that applies where the reader is standi
 | `s` | toggle side-by-side / unified diff layout (persisted) |
 | `w` | soft wrap long lines (persisted) |
 | `h`/`l`, `0` | shift the diff pane eight columns sideways · back to the left edge. Diff pane only; refused while `w` is on |
-| `/` | **search — a word, anywhere in the changed files.** The one key that does not act on the pane you are in: it opens from either pane, over a selection, and out of the file list and the findings list. The files as they are NOW, so a removed line is not found. Literal, smart case. `enter` jumps to the line, opening a fold or a context gap to reach it · `↑`/`↓` move · every other printable key types · `esc` closes |
+| `/` | **search — a word, anywhere in the changed files.** The one key that does not act on the pane you are in: it opens from either pane, over a selection, and out of the file list and the findings list. The files as they are NOW, so a removed line is not found. Literal and smart case; `ctrl-r` reads the query as a pattern instead. `enter` jumps to the line, opening a fold or a context gap to reach it · `↑`/`↓` move · `ctrl-u`/`ctrl-w` clear the query or its last word · every other printable key types · `esc` closes, keeping the query selected for the next `/` |
 | `f` | files, in the pane you are in — plan pane: toggle reading plan ↔ file tree (persisted) · diff pane: the file-list modal (`enter` jumps to the file) |
 | `space` | mark reviewed — the whole selected group/file in the left pane, the **hunk** under the cursor in the diff pane |
 | `v` | start a line selection at the cursor · `j`/`k` extend it · `v` or `esc` drops it · `c` writes a finding over it |

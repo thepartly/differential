@@ -13,7 +13,7 @@ use differential_engine::plan::ReviewSource;
 use differential_engine::ports::ReviewStore;
 use differential_engine::store::{FsArtefactStore, FsGroupingCache, FsReviewStore};
 use differential_testutil::{FakeBackend, TestRepo, github_request, json_group, remote_comment};
-use differential_tui::app::{App, Effect, Focus, Mode, ReviewOptions, ViewMode, Viewport};
+use differential_tui::app::{App, Effect, Focus, Mode, Reading, ReviewOptions, ViewMode, Viewport};
 use differential_tui::rows::{BoxStyle, LineOrigin, RowFactory, RowKind};
 
 use differential_tui::theme::Theme;
@@ -8207,11 +8207,11 @@ fn slash_finds_a_word_in_every_changed_file() {
     assert_eq!(
         occurrences(&app),
         vec![
-            "src/a.txt:1 g1 skim",
-            "src/b.txt:1 g1 skim",
-            "src/c.txt:1 g1 skim",
+            "src/a.txt:1 g1 skim C0",
+            "src/b.txt:1 g1 skim C0",
+            "src/c.txt:1 g1 skim C0",
         ],
-        "one row per matching LINE, each labelled with its group and tier"
+        "one row per matching LINE, labelled with its group, tier and shape class"
     );
 }
 
@@ -8221,7 +8221,7 @@ fn the_search_reads_the_file_as_it_is_now_so_a_removed_word_is_gone() {
     search_for(&mut app, "after");
     assert_eq!(
         occurrences(&app),
-        vec!["src/long.rs:20 g0 focus", "src/long.rs:40 g0 focus"],
+        vec!["src/long.rs:20 g0 focus C0", "src/long.rs:40 g0 focus C0"],
         "the head side is what is searched"
     );
     app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
@@ -8240,12 +8240,16 @@ fn a_hit_inside_a_hunk_ranks_above_one_outside() {
     let found = occurrences(&app);
     assert_eq!(
         &found[..2],
-        &["src/long.rs:20 g0 focus", "src/long.rs:40 g0 focus"],
+        &["src/long.rs:20 g0 focus C0", "src/long.rs:40 g0 focus C0"],
         "the changed lines come first: {found:?}"
     );
     assert!(
         found.len() > 2,
         "the unchanged lines are found too: {found:?}"
+    );
+    assert!(
+        found[2..].iter().all(|o| !o.contains(" C")),
+        "a line inside no hunk has no shape class, and the gap says so: {found:?}"
     );
 }
 
@@ -8378,7 +8382,7 @@ let VALUE = 4;
     search_for_more(&mut app, "VALUE");
     assert_eq!(
         occurrences(&app),
-        vec!["src/case.txt:2 g0 focus"],
+        vec!["src/case.txt:2 g0 focus C0"],
         "an uppercase letter is the case the reader meant"
     );
 }
@@ -8403,6 +8407,8 @@ more
     r.commit_all("head");
     let mut app = open_app_with(&r, &one_group_per_class(), ".dfr-dots-store");
     search_for(&mut app, "a.c");
+    // Line 1 is unchanged, so the hit is outside every hunk and carries no
+    // shape class — only the group that reads the file.
     assert_eq!(occurrences(&app), vec!["src/dots.txt:1 g0 focus"]);
 }
 
@@ -8494,33 +8500,186 @@ fn the_footer_keys_are_buttons_here_too() {
     let area = search_modal_area(layout(SCREEN).body);
     let row = footer_row(area);
     let hints = app.modal_footer();
-    // The second button is `esc close`; the first piece is the lead padding.
-    let (x, y) = on_hint(&hints, 3, row.x, row);
+    // By its words, not by an index: this footer has grown a button once.
+    let (x, y) = on_hint(&hints, hint_named(&hints, "close"), row.x, row);
     app.handle_mouse(click(x, y));
     assert!(matches!(app.mode, Mode::Normal), "esc was pressed");
 }
 
+/// Which hint of a footer says `word`. Aimed at by name so a reworded or
+/// reordered footer moves the click with it rather than breaking the test.
+fn hint_named(hints: &[Hint], word: &str) -> usize {
+    hints
+        .iter()
+        .position(|h| h.pieces.iter().any(|(t, _)| t.contains(word)))
+        .unwrap_or_else(|| panic!("no hint saying {word:?}"))
+}
+
 #[test]
-fn the_preview_marks_the_hit() {
+fn the_footer_names_ctrl_r_and_a_click_on_it_presses_it() {
     let (_r, mut app) = make_app();
     sized(&mut app);
     search_for(&mut app, "helper");
-    let buf = buffer_of(&app);
-    let marked: Vec<String> = (0..40u16)
-        .flat_map(|y| (0..100u16).map(move |x| (x, y)))
-        .filter(|&(x, y)| {
-            buf[(x, y)]
-                .style()
-                .add_modifier
-                .contains(ratatui::style::Modifier::UNDERLINED)
-        })
-        .map(|(x, y)| buf[(x, y)].symbol().to_string())
-        .collect();
-    assert_eq!(
-        marked.join(""),
-        "helper",
-        "the word is underlined where the preview shows it"
+    let area = search_modal_area(layout(SCREEN).body);
+    let row = footer_row(area);
+    let hints = app.modal_footer();
+    // The label says what the key WILL do, which is the footer's own rule.
+    let at = hint_named(&hints, "pattern");
+    let (x, y) = on_hint(&hints, at, row.x, row);
+    app.handle_mouse(click(x, y));
+    assert_eq!(app.search_reading(), Reading::Pattern);
+    // And now it offers the way back.
+    let hints = app.modal_footer();
+    assert!(
+        hints
+            .iter()
+            .any(|h| h.pieces.iter().any(|(t, _)| t.contains("literal"))),
+        "the label follows the reading"
     );
+}
+
+#[test]
+fn a_pattern_reading_wears_a_pill_and_a_literal_one_does_not() {
+    let (_r, mut app) = make_app();
+    sized(&mut app);
+    search_for(&mut app, "helper");
+    // The QUERY row, not the whole screen: the footer says `ctrl-r pattern`
+    // in either reading, because a label says what the key WILL do.
+    let query_row = |app: &App| -> String {
+        let y = pane_inner(search_modal_area(layout(SCREEN).body)).y;
+        screen(app, 100, 40)[y as usize].clone()
+    };
+    assert!(
+        !query_row(&app).contains("pattern"),
+        "a literal reading is the default and wears no badge: {}",
+        query_row(&app)
+    );
+    app.handle_key(ctrl('r'));
+    assert!(
+        query_row(&app).contains("pattern"),
+        "the reading is a pill on the query row: {}",
+        query_row(&app)
+    );
+}
+
+#[test]
+fn the_preview_fills_the_hit_and_reverses_the_ink_out_of_it() {
+    let (_r, mut app) = make_app();
+    sized(&mut app);
+    search_for(&mut app, "helper");
+    let t = theme();
+    let buf = buffer_of(&app);
+    let filled: Vec<(u16, u16)> = (0..40u16)
+        .flat_map(|y| (0..100u16).map(move |x| (x, y)))
+        .filter(|&(x, y)| buf[(x, y)].style().bg == Some(t.highlight_bg))
+        .collect();
+    let word: String = filled
+        .iter()
+        .map(|&(x, y)| buf[(x, y)].symbol().to_string())
+        .collect();
+    assert_eq!(word, "helper", "the whole word wears the fill, and only it");
+    assert!(
+        filled
+            .iter()
+            .all(|&(x, y)| buf[(x, y)].style().fg == Some(t.highlight_fg)),
+        "and the ink on it is the one reversed out of the fill"
+    );
+}
+
+#[test]
+fn ctrl_r_reads_the_query_as_a_pattern() {
+    let r = TestRepo::new();
+    r.write("src/dots.txt", b"a.c\nabc\n");
+    r.commit_all("base");
+    r.write("src/dots.txt", b"a.c\nabc\nmore\n");
+    r.commit_all("head");
+    let mut app = open_app_with(&r, &one_group_per_class(), ".dfr-re-store");
+    search_for(&mut app, "a.c");
+    assert_eq!(occurrences(&app), vec!["src/dots.txt:1 g0 focus"]);
+    app.handle_key(ctrl('r'));
+    assert_eq!(
+        occurrences(&app),
+        vec!["src/dots.txt:1 g0 focus", "src/dots.txt:2 g0 focus"],
+        "the dot is any character now"
+    );
+    // And back, on the same query.
+    app.handle_key(ctrl('r'));
+    assert_eq!(occurrences(&app), vec!["src/dots.txt:1 g0 focus"]);
+}
+
+#[test]
+fn the_reading_mode_shows_on_the_query_row_and_survives_a_close() {
+    let (_r, mut app) = make_app();
+    sized(&mut app);
+    search_for(&mut app, "helper");
+    assert!(
+        screen(&app, 100, 40).iter().any(|r| r.contains("/helper")),
+        "a literal is led by a plain slash"
+    );
+    app.handle_key(ctrl('r'));
+    assert!(
+        screen(&app, 100, 40).iter().any(|r| r.contains("/~helper")),
+        "a pattern says so"
+    );
+    app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    app.handle_key(key('/'));
+    assert!(
+        screen(&app, 100, 40).iter().any(|r| r.contains("/~helper")),
+        "and it comes back as a pattern"
+    );
+}
+
+#[test]
+fn a_pattern_that_does_not_compile_says_so() {
+    let (_r, mut app) = make_app();
+    sized(&mut app);
+    search_for(&mut app, "helper");
+    app.handle_key(ctrl('r'));
+    app.handle_key(key('('));
+    assert!(occurrences(&app).is_empty());
+    let on_screen = screen(&app, 100, 40).join("\n");
+    assert!(
+        on_screen.contains("bad pattern"),
+        "a typo and an honest answer have to look different:\n{on_screen}"
+    );
+}
+
+#[test]
+fn a_query_that_comes_back_is_selected_so_one_key_replaces_it() {
+    let (_r, mut app) = make_app();
+    search_for(&mut app, "helper");
+    app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    app.handle_key(key('/'));
+    // One character, and the old word is gone rather than typed into.
+    app.handle_key(key('o'));
+    let Mode::Search { query, .. } = &app.mode else {
+        panic!("not searching")
+    };
+    assert_eq!(query, "o");
+}
+
+#[test]
+fn backspace_clears_a_selected_query_and_an_arrow_keeps_it() {
+    let (_r, mut app) = make_app();
+    search_for(&mut app, "helper");
+    app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    app.handle_key(key('/'));
+    app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+    let Mode::Search { query, .. } = &app.mode else {
+        panic!("not searching")
+    };
+    assert_eq!(query, "", "backspace takes the whole selection");
+
+    // An arrow is not typing: it drops the selection and leaves the word.
+    search_for_more(&mut app, "helper");
+    app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    app.handle_key(key('/'));
+    app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+    app.handle_key(key('s'));
+    let Mode::Search { query, .. } = &app.mode else {
+        panic!("not searching")
+    };
+    assert_eq!(query, "helpers");
 }
 
 #[test]
@@ -8534,7 +8693,7 @@ fn the_preview_shifts_so_a_hit_far_along_a_line_is_on_it() {
     let mut app = open_app_with(&r, &one_group_per_class(), ".dfr-wide-store");
     sized(&mut app);
     search_for(&mut app, "NEEDLE");
-    assert_eq!(occurrences(&app), vec!["src/wide.txt:1 g0 focus"]);
+    assert_eq!(occurrences(&app), vec!["src/wide.txt:1 g0 focus C0"]);
     let on_screen = screen(&app, 100, 40).join("\n");
     assert!(
         on_screen.contains("NEEDLE"),
@@ -8586,7 +8745,7 @@ fn a_binary_file_is_searched_for_nothing() {
     search_for(&mut app, "word");
     assert_eq!(
         occurrences(&app),
-        vec!["src/keep.txt:1 g0 focus"],
+        vec!["src/keep.txt:1 g0 focus C0"],
         "the binary file is enumerated and counted, and holds no text to find"
     );
 }
@@ -8599,11 +8758,38 @@ fn render_dump_search() {
     sized(&mut app);
     search_for(&mut app, "helper");
     println!("\n=== / helper — the list, and the preview under it ===");
+    println!("(the hit is a filled yellow block; a dump shows no colour)");
+    for row in screen(&app, 100, 40) {
+        println!("{row}");
+    }
+    app.handle_key(ctrl('r'));
+    println!("\n=== ctrl-r — the same query, read as a pattern ===");
+    for row in screen(&app, 100, 40) {
+        println!("{row}");
+    }
+    app.handle_key(ctrl('r'));
+    app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    app.handle_key(key('/'));
+    println!("\n=== / again — the query comes back SELECTED ===");
     for row in screen(&app, 100, 40) {
         println!("{row}");
     }
     app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     println!("\n=== enter — landed on src/a.txt:1 ===");
+    for row in screen(&app, 100, 40) {
+        println!("{row}");
+    }
+
+    // A file long enough to fill the preview, and a hit outside every hunk.
+    let (_r, mut app) = app_with_a_long_file();
+    sized(&mut app);
+    search_for(&mut app, "filler3");
+    println!("\n=== / filler3 — hits inside no hunk, so no shape class ===");
+    for row in screen(&app, 100, 40) {
+        println!("{row}");
+    }
+    app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    println!("\n=== enter — the context gap opened to reach line 3 ===");
     for row in screen(&app, 100, 40) {
         println!("{row}");
     }

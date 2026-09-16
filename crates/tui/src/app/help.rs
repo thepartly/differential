@@ -30,6 +30,7 @@
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
+use super::search::Reading;
 use super::text::{Hint, Ink, joined};
 use super::{App, Focus, Mode, ViewMode};
 
@@ -133,6 +134,13 @@ fn presses_for(key: &str) -> Vec<KeyEvent> {
         "esc" => bare(KeyCode::Esc),
         "space" => bare(KeyCode::Char(' ')),
         "dd" => vec![KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE); 2],
+        // A chord ONE press can send. Without this a footer button naming one
+        // would read and do nothing, and `ctrl-r` is on a footer precisely
+        // because the footer is the only place its key is written down.
+        _ if first.len() == 6 && first.starts_with("ctrl-") => {
+            let c = first.chars().next_back().expect("six characters");
+            vec![KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL)]
+        }
         _ => match first.chars().next() {
             Some(c) if first.chars().count() == 1 => bare(KeyCode::Char(c)),
             // A row whose key no single press can send — the wheel, "any
@@ -350,6 +358,19 @@ impl App {
             // query, which is the price of a box you can search a path in.
             Area::Search => vec![
                 Act::footer("enter", "open", "jump to the occurrence"),
+                // On the footer, and it is the one key here that HAS to be:
+                // `?` types in this box, so the help modal cannot be opened
+                // from it and the footer is the only place a reader finds
+                // this. A label says what the key WILL do, not which reading
+                // is already on — the pill on the query row says that.
+                match self.search_reading() {
+                    Reading::Literal => {
+                        Act::footer("ctrl-r", "pattern", "read the query as a pattern")
+                    }
+                    Reading::Pattern => {
+                        Act::footer("ctrl-r", "literal", "read the query as a literal again")
+                    }
+                },
                 Act::footer("esc", "close", "close the search"),
                 Act::quiet("↑/↓", "move over the occurrences"),
                 Act::quiet(

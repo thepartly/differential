@@ -16,6 +16,9 @@ pub(super) fn seed() -> Seed {
         del: rgb(0xF3, 0x8B, 0xA8),
         accent: rgb(0x89, 0xB4, 0xFA),
         skim: rgb(0xF5, 0xD8, 0x7A),
+        // Catppuccin's own Yellow, saturated: the published `#F9E2AF` is a
+        // cream, and a cream is a shade rather than a mark.
+        highlight: rgb(0xF7, 0xD0, 0x6B),
         finding: rgb(0xCB, 0xA6, 0xF7),
     }
 }

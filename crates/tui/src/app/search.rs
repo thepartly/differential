@@ -62,40 +62,96 @@ pub struct Occurrence {
     /// where no group touches the file at all, which is a file whose change
     /// carries no hunks: a mode change, a rename of untouched content.
     pub group: Option<usize>,
-    /// `g2 focus`, or empty where no group owns the file.
+    /// `g2 focus C37` — the group, its tier, and the shape class of the hunk
+    /// holding this line.
+    ///
+    /// The class is the answer to "have I read this already?", which is the
+    /// question a reader looking at four hits in four files is really asking:
+    /// four hits in one class are one shape, and the plan may well have
+    /// deferred three of them for exactly that reason. A line inside NO hunk
+    /// has no class, and the gap is the statement — the badge that names a
+    /// class is the badge on a line the change wrote.
+    ///
+    /// Empty where no group owns the file at all.
     pub badge: String,
     /// Is the line inside a hunk this change wrote?
     pub in_hunk: bool,
 }
 
-/// The query's matcher: a literal, ASCII or not, with smart case.
+/// Which way the query is read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Reading {
+    /// Every character stands for itself. `a.c` finds `a.c`, not `abc`.
+    Literal,
+    /// The query is a pattern. `ctrl-r` is what asks for this.
+    Pattern,
+}
+
+impl Reading {
+    fn flip(self) -> Self {
+        match self {
+            Reading::Literal => Reading::Pattern,
+            Reading::Pattern => Reading::Literal,
+        }
+    }
+
+    /// What the query row is led by, so the mode is on screen and not in the
+    /// reader's memory.
+    pub(super) fn sigil(self) -> &'static str {
+        match self {
+            Reading::Literal => " /",
+            Reading::Pattern => " /~",
+        }
+    }
+}
+
+/// The query's matcher, with smart case.
 ///
-/// A regex over the escaped query rather than a hand-rolled scan (design rule
-/// 5). The crate compiles a literal to a memchr search, it reports byte ranges
-/// in the HAYSTACK — so a fold that changes a string's length cannot put a
-/// mark in the wrong column — and the case rule is one builder call.
+/// A regex either way (design rule 5 — the boring, widely-used crate). Escaped
+/// for a literal, and taken as written for a pattern. The crate compiles a
+/// literal to a memchr search, and it reports byte ranges in the HAYSTACK — so
+/// a fold that changes a string's length cannot put a mark in the wrong column.
 ///
 /// **Smart case**: an all-lowercase query ignores case, and one uppercase
-/// letter in it means the reader typed the case they meant.
-pub(super) fn matcher(query: &str) -> Option<Regex> {
+/// letter in it means the reader typed the case they meant. It holds for a
+/// pattern too, where `\w` and `\W` are the reader's own business.
+///
+/// `None` means there is nothing to search for: an empty query, or — only ever
+/// in [`Reading::Pattern`] — a pattern that does not compile. The box tells
+/// those two apart so it can say `bad pattern` rather than `no occurrence`.
+pub(super) fn matcher(query: &str, reading: Reading) -> Option<Regex> {
     if query.is_empty() {
         return None;
     }
     let folded = !query.chars().any(char::is_uppercase);
-    regex::RegexBuilder::new(&regex::escape(query))
+    let source = match reading {
+        Reading::Literal => regex::escape(query),
+        Reading::Pattern => query.to_string(),
+    };
+    regex::RegexBuilder::new(&source)
         .case_insensitive(folded)
         .build()
         .ok()
 }
 
-/// Ink for a hit: the accent and a bold underline, exactly what the symbol
-/// float lights its chosen name with (`draw::mark_symbols`). A background
-/// would have to be told apart from the diff's own tints by colour value, and
-/// that is a palette test per theme for no gain.
+/// Ink for a hit: the palette's `highlight` accent as a FILL, with the ground
+/// reversed out of it.
+///
+/// A fill rather than the underline the symbol float marks with, because the
+/// two say different things. A symbol mark says "there is something here to
+/// ask about" on a row the reader is already reading, and has to stay out of
+/// the way; this says "this is the thing you went looking for", on a line the
+/// reader has not read yet, and being got out of the way is the one thing it
+/// must not be.
+///
+/// It can be a background here where `draw::mark_symbols` could not be one:
+/// nothing in this box goes through `Theme::step_band`, which dispatches on
+/// colour VALUES, so there is no tint for a new one to be confused with.
 fn hit_style(theme: &Theme) -> Style {
     Style::default()
-        .fg(theme.header_fg)
-        .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
+        .fg(theme.highlight_fg)
+        .bg(theme.highlight_bg)
+        .add_modifier(Modifier::BOLD)
 }
 
 /// Mark every hit on one already-highlighted line.
@@ -117,17 +173,40 @@ impl App {
     pub(super) fn open_search(&mut self) {
         self.visual = None;
         let query = self.last_query.clone();
-        let entries = self.search_scan(&query);
+        let reading = self.last_reading;
+        let entries = self.search_scan(&query, reading);
         let selected = self.last_hit.min(entries.len().saturating_sub(1));
         let scroll = text::follow(selected, 0, self.search_list_rows());
         self.mode = Mode::Search {
+            picked: !query.is_empty(),
             query,
+            reading,
             entries,
             selected,
             scroll,
             preview: Vec::new(),
         };
         self.refresh_preview();
+    }
+
+    /// How the open box is reading its query. `Literal` when none is open,
+    /// which is what it opens as.
+    pub fn search_reading(&self) -> Reading {
+        match &self.mode {
+            Mode::Search { reading, .. } => *reading,
+            _ => Reading::Literal,
+        }
+    }
+
+    /// Whether the box is holding a pattern it could not compile. Only ever
+    /// true in [`Reading::Pattern`]: an escaped literal always compiles.
+    pub(super) fn search_pattern_is_bad(&self) -> bool {
+        match &self.mode {
+            Mode::Search { query, reading, .. } => {
+                !query.is_empty() && matcher(query, *reading).is_none()
+            }
+            _ => false,
+        }
     }
 
     /// The first occurrence the list is showing.
@@ -141,10 +220,14 @@ impl App {
     /// Close it, keeping the query and the hit for the next `/`.
     pub(super) fn close_search(&mut self) {
         if let Mode::Search {
-            query, selected, ..
+            query,
+            reading,
+            selected,
+            ..
         } = &self.mode
         {
             self.last_query = query.clone();
+            self.last_reading = *reading;
             self.last_hit = *selected;
         }
         self.mode = Mode::Normal;
@@ -160,8 +243,8 @@ impl App {
     ///
     /// Read-only: the corpus is already in memory, so this runs on the
     /// keystroke that changed the query.
-    fn search_scan(&self, query: &str) -> Vec<Occurrence> {
-        let Some(re) = matcher(query) else {
+    fn search_scan(&self, query: &str, reading: Reading) -> Vec<Occurrence> {
+        let Some(re) = matcher(query, reading) else {
             return Vec::new();
         };
         let plan = self.session.plan();
@@ -191,7 +274,7 @@ impl App {
                 continue;
             };
             // The file's hunks once, with the group each one landed in.
-            let hunks: Vec<(u32, u32, Option<usize>)> = plan
+            let hunks: Vec<(u32, u32, Option<usize>, String)> = plan
                 .files
                 .iter()
                 .find(|v| v.path == f.path)
@@ -203,25 +286,30 @@ impl App {
                             let g = plan
                                 .group_of_hunk(*h)
                                 .and_then(|g| rank.get(g.id.as_str()).copied());
-                            (e.new_start, e.new_start + e.new_count, g)
+                            (e.new_start, e.new_start + e.new_count, g, e.class.clone())
                         })
                         .collect()
                 })
                 .unwrap_or_default();
             // A line in no hunk belongs to the first group that reads this
             // file — "the first plan it is contained by".
-            let file_group = hunks.iter().filter_map(|(_, _, g)| *g).min();
+            let file_group = hunks.iter().filter_map(|(_, _, g, _)| *g).min();
 
             for (i, text) in lines.iter().enumerate() {
                 let Some(m) = re.find(text) else { continue };
                 let line = i as u32 + 1;
                 let owner = hunks
                     .iter()
-                    .find(|(lo, hi, _)| *hi > *lo && line >= *lo && line < *hi);
-                let group = owner.and_then(|(_, _, g)| *g).or(file_group);
+                    .find(|(lo, hi, _, _)| *hi > *lo && line >= *lo && line < *hi);
+                let group = owner.and_then(|(_, _, g, _)| *g).or(file_group);
                 let badge = group
                     .and_then(|g| plan.groups.get(g))
-                    .map(|g| format!("{} {}", g.id, plan.tier_name(g)))
+                    .map(|g| match owner {
+                        Some((_, _, _, class)) => {
+                            format!("{} {} {class}", g.id, plan.tier_name(g))
+                        }
+                        None => format!("{} {}", g.id, plan.tier_name(g)),
+                    })
                     .unwrap_or_default();
                 let here = here_path.as_deref() == Some(f.path.as_str())
                     || (group.is_some() && group == here_group);
@@ -258,6 +346,7 @@ impl App {
     fn refresh_preview(&mut self) {
         let Mode::Search {
             query,
+            reading,
             entries,
             selected,
             ..
@@ -265,7 +354,7 @@ impl App {
         else {
             return;
         };
-        let Some(re) = matcher(query) else {
+        let Some(re) = matcher(query, *reading) else {
             if let Mode::Search { preview, .. } = &mut self.mode {
                 preview.clear();
             }
@@ -310,14 +399,20 @@ impl App {
         let rows = self.search_list_rows();
         let Mode::Search {
             query,
+            reading,
             entries,
             selected,
             scroll,
+            picked,
             ..
         } = &mut self.mode
         else {
             return;
         };
+        // A selected query behaves as one in any text field: the next thing
+        // typed replaces it, and anything else drops the selection and leaves
+        // the word alone.
+        let was_picked = std::mem::take(picked);
         let mut edited = false;
         let mut moved = false;
         match (key.code, key.modifiers) {
@@ -343,8 +438,18 @@ impl App {
                 text::step_list(selected, scroll, entries.len(), rows, false);
                 moved = true;
             }
+            // The toggle, not a second box: the query a reader typed as a
+            // literal is usually most of the pattern they now want.
+            (KeyCode::Char('r'), KeyModifiers::CONTROL) => {
+                *reading = reading.flip();
+                edited = true;
+            }
             (KeyCode::Backspace, _) => {
-                query.pop();
+                if was_picked {
+                    query.clear();
+                } else {
+                    query.pop();
+                }
                 edited = true;
             }
             // The two line-editing chords a one-line box owes its reader. A
@@ -361,6 +466,9 @@ impl App {
                 edited = true;
             }
             (KeyCode::Char(c), m) if m.is_empty() || m == KeyModifiers::SHIFT => {
+                if was_picked {
+                    query.clear();
+                }
                 query.push(c);
                 edited = true;
             }
@@ -376,11 +484,11 @@ impl App {
 
     /// The query changed: scan again and start at the best hit.
     fn rerun_search(&mut self) {
-        let Mode::Search { query, .. } = &self.mode else {
+        let Mode::Search { query, reading, .. } = &self.mode else {
             return;
         };
-        let query = query.clone();
-        let found = self.search_scan(&query);
+        let (query, reading) = (query.clone(), *reading);
+        let found = self.search_scan(&query, reading);
         if let Mode::Search {
             entries,
             selected,
@@ -396,9 +504,13 @@ impl App {
 
     /// Text pasted into the query box.
     pub(super) fn search_paste(&mut self, text: &str) {
-        let Mode::Search { query, .. } = &mut self.mode else {
+        let Mode::Search { query, picked, .. } = &mut self.mode else {
             return;
         };
+        // A paste replaces a selected query, as typing does.
+        if std::mem::take(picked) {
+            query.clear();
+        }
         // One line: the box is one row, and the rest of a multi-line paste
         // would be typed into a field nobody can see.
         query.push_str(text.lines().next().unwrap_or_default());
@@ -602,23 +714,43 @@ mod tests {
 
     #[test]
     fn a_lowercase_query_ignores_case_and_an_uppercase_one_does_not() {
-        let re = matcher("readingsplit").unwrap();
+        let re = matcher("readingsplit", Reading::Literal).unwrap();
         assert!(re.is_match("ReadingSplit"), "all lowercase folds");
-        let re = matcher("ReadingSplit").unwrap();
+        let re = matcher("ReadingSplit", Reading::Literal).unwrap();
         assert!(re.is_match("ReadingSplit"));
         assert!(!re.is_match("readingsplit"), "an uppercase letter is meant");
+        // And it holds for a pattern, where the reader owns the metacharacters
+        // and not the case rule.
+        let re = matcher("reading.plit", Reading::Pattern).unwrap();
+        assert!(re.is_match("ReadingSplit"));
     }
 
     #[test]
-    fn the_query_is_a_literal_and_never_a_pattern() {
-        let re = matcher("a.c").unwrap();
+    fn a_literal_query_is_never_a_pattern() {
+        let re = matcher("a.c", Reading::Literal).unwrap();
         assert!(re.is_match("a.c"));
         assert!(!re.is_match("abc"), ". is a dot, not any character");
     }
 
     #[test]
+    fn a_pattern_query_is_one() {
+        let re = matcher("a.c", Reading::Pattern).unwrap();
+        assert!(re.is_match("abc"), ". is any character now");
+        assert!(re.is_match("a.c"));
+        assert!(
+            matcher("a(", Reading::Pattern).is_none(),
+            "a pattern that does not compile finds nothing"
+        );
+        assert!(
+            matcher("a(", Reading::Literal).is_some(),
+            "and the same characters are a fine literal"
+        );
+    }
+
+    #[test]
     fn an_empty_query_matches_nothing_at_all() {
-        assert!(matcher("").is_none());
+        assert!(matcher("", Reading::Literal).is_none());
+        assert!(matcher("", Reading::Pattern).is_none());
     }
 
     #[test]

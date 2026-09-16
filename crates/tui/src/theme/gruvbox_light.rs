@@ -23,6 +23,8 @@ pub(super) fn seed() -> Seed {
         del: rgb(0x9D, 0x00, 0x06),
         accent: rgb(0x0A, 0x5F, 0x9C),
         skim: rgb(0x8F, 0x5D, 0x10),
+        // The same yellow the dark twin fills with; the ground decides the ink.
+        highlight: rgb(0xFF, 0xCC, 0x33),
         finding: rgb(0x8F, 0x3F, 0x71),
     }
 }

@@ -74,7 +74,92 @@ sharing a rank — which is to say never. The tier is therefore on every row and
 this arithmetic. That is the whole of what it is for here: telling the reader what they are
 about to open.
 
-**4. Plain text, not symbols.**
+**A row says `g1 skim C0`** — the group, its tier, and the shape class of the hunk holding
+the line. The class rather than the words "in hunk", which the class already implies and
+which says less: four hits in four files sharing one class are one shape, and the plan may
+well have deferred three of them for exactly that reason. It is the answer to *have I read
+this already*, which is the question a reader scanning the list is really asking. A line
+inside no hunk has no class, so the absence carries what "in hunk" used to say.
+
+**The list takes a third of the box, the preview the rest.** The two are not worth the same
+per row: a list row is a path and a badge, and eight of them is already more than a reader
+compares at once, where the preview is code and every line of it is a line they may not have
+to go and open at all.
+
+**4. Literal by default, a pattern on `ctrl-r`.**
+
+A toggle rather than a mode the reader chooses up front, and rather than a second key that
+opens a second box. The word someone typed as a literal is usually most of the pattern they
+now want, so the toggle keeps it and re-reads it. The query row carries which it is — `/word`
+or `/~word` — because a mode the reader has to remember is a mode they will be wrong about.
+
+A pattern that does not compile finds nothing, which is indistinguishable from a word nothing
+holds unless the box says so. It says `bad pattern`. The distinction is the difference between
+a typo the reader can fix and an answer they should believe.
+
+Smart case holds in both readings. In a pattern the metacharacters are the reader's business
+and the case rule is not one of them.
+
+**5. A hit is a filled block in an accent of the palette's own.**
+
+The symbol float marks with an underline and explicitly rejected a background, because a
+background in the diff pane would have to be told apart from `added_bg`, `deleted_bg` and
+their word-level twins by `Theme::step_band`, which dispatches on colour VALUES. That
+reasoning is about the diff pane. Nothing in the search box goes through it, so the box can
+have the fill the pane could not.
+
+It should have one. The two marks say different things: the symbol underline marks a name on
+a row the reader is ALREADY reading and has to stay out of the way, where a search hit is the
+thing they went looking for, on a line they have not read yet, and being out of the way is
+the one thing it must not be.
+
+The colour is a **sixth seed accent**, `highlight` — each palette's own yellow, at fill
+strength — with whichever of the theme's extremes reads on it reversed out. Deriving it from
+`skim`, which is the same hue in every palette, was the obvious saving and is wrong: `skim`
+is an INK that has to read on the ground, which on a light theme makes it a dark brown, where
+this is a FILL that the ground's ink has to read on, which on the same theme makes it a
+bright amber. One value cannot be both. That is what separates this from `reviewed_fg`, the
+field ADR 0024 removed — that one's eleven values were identical to another field's.
+
+The palette test holds it to three things: the ink clears WCAG AA on the fill, the fill is
+not one of the theme's other five accents, and its chroma clears the module's own 0.10 floor.
+**Chroma, not luminance**, and the light themes are why: a ground that is near-white cannot
+be 3:1 from any yellow, so a luminance bar would have forced a dark brown — which is `skim`
+again, and not a highlight at all. Every editor's yellow-on-white search mark is low-contrast
+and perfectly visible, because a saturated hue on a neutral ground is not a lightness
+difference. The module had already recorded this lesson once, about an invisible green.
+
+`highlight` is a seed rather than a derived value so that anything else meaning *this is what
+you asked for* can be derived from it later.
+
+**6. The reading is a pill, and its key is on the footer.**
+
+`ctrl-r` is a footer act rather than a quiet one, and it is the only key in this box that has
+to be: `?` types here, so the help modal cannot be opened from it and the footer is the only
+place the key is written down anywhere the reader can reach. Its label says what the press
+WILL do — `pattern` while reading a literal — which is the footer's own rule. `presses_for`
+learned the `ctrl-<c>` chords so that clicking the button presses the key it names; a footer
+button that reads and does nothing would have been the wrong half of the convention.
+
+The reading itself is on the query row twice: as the lead (`/word`, `/~word`) and as a
+`pattern` pill. It is a fact about what the next keystroke will do, which is what a pill says
+here — as `selecting 4 lines` does on the window footer, and as a group's role and a hunk's
+class do in the panes. It appears while the reading is on and goes when it goes, so there is
+no pill meaning "literal": the absence is the statement, and the default needs no badge.
+
+**7. A query that comes back is selected.**
+
+The query and the hit survive a close, so walking a word's occurrences is `/` and an arrow.
+That same behaviour is in the way of a reader looking for something else, who now has to
+clear a field before they can type.
+
+Selecting it serves both without a second key, and without either reader having to know which
+state they are in — the row is drawn on the band a selected list row wears, so they can see
+it. The next character typed replaces the whole query, backspace takes all of it, and
+anything that is not typing drops the selection and leaves the word alone. That is what a
+text field does everywhere else, which is the point.
+
+**8. Plain text, not symbols.**
 
 A symbol-aware search could rank a declaration above a mention, and the data exists per line
 with byte offsets (ADR 0032). It was rejected: a file no reader claims has no symbols at all
@@ -101,6 +186,8 @@ column — which a hand-rolled ASCII fold would have had to guarantee by argumen
   four thousand lines it stops and says how far the line still is: every revealed line
   becomes a row and a syntect pass, and a generated file can put a match a very long way
   from anything.
+- **A palette gains a field**, and a theme that picks a bad one fails in the palette test
+  rather than in somebody's terminal.
 - **Nothing lands in the engine.** The scan is a view over a cache the renderer already
   holds, and the ranking reads the projection. A second renderer wanting a search would be
   the reason to move the policy down, and there is not one.

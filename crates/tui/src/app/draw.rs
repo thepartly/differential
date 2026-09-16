@@ -317,12 +317,24 @@ impl App {
             }
             Mode::Search {
                 query,
+                reading,
+                picked,
                 entries,
                 selected,
                 scroll,
                 preview,
             } => self.draw_search(
-                frame, panes.body, query, entries, *selected, *scroll, preview,
+                frame,
+                panes.body,
+                Query {
+                    text: query,
+                    reading: *reading,
+                    picked: *picked,
+                },
+                entries,
+                *selected,
+                *scroll,
+                preview,
             ),
             Mode::Normal => {}
         }
@@ -339,7 +351,7 @@ impl App {
         &self,
         frame: &mut Frame,
         body: Rect,
-        query: &str,
+        query: Query<'_>,
         entries: &[super::Occurrence],
         selected: usize,
         scroll: usize,
@@ -359,29 +371,52 @@ impl App {
         // The query row. The caret is drawn rather than placed: a terminal
         // cursor would have to be shown and hidden around every other mode,
         // and this box is the only one that has no `TextArea` to own it.
-        let mut lines: Vec<Line> = vec![Line::from(vec![
-            Span::styled(" /", dim),
-            Span::styled(query.to_string(), accent.add_modifier(Modifier::BOLD)),
+        //
+        // A query carried back from the last `/` is drawn SELECTED, on the
+        // band a selected list row wears — so the reader can see, without
+        // pressing anything, that one character will replace it.
+        let mut typed = accent.add_modifier(Modifier::BOLD);
+        if query.picked {
+            typed = typed.bg(self.theme.selected_bg);
+        }
+        let mut row = vec![
+            Span::styled(query.reading.sigil(), dim),
+            Span::styled(query.text.to_string(), typed),
             Span::styled("▏", accent),
-        ])];
+        ];
+        // Reading a pattern is a FACT about what the next keystroke will do,
+        // which is exactly what a pill says — as `selecting 4 lines` does on
+        // the window footer. It appears while the reading is on and goes when
+        // it goes, so there is no pill that means "literal": the absence is
+        // the statement, and the default needs no badge.
+        if query.reading == super::Reading::Pattern {
+            let (_, fill) = self.theme.pill();
+            let badge: Vec<Span> = pill(vec![(self.theme.header_fg, "pattern".to_string())], fill)
+                .into_iter()
+                .map(|(st, t)| Span::styled(t, st))
+                .collect();
+            let used: usize = row
+                .iter()
+                .chain(badge.iter())
+                .map(|s| UnicodeWidthStr::width(s.content.as_ref()))
+                .sum();
+            // Hard against the right edge, so it sits where the hit count
+            // does one border down and the two read as one column of state.
+            row.push(Span::styled(
+                " ".repeat(inner_w.saturating_sub(used).saturating_sub(1)),
+                Style::default(),
+            ));
+            row.extend(badge);
+        }
+        let mut lines: Vec<Line> = vec![Line::from(row)];
 
         // What the list says about a hit, right-aligned so the paths line up
         // on the left where the eye scans them.
-        let tail = |e: &super::Occurrence| {
-            let mut t = String::new();
-            if !e.badge.is_empty() {
-                t.push_str(&e.badge);
-            }
-            if e.in_hunk {
-                t.push_str("  in hunk");
-            }
-            t
-        };
         let tail_col = entries
             .iter()
             .skip(scroll)
             .take(list_rows)
-            .map(|e| UnicodeWidthStr::width(tail(e).as_str()))
+            .map(|e| UnicodeWidthStr::width(e.badge.as_str()))
             .max()
             .unwrap_or(0);
 
@@ -390,8 +425,10 @@ impl App {
         // under the reader's eyes on every keystroke.
         let mut drawn_rows = 0usize;
         if entries.is_empty() {
-            let words = if query.is_empty() {
+            let words = if query.text.is_empty() {
                 "type to search every changed file"
+            } else if self.search_pattern_is_bad() {
+                "that pattern does not compile"
             } else {
                 "no occurrence of that"
             };
@@ -421,7 +458,7 @@ impl App {
                     Span::styled(if on { " ▸ " } else { "   " }.to_string(), bg(accent)),
                     Span::styled(at, style),
                     Span::styled(" ".repeat(pad + 2), bg(dim)),
-                    Span::styled(tail(e), bg(dim)),
+                    Span::styled(e.badge.clone(), bg(dim)),
                 ]);
                 if on {
                     pad_to_width(&mut line, inner_w, self.theme.selected_bg);
@@ -489,6 +526,10 @@ impl App {
         }
 
         let found = match entries.len() {
+            // A pattern that does not compile finds nothing, and so does a
+            // word nothing holds. Saying which is the difference between a
+            // typo the reader can fix and an answer they should believe.
+            0 if self.search_pattern_is_bad() => " bad pattern ".to_string(),
             0 => String::new(),
             n if n >= super::search::MOST_HITS => format!(" {n}+ found "),
             n => format!(" {n} found "),
@@ -2623,6 +2664,14 @@ pub fn file_list_modal_area(body: Rect, entries: &[FileListEntry]) -> Rect {
     // a path worth reading.
     let width = (lead + widest + 2).max(70).min(body.width as usize) as u16;
     centered_rect(body, width, height)
+}
+
+/// What the query row draws, gathered so `draw_search` takes one argument for
+/// it rather than three that must be passed in the right order.
+struct Query<'a> {
+    text: &'a str,
+    reading: super::Reading,
+    picked: bool,
 }
 
 /// The search box: a fixed size, centred on the body and clamped to it.

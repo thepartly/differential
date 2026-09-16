@@ -254,6 +254,14 @@ pub enum Mode {
     /// the model.
     Search {
         query: String,
+        /// Literal, or a pattern. `ctrl-r` flips it.
+        reading: search::Reading,
+        /// The query came back from the last `/` and is SELECTED: the next
+        /// character typed replaces the whole of it, as it would in any text
+        /// field. Reopening on the old word is what a reader wants when they
+        /// are walking its hits; it is in the way when they are not, and this
+        /// is the one state that serves both without a second key.
+        picked: bool,
         entries: Vec<search::Occurrence>,
         selected: usize,
         /// First visible occurrence. The list is longer than any box.
@@ -514,6 +522,7 @@ pub struct App {
     /// nothing here reaches the sidecar store. Kept so that finding the NEXT
     /// occurrence is `/` and an arrow rather than the word typed again.
     last_query: String,
+    last_reading: search::Reading,
     last_hit: usize,
 }
 
@@ -583,6 +592,7 @@ impl App {
             forge: None,
             inflight: None,
             last_query: String::new(),
+            last_reading: search::Reading::Literal,
             last_hit: 0,
         };
         // The document is fixed for the session's life, so this is built once
@@ -658,7 +668,7 @@ pub use draw::{
     footer_row, pane_inner, publish_area, publish_footer, search_modal_area,
 };
 pub use help::{Act, Area, HelpSection};
-pub use search::Occurrence;
+pub use search::{Occurrence, Reading};
 pub use text::{Hint, Ink, hints_width};
 
 pub use forge::ForgeLink;

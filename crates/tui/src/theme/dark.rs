@@ -17,6 +17,8 @@ pub(super) fn seed() -> Seed {
         del: rgb(0xEF, 0x8A, 0x8A),
         accent: rgb(0x5D, 0xD5, 0xE8),
         skim: rgb(0xF2, 0xC9, 0x60),
+        // Base16 Eighties' own yellow, which its ink set never uses for code.
+        highlight: rgb(0xFF, 0xCC, 0x66),
         finding: rgb(0xCB, 0x8A, 0xD6),
     }
 }

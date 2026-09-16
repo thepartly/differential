@@ -232,24 +232,34 @@ why `esc` is the only key that closes.
 |---|---|
 | `↑` / `↓` | Previous / next occurrence. `ctrl-p` and `ctrl-n` do the same. |
 | `enter` | Close and jump to that line, wherever in the review it lives. A folded skim remainder or noise group is opened, and so is a context gap. |
-| `backspace` | Delete the last character. |
+| `ctrl-r` | Read the query as a pattern instead of a literal, and back. |
+| `backspace` | Delete the last character, or all of a query that came back selected. |
 | `ctrl-u` | Clear the query. |
 | `ctrl-w` | Delete the last word. |
 | `esc` | Close, keeping the query and the hit for the next `/`. |
-| anything printable | Types. |
+| anything printable | Types. Replaces the whole query when it came back selected. |
 
 It searches **every changed file as it is now**, unchanged lines included — not the diff. So
 a line the change removed is not found, and a deleted file holds nothing. Binary files hold
 no text to find. Nothing is filtered out: a lockfile is searched like anything else and
 ranks last because its group does.
 
-The query is a **literal**, so `a.c` finds `a.c` and not `abc`. An all-lowercase query
-ignores case; one uppercase letter in it is the case you meant. One row per matching line,
-however many hits are on it.
+The query is a **literal**, so `a.c` finds `a.c` and not `abc`. `ctrl-r` reads it as a
+pattern instead. The query row says which reading it is on twice: as its lead — `/word` or
+`/~word` — and as a `pattern` pill, there only while the pattern reading is. A pattern that
+does not compile says `bad pattern` rather than finding nothing quietly. Either way an
+all-lowercase query ignores case, and one uppercase letter in it is the case you meant. One
+row per matching line, however many hits are on it; the preview marks them all, as a filled
+block in the palette's own highlight yellow.
+
+Closing keeps the query and the hit, so the next `/` picks up where you left off. The query
+comes back **selected**: one character replaces it, and `backspace` clears it.
 
 Rows are ranked by where you already are, then by whether the line is inside a hunk, then by
-plan order. Each carries its group and tier — `g1 skim` — so a hit inside something the plan
-deferred says so before you go there.
+plan order. Each says `g1 skim C0` — the group, its tier, and the shape class of the hunk
+holding the line. The tier means a hit inside something the plan deferred says so before you
+go there; the class means four hits in one class are one shape you may have read already. A
+line inside no hunk has no class, which is how the row says it is unchanged code.
 
 ### The findings list (`F`)
 

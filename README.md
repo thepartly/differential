@@ -182,15 +182,20 @@ line itself previewed under it and the word marked.
 
 ```
  /reading_split                                     28 found
- ▸ crates/engine/src/plan/tiers.rs:118   g2 focus   in hunk
-   crates/tui/src/rows.rs:791            g2 focus   in hunk
-   crates/stack/src/lib.rs:44            g5 skim
+ ▸ crates/engine/src/plan/tiers.rs:118        g2 focus C12
+   crates/tui/src/rows.rs:791                 g2 focus C31
+   crates/stack/src/lib.rs:44                    g5 skim
 ```
 
-What ranks first is where you already are, then the hits inside a hunk, then plan order.
-Each row says which group owns the line and what tier it is, so a hit inside something the
-plan deferred tells you before you go. `enter` puts the cursor on the line and opens
-whatever was in the way — a folded skim remainder, or a context gap the pane was not
+Each row says which group reads the line, at what tier, and which shape class the hunk
+holding it belongs to. A line inside no hunk carries no class — that is how a row says it is
+unchanged code.
+
+The query is a literal. `ctrl-r` reads it as a pattern instead.
+
+What ranks first is where you already are, then the hits inside a hunk, then plan order. A
+hit inside something the plan deferred tells you before you go. `enter` puts the cursor on
+the line and opens whatever was in the way — a folded skim remainder, or a context gap the pane was not
 showing.
 
 Two things it cannot find, both for the same reason: a line the change **removed**, and a

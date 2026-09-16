@@ -16,6 +16,8 @@ pub(super) fn seed() -> Seed {
         del: rgb(0xD2, 0x0F, 0x39),
         accent: rgb(0x1A, 0x56, 0xCC),
         skim: rgb(0x9A, 0x61, 0x00),
+        // Latte's Yellow is a dark amber ink; this is the same hue at fill strength.
+        highlight: rgb(0xF4, 0xC7, 0x3F),
         finding: rgb(0x88, 0x39, 0xEF),
     }
 }
