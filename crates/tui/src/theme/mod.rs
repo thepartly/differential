@@ -573,11 +573,21 @@ fn derive(seed: &Seed, syntect: syntect::highlighting::Theme) -> Theme {
     // mark a mark survive the move — the same reason `reviewed_fg` uses it.
     // The bar is the one `every_theme_is_legible_on_its_own_ground` holds text
     // to: WCAG AA, or the theme's own ceiling where it is lower.
+    //
+    // The last step is the answer if none of them reads, and there is nothing
+    // better to fall back to: a colour taken that far towards the ground's
+    // opposite is the most readable one on offer. A loop rather than
+    // `find(..).unwrap_or(..)`, because the fallback there was the last step's
+    // colour computed a second time — an arm that reads like a different
+    // answer and is the same one.
     let readable = 4.5f32.min(contrast(fg, bg));
-    let highlight_ink = (0..=20)
-        .map(|i| deepen(seed.highlight, bg, i as f32 * 0.03))
-        .find(|c| contrast(*c, bg) >= readable)
-        .unwrap_or_else(|| deepen(seed.highlight, bg, 0.60));
+    let mut highlight_ink = seed.highlight;
+    for i in 0..=20 {
+        highlight_ink = deepen(seed.highlight, bg, i as f32 * 0.03);
+        if contrast(highlight_ink, bg) >= readable {
+            break;
+        }
+    }
 
     Theme {
         bg: color(bg),
