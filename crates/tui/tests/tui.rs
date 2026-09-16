@@ -2743,6 +2743,70 @@ fn the_group_map_never_covers_the_groups_header() {
     );
 }
 
+/// A count beside a file names what the reader is being SHOWN of that file.
+/// `src/f.rs` carries two hunks in two groups, `+1 −1` each; the map printed
+/// the file's own `+2 −2` whichever group was selected, which is a number
+/// about something the reader is not looking at.
+#[test]
+fn the_group_map_counts_the_groups_part_of_a_file() {
+    let (_r, mut app) = app_with_two_groups_in_one_file();
+    app.focus = Focus::Groups;
+    let rows = drawn_rows(&mut app);
+    let row = rows
+        .iter()
+        .find(|l| l.contains("● f.rs"))
+        .unwrap_or_else(|| panic!("the group's file is not lit in the map: {rows:#?}"));
+    assert!(
+        row.contains("+1 −1"),
+        "the map must count the group's part of the file: {row}"
+    );
+    assert!(
+        !row.contains("+2"),
+        "the file's own totals are the other question: {row}"
+    );
+}
+
+/// The same rule in the diff pane's file list: reading a group, a row counts
+/// that group's part of the file, and the ✓ asks the same question the number
+/// does.
+#[test]
+fn the_file_list_counts_the_groups_part_of_a_file() {
+    use differential_tui::app::Mode;
+    let (_r, mut app) = app_with_two_groups_in_one_file();
+    app.focus = Focus::Detail;
+    app.handle_key(key('f'));
+    let Mode::FileList { entries, .. } = &app.mode else {
+        panic!("f should open the file list");
+    };
+    assert_eq!(
+        (entries[0].adds, entries[0].dels),
+        (1, 1),
+        "the list must count what is in view: {:?}",
+        entries[0].path
+    );
+}
+
+/// And the whole file is the right answer where the whole file is on screen.
+/// The file view's left pane IS the document's tree, so nothing is scoping it
+/// to a group.
+#[test]
+fn the_file_list_counts_the_whole_file_in_the_file_view() {
+    use differential_tui::app::Mode;
+    let (_r, mut app) = app_with_two_groups_in_one_file();
+    app.focus = Focus::Groups;
+    app.handle_key(key('f'));
+    app.focus = Focus::Detail;
+    app.handle_key(key('f'));
+    let Mode::FileList { entries, .. } = &app.mode else {
+        panic!("f should open the file list");
+    };
+    assert_eq!(
+        (entries[0].adds, entries[0].dels),
+        (2, 2),
+        "the file view shows the whole file, so it counts the whole file"
+    );
+}
+
 /// Reading the detail, a list of the files in view floats over the foot of the
 /// plan pane to say where you are and how much is left.
 #[test]

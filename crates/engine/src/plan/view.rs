@@ -73,6 +73,8 @@ pub struct ReviewView {
     /// binary, submodule and mode-only changes the group view cannot surface.
     pub files: Vec<FileView>,
     group_of_hunk: HashMap<HunkId, usize>,
+    /// Every hunk's own counts, document order — see `counts`.
+    counts_of_hunk: Vec<LineCounts>,
     hunk_by_digest: HashMap<String, HunkId>,
     digest_of_hunk: HashMap<HunkId, String>,
     classes: HashMap<String, ClassMembers>,
@@ -198,6 +200,12 @@ impl ReviewView {
             })
             .collect();
 
+        // One `LineCounts` per hunk, so any SUBSET of the document can be
+        // sized without the projection holding the document. Group totals and
+        // file totals are two such subsets; the group's part of a file is the
+        // third, and it is the one no field can carry.
+        let counts_of_hunk: Vec<LineCounts> = doc.hunks.iter().map(LineCounts::of_hunk).collect();
+
         let hunk_by_digest = doc
             .hunks
             .iter()
@@ -229,6 +237,7 @@ impl ReviewView {
             groups: projected,
             files,
             group_of_hunk,
+            counts_of_hunk,
             hunk_by_digest,
             digest_of_hunk,
             classes,
@@ -245,6 +254,41 @@ impl ReviewView {
     /// the coverage audit, but the type says so rather than a comment.
     pub fn group_of_hunk(&self, hunk: HunkId) -> Option<&GroupView> {
         self.group_of_hunk.get(&hunk).map(|&i| &self.groups[i])
+    }
+
+    /// One group's part of one file: the hunks it has there, file order.
+    ///
+    /// The question a count beside a file answers while the reader is standing
+    /// inside a group — the group map and the diff pane's file list both ask
+    /// it, and both used to print `files[file].counts` instead, which is a
+    /// number about the rest of the file as much as about what is on screen.
+    ///
+    /// A hunk another group owns is not this group's, however a widened window
+    /// came to draw it: the answer is a fact about the plan, so it does not
+    /// move under `z`.
+    pub fn hunks_in(&self, group: usize, file: usize) -> Vec<HunkId> {
+        let Some(f) = self.files.get(file) else {
+            return Vec::new();
+        };
+        f.hunks
+            .iter()
+            .filter(|h| self.group_of_hunk.get(h) == Some(&group))
+            .copied()
+            .collect()
+    }
+
+    /// What a set of hunks adds and removes.
+    ///
+    /// `GroupView::counts` and `FileView::counts` are this over two fixed
+    /// sets. Any other set — a group's part of a file, a directory, a
+    /// selection — needs the arithmetic in the domain rather than a renderer
+    /// reaching back into the document for `new_count`/`old_count`.
+    pub fn counts(&self, hunks: &[HunkId]) -> LineCounts {
+        hunks
+            .iter()
+            .filter_map(|h| self.counts_of_hunk.get(h.index()))
+            .copied()
+            .sum()
     }
 
     /// Findings anchor on digests, which survive regeneration where positional
@@ -358,6 +402,38 @@ mod tests {
         // The fixture's hunks are +2/-1 each.
         assert_eq!(view.groups[0].counts, LineCounts { adds: 4, dels: 2 });
         assert_eq!(view.files[0].counts, LineCounts { adds: 4, dels: 2 });
+    }
+
+    /// A count beside a file, printed while the reader is inside one group,
+    /// is about that group's part of the file. Two surfaces asked the question
+    /// and both answered it with `files[i].counts`, which is the rest of the
+    /// file as much as what is on screen.
+    #[test]
+    fn a_group_is_sized_within_one_file() {
+        // `src/a.rs` holds a hunk from each group; `src/b.rs` holds one of g0's.
+        let mut doc = doc_with(
+            &[("C0", &["h0", "h1"], "h0"), ("C1", &["h2"], "h2")],
+            &[("src/a.rs", &["h0", "h2"]), ("src/b.rs", &["h1"])],
+        );
+        doc.groups = Some(vec![
+            group("g0", schema::Effort::Focus, &["C0"]),
+            group("g1", schema::Effort::Skim, &["C1"]),
+        ]);
+        let view = ReviewView::project(&doc).unwrap();
+
+        // The fixture's hunks are +2/-1 each, so the shared file totals +4/-2.
+        assert_eq!(view.files[0].counts, LineCounts { adds: 4, dels: 2 });
+        for (g, id) in [(0, "h0"), (1, "h2")] {
+            let part = view.hunks_in(g, 0);
+            assert_eq!(hunk_ids(&part), [id], "group {g}'s part of src/a.rs");
+            assert_eq!(view.counts(&part), LineCounts { adds: 2, dels: 1 });
+        }
+
+        // A group that never enters the file has no part of it — and no size,
+        // which is not the same number as the file's.
+        assert!(view.hunks_in(1, 1).is_empty());
+        assert_eq!(view.counts(&view.hunks_in(1, 1)), LineCounts::default());
+        assert_eq!(view.files[1].counts, LineCounts { adds: 2, dels: 1 });
     }
 
     #[test]

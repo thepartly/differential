@@ -108,6 +108,15 @@ remains is exactly the group's own files, each lit, in the tree that holds them 
 the question the float is asked. The fold is the map's own: it never touches the file
 view's folds, whose state belongs to the reader's `z` and to that pane's cursor.
 
+**A count beside a file names what the reader is being shown of that file**, never the
+file. Reading a group, the map's `+N −M` and the file-list modal's are that **group's part**
+of the file, and the modal's `✓` asks the same question the numbers do; in the file view,
+where the pane shows the file whole, they are the file's own totals. The two floats and
+the modal each printed the file's totals from inside a group, so a file two groups touch
+read the same on both of them — a number about the half the reader is not looking at, and
+one that contradicted the group's own counts a pane away. It is one question, so it is
+answered once, in the projection (`ReviewView::hunks_in`), not per surface.
+
 Reading the **detail**, a flat list of the files in view floats over the foot of the plan
 pane, the current one lit edge to edge and the title counting `file 2 of 7`. Lit, not
 marked with a glyph: the row the reader is on is the one place they are already looking,
