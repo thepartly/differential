@@ -7743,40 +7743,74 @@ fn a_line_marks_its_symbols_before_z_is_pressed() {
 /// The mark reaches the screen, not just the model.
 ///
 /// `symbols_on` returning the right columns proves nothing about what is drawn;
-/// this reads the cells back. Underline on every resolvable name, and the
-/// accent as well on the one the float is answering.
+/// this reads the cells back. An underline on every resolvable name, and the
+/// HIGHLIGHT on the one the float is answering — which this used to claim in
+/// prose and never check, so the ink could have been anything at all.
 #[test]
 fn the_marked_symbol_is_underlined_on_screen() {
     let (_r, mut app) = app_with_symbols();
     cursor_on_text(&mut app, "helper_one() + helper_two()");
 
-    let underlined = |app: &mut App| -> String {
+    // Every cell carrying a modifier, with the ink it carries — so one read
+    // answers both halves: which names are marked, and how the lit one is
+    // told from the quiet ones.
+    let marked = |app: &mut App, m: ratatui::style::Modifier| -> Vec<(String, Option<Color>)> {
         let backend = ratatui::backend::TestBackend::new(110, 20);
         let mut t = ratatui::Terminal::new(backend).unwrap();
         t.draw(|f| app.draw(f)).unwrap();
         let buf = t.backend().buffer().clone();
-        let mut out = String::new();
+        let mut out = Vec::new();
         for y in 0..20 {
             for x in 0..110 {
                 let cell = &buf[(x, y)];
-                if cell.modifier.contains(ratatui::style::Modifier::UNDERLINED) {
-                    out.push_str(cell.symbol());
+                if cell.modifier.contains(m) {
+                    out.push((cell.symbol().to_string(), cell.style().fg));
                 }
             }
         }
         out
     };
+    let text =
+        |v: &[(String, Option<Color>)]| -> String { v.iter().map(|(c, _)| c.as_str()).collect() };
+    let underlined = ratatui::style::Modifier::UNDERLINED;
+    // Both, not bold alone: every pane title and pill on this screen is bold,
+    // and only a lit symbol is bold AND underlined.
+    let lit_marks = underlined | ratatui::style::Modifier::BOLD;
 
     // Nothing open: both names are marked, and nothing else is.
     assert_eq!(
-        underlined(&mut app),
+        text(&marked(&mut app, underlined)),
         "helper_onehelper_two",
         "standing on the line marks what it could show"
     );
+    // And the quiet mark is a SHAPE: no name has been re-inked yet.
+    let t = theme();
+    assert!(
+        marked(&mut app, underlined)
+            .iter()
+            .all(|(_, fg)| *fg != Some(t.highlight_ink)),
+        "a quiet mark keeps the syntax ink it had"
+    );
 
-    // Open on the first: still both, and the lit one is bold as well.
+    // Open on the first: still both underlined, and the lit one alone is bold
+    // and wears the highlight.
     app.handle_key(key('z'));
-    assert_eq!(underlined(&mut app), "helper_onehelper_two");
+    assert_eq!(text(&marked(&mut app, underlined)), "helper_onehelper_two");
+    let lit = marked(&mut app, lit_marks);
+    assert_eq!(
+        text(&lit),
+        "helper_one",
+        "one name is lit, and it is the one the float is answering"
+    );
+    assert!(
+        lit.iter().all(|(_, fg)| *fg == Some(t.highlight_ink)),
+        "the lit name wears the highlight, not the accent a syntax theme also \
+         spends (issue 126): {lit:?}"
+    );
+    assert_ne!(
+        t.highlight_ink, t.header_fg,
+        "and those two are different colours, or the fix is no fix"
+    );
 }
 
 #[test]

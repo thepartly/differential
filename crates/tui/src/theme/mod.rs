@@ -279,6 +279,21 @@ pub struct Theme {
     /// background in the diff pane would have to be told apart by.
     pub highlight_bg: Color,
     pub highlight_fg: Color,
+    /// The same accent as INK, on the pane's own ground.
+    ///
+    /// The three are one accent doing three jobs, and the difference between
+    /// them is what sits behind: `highlight_bg` is the fill, `highlight_fg` is
+    /// what reads ON that fill, and this is what reads on the GROUND. The fill
+    /// cannot serve as the last of those — it is chosen so dark text reads on
+    /// it, which on a light palette leaves it at 1.33:1 against the ground and
+    /// so not ink at all.
+    ///
+    /// What the symbol float lights the name it is answering with (issue 126).
+    /// That was the theme's own accent, which is a colour the syntax theme
+    /// already spends on types and keywords — so the one mark that had to say
+    /// "this is the one being answered" said it in the ink of the code around
+    /// it.
+    pub highlight_ink: Color,
     pub status_bg: Color,
     /// Built from the same syntect theme the colours above were derived from,
     /// so the code and the chrome can never be two palettes.
@@ -545,6 +560,35 @@ fn derive(seed: &Seed, syntect: syntect::highlighting::Theme) -> Theme {
         .max_by(|a, b| worst(*a).total_cmp(&worst(*b)))
         .expect("four candidates");
 
+    // The highlight at INK strength, for the one mark that wears it on the
+    // ground rather than under text of its own.
+    //
+    // Deepened until it READS rather than by a fixed step, because how far
+    // that is depends entirely on the ground: the seven dark palettes' fills
+    // already sit between 8:1 and 11:1 and take no shift at all, where the
+    // four light ones start at 1.33:1 and take about a third of Oklab's
+    // lightness scale. One constant could not have served both.
+    //
+    // `deepen` moves lightness alone, so the hue and the chroma that make the
+    // mark a mark survive the move — the same reason `reviewed_fg` uses it.
+    // The bar is the one `every_theme_is_legible_on_its_own_ground` holds text
+    // to: WCAG AA, or the theme's own ceiling where it is lower.
+    //
+    // The last step is the answer if none of them reads, and there is nothing
+    // better to fall back to: a colour taken that far towards the ground's
+    // opposite is the most readable one on offer. A loop rather than
+    // `find(..).unwrap_or(..)`, because the fallback there was the last step's
+    // colour computed a second time — an arm that reads like a different
+    // answer and is the same one.
+    let readable = 4.5f32.min(contrast(fg, bg));
+    let mut highlight_ink = seed.highlight;
+    for i in 0..=20 {
+        highlight_ink = deepen(seed.highlight, bg, i as f32 * 0.03);
+        if contrast(highlight_ink, bg) >= readable {
+            break;
+        }
+    }
+
     Theme {
         bg: color(bg),
         fg: color(fg),
@@ -615,6 +659,7 @@ fn derive(seed: &Seed, syntect: syntect::highlighting::Theme) -> Theme {
         del_fg: color(del),
         finding_fg: color(seed.finding),
         highlight_bg: color(seed.highlight),
+        highlight_ink: color(highlight_ink),
         // Reversed out of the fill, by the same rule the cursor's gutter ink
         // is chosen: the palette's own extremes first, and a near-white or a
         // near-black pulled towards the ground when neither is enough. A
@@ -755,6 +800,17 @@ mod tests {
                 // what keeps deriving them to the same colour from being
                 // silent.
                 ("reviewed vs add", t.reviewed_fg, t.add_fg),
+                // Both are the palette's yellow at ink strength, and on a
+                // light ground they land within a shade of each other — a
+                // known cost, since they never share a surface: `skim_fg` is
+                // a tier pill in the plan pane and the highlight is a mark on
+                // a code row. This catches them collapsing OUTRIGHT, which
+                // would mean one of the two derivations had stopped saying
+                // anything of its own.
+                ("highlight vs skim", t.highlight_ink, t.skim_fg),
+                // And the lit symbol has to be tellable from the mark it
+                // replaced, or issue 126 is only half fixed.
+                ("highlight vs header", t.highlight_ink, t.header_fg),
             ];
             for (what, a, b) in pairs {
                 assert_ne!(a, b, "{name:?}: {what} derived to one colour");
@@ -858,6 +914,10 @@ mod tests {
                 (text, "skim_fg", t.skim_fg),
                 (text, "finding_fg", t.finding_fg),
                 (text, "reviewed_fg", t.reviewed_fg),
+                // The one that is DERIVED to clear this bar rather than
+                // checked against it afterwards. Here so the derivation is
+                // held to the bar it aims at, over all eleven grounds.
+                (text, "highlight_ink", t.highlight_ink),
                 (text, "focus_fg", t.focus_fg),
                 // Quieter by design — they mark rather than say.
                 (muted, "gutter_fg", t.gutter_fg),
@@ -958,6 +1018,9 @@ mod tests {
                 ("finding_fg", t.finding_fg),
                 ("header_fg", t.header_fg),
                 ("focus_fg", t.focus_fg),
+                // Deepening moves lightness alone, so the chroma that makes
+                // the mark a mark should survive it. This is what says so.
+                ("highlight_ink", t.highlight_ink),
             ] {
                 // Chroma, not distance from the foreground: the green that
                 // vanished was FURTHER from its foreground than the dark

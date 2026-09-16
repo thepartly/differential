@@ -2137,18 +2137,20 @@ pub(super) fn compose_row_lines(
     }
 }
 
-/// Repaint one token of a half in the accent, leaving its syntax colours.
+/// Repaint one token of a half in the highlight, leaving its syntax colours.
 ///
 /// The same splitter word-level diff emphasis uses, so the two compose: a
 /// symbol inside a changed word keeps the word's tint and gains the underline.
 /// Applied BEFORE `compose_half`, which is where a horizontal shift is taken,
 /// so a shifted pane cuts the highlight exactly as it cuts the text.
 ///
-/// **An accent and an underline, not a background.** A background here would
+/// **An ink and an underline, not a background.** A background here would
 /// have to be told apart from `added_bg`, `deleted_bg` and their word-level
 /// twins by `Theme::step_band`, which dispatches on colour VALUES — so a new
-/// one would need a palette test per theme to prove it never collides. The
-/// accent already exists, and an underline is a shape rather than a colour.
+/// one would need a palette test per theme to prove it never collides. Worse,
+/// it would pass that dispatch unmatched and stay flat while the rest of the
+/// cursor's row stepped. An ink is invisible to both dispatches, and an
+/// underline is a shape rather than a colour.
 fn mark_symbols(
     theme: &Theme,
     half: &Half,
@@ -2180,14 +2182,21 @@ fn mark_symbols(
             Style::default().add_modifier(Modifier::UNDERLINED),
         );
     }
-    // The one the float is showing takes the accent as well, so it is plainly
-    // the one being answered rather than one of several that could be.
+    // The one the float is showing takes the highlight as well, so it is
+    // plainly the one being answered rather than one of several that could be.
+    //
+    // The HIGHLIGHT and not the theme's accent (issue 126). The accent is a
+    // colour the syntax theme already spends on types and keywords, so on a
+    // busy line the lit name was inked like the code it had to be told from —
+    // the one mark here that carries its meaning in colour, saying it in a
+    // colour that meant something else. The highlight is the palette's
+    // attention accent and is spent on nothing else in this pane.
     if let Some(at) = chosen {
         pairs = split_pairs_at_ranges(
             &pairs,
             vec![at],
             Style::default()
-                .fg(theme.header_fg)
+                .fg(theme.highlight_ink)
                 .add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
         );
     }
