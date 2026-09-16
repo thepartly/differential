@@ -77,7 +77,7 @@ impl App {
             Mode::Editing { editor, .. } => {
                 editor.insert_str(text);
             }
-            Mode::Search { .. } => self.search_paste(text),
+            Mode::Search(_) => self.search_paste(text),
             _ => {}
         }
     }
@@ -255,31 +255,16 @@ impl App {
                     }
                 }
             }
-            Mode::Search { .. } => {
+            Mode::Search(_) => {
                 if step != 0 {
                     self.search_wheel(step > 0);
-                    return Vec::new();
-                }
-                if !click {
-                    return Vec::new();
-                }
-                // The list is the rows under the query row, so a click one
-                // row lower than the box's first is the first occurrence.
-                match content_line(search_modal_area(panes.body), at)
-                    .and_then(|line| line.checked_sub(1))
-                    .filter(|line| *line < self.search_list_rows())
-                {
-                    Some(line) => {
-                        let hit = self.search_scroll() + line;
-                        self.search_click(hit);
-                    }
-                    // A click on the query row, the preview or the rule is
-                    // not a click on an entry, and neither is one outside —
-                    // but only the last of those closes the box.
-                    None => {
-                        if content_line(search_modal_area(panes.body), at).is_none() {
-                            self.close_search();
-                        }
+                } else if click {
+                    // Which row of the box is a row of the LIST is the search
+                    // module's rule, not this one's. Here there are two cases:
+                    // a click inside the box, and one outside it.
+                    match content_line(search_modal_area(panes.body), at) {
+                        Some(line) => self.search_click(line),
+                        None => self.close_search(),
                     }
                 }
             }
@@ -372,7 +357,7 @@ impl App {
                 let area = delete_comment_area(panes.body, lines);
                 float_footer_presses(&delete_comment_footer(), area, lines, at)
             }
-            Mode::Search { .. } => {
+            Mode::Search(_) => {
                 let area = search_modal_area(panes.body);
                 footer_presses(&self.modal_footer(), footer_row(area), false, at)
             }
@@ -686,7 +671,7 @@ impl App {
             }
             // Every printable key types, which is why this arm takes the
             // whole event and why `?` is a character here and not help.
-            Mode::Search { .. } => {
+            Mode::Search(_) => {
                 self.search_key(key);
                 return Vec::new();
             }

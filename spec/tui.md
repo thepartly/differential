@@ -410,22 +410,24 @@ lockfile is searched like anything else.
 reader meant. One row per matching LINE, not per hit: a line with four of them is one thing
 to go and read, and the preview marks all four.
 
-**`ctrl-r` reads the query as a pattern instead.** A toggle rather than a second box,
-because the word a reader typed as a literal is usually most of the pattern they now want.
-Smart case holds either way. A pattern that does not compile finds nothing and the box says
-`bad pattern` where it otherwise says `28 found`: a typo the reader can fix and an answer
-they should believe must not look the same. The choice survives a close, as the query does.
+**`ctrl-r` reads the query as a regular expression instead.** A toggle rather than a second
+box, because the word a reader typed as a literal is usually most of the expression they now
+want. Smart case holds either way. One that does not compile finds nothing and the box says
+`bad regexp` where it otherwise says `28 found`: a typo the reader can fix and an answer they
+should believe must not look the same. The choice survives a close, as the query does.
 
-**The reading is on the query row twice: as the lead, and as a pill.** `/word` for a
-literal and `/~word` for a pattern, and in a pattern the row also carries a `pattern` pill —
-the badge a group's role and a hunk's class wear, and the one `selecting 4 lines` wears on
-the window footer. It is a fact about what the next keystroke will do, which is what a pill
-says. It appears while the reading is on and goes when it goes, so there is no pill meaning
-"literal": the absence is the statement, and the default needs no badge. The key is on the
-box's own footer and not among its quiet rows, and it is the one key here that has to be —
-`?` types in this box, so the help modal cannot be reached from it and the footer is the
-only place the key is written down. Its label says what the press WILL do: `ctrl-r pattern`
-while reading a literal, `ctrl-r literal` while reading a pattern.
+**The reading is a pill, and nothing else says it.** A `regexp` pill sits at the right of the
+query row — the badge a group's role and a hunk's class wear, and the one `selecting 4 lines`
+wears on the window footer. It is a fact about what the next keystroke will do, which is what
+a pill says. It appears while the reading is on and goes when it goes, so there is no pill
+meaning "literal": the absence is the statement, and the default needs no badge. **Nothing
+leads the query.** A `/` in front of the words would be a second thing saying what the box
+already is, and a `/~` a second thing saying what the pill says — and both cost a column the
+query could have had. The key is on the box's own footer and not among its quiet rows, and it
+is the one key here that has to be — `?` types in this box, so the help modal cannot be
+reached from it and the footer is the only place the key is written down. Its label says what
+the press WILL do: `ctrl-r regexp` while reading a literal, `ctrl-r literal` while reading an
+expression.
 
 **What ranks first is where the reader already is.** Then the hits inside a hunk, because
 the change is what this tool is for and a match in code the branch never touched is context.
@@ -452,18 +454,29 @@ nothing, because by "nearest" no hunk lies in that gap. Past four thousand lines
 the footer says how far the line still is: every revealed line is a row and a syntect pass,
 and a generated file can put a match a very long way from anything.
 
-**Every printable key types.** That is the price of a box a reader can search a path in, and
-it settles the rest of the keys: the list moves on `↑`/`↓`, `?` is a character here rather
-than help, and only `esc` closes. `ctrl-u` clears the query and `ctrl-w` drops its last word.
+**The query is a real one-line field.** `←` and `→` move a caret inside it, `home` and `end`
+go to its two ends, and what is typed lands at the caret rather than at the end. `ctrl-u`
+clears it and `ctrl-w` takes the word before the caret. A query wider than the box scrolls
+sideways to follow the caret. None of that is hand-rolled: it is `tui-input`, which is state
+and no drawing, because this row is composed — a field, a pill, and the space between them.
+
+**`↑` and `↓` are the LIST's, and they are the only arrows that are not the query's.** A
+one-line field has nothing for them to do, and the occurrence list is what the reader is
+moving in. It is the one place in this reviewer where an arrow belongs to something other
+than the thing under the caret, and it is written down here for that reason.
+
+**Every other printable key types.** That is the price of a box a reader can search a path
+in, and it settles the rest: `?` is a character here rather than help, and only `esc` closes.
 The query and the hit it was left on survive a close, so finding the next occurrence is `/`
 and an arrow rather than the word typed again.
 
 **A query that comes back is SELECTED**, and drawn on the band a selected list row wears. It
 has to be: reopening on the old word is what a reader walking its hits wants, and exactly
 what is in the way of a reader looking for something else. Selected serves both without a
-second key — the next character typed replaces the whole of it, backspace takes all of it,
-and anything that is not typing drops the selection and leaves the word alone. The reader
-can see which state they are in before they press anything.
+second key — a key that WRITES replaces the whole of it, and a key that only moves the caret
+leaves it standing, which is what a selection means in any text field and is why `←` does not
+throw away the word the reader came back to. The reader can see which state they are in
+before they press anything.
 
 **Only what the change itself declares.** The tool parses the files a diff touches and no
 others, so a call into an untouched helper lights nothing and `z` keeps the meaning it
@@ -583,7 +596,7 @@ The full reference. `?` shows the subset that applies where the reader is standi
 | `s` | toggle side-by-side / unified diff layout (persisted) |
 | `w` | soft wrap long lines (persisted) |
 | `h`/`l`, `0` | shift the diff pane eight columns sideways · back to the left edge. Diff pane only; refused while `w` is on |
-| `/` | **search — a word, anywhere in the changed files.** The one key that does not act on the pane you are in: it opens from either pane, over a selection, and out of the file list and the findings list. The files as they are NOW, so a removed line is not found. Literal and smart case; `ctrl-r` reads the query as a pattern instead. `enter` jumps to the line, opening a fold or a context gap to reach it · `↑`/`↓` move · `ctrl-u`/`ctrl-w` clear the query or its last word · every other printable key types · `esc` closes, keeping the query selected for the next `/` |
+| `/` | **search — a word, anywhere in the changed files.** The one key that does not act on the pane you are in: it opens from either pane, over a selection, and out of the file list and the findings list. The files as they are NOW, so a removed line is not found. Literal and smart case; `ctrl-r` reads the query as a regular expression instead. `enter` jumps to the line, opening a fold or a context gap to reach it · `↑`/`↓` move the list, the only arrows that are not the query's · `←`/`→` and `home`/`end` move the caret · `ctrl-u`/`ctrl-w` clear the query or the word before the caret · every other printable key types · `esc` closes, keeping the query selected for the next `/` |
 | `f` | files, in the pane you are in — plan pane: toggle reading plan ↔ file tree (persisted) · diff pane: the file-list modal (`enter` jumps to the file) |
 | `space` | mark reviewed — the whole selected group/file in the left pane, the **hunk** under the cursor in the diff pane |
 | `v` | start a line selection at the cursor · `j`/`k` extend it · `v` or `esc` drops it · `c` writes a finding over it |

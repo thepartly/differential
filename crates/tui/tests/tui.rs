@@ -13,7 +13,9 @@ use differential_engine::plan::ReviewSource;
 use differential_engine::ports::ReviewStore;
 use differential_engine::store::{FsArtefactStore, FsGroupingCache, FsReviewStore};
 use differential_testutil::{FakeBackend, TestRepo, github_request, json_group, remote_comment};
-use differential_tui::app::{App, Effect, Focus, Mode, Reading, ReviewOptions, ViewMode, Viewport};
+use differential_tui::app::{
+    App, Effect, Focus, Mode, Reading, ReviewOptions, Search, ViewMode, Viewport,
+};
 use differential_tui::rows::{BoxStyle, LineOrigin, RowFactory, RowKind};
 
 use differential_tui::theme::Theme;
@@ -8161,20 +8163,25 @@ fn search_for(app: &mut App, word: &str) {
 
 /// The occurrence list, as `path:line g<N> <tier>`.
 fn occurrences(app: &App) -> Vec<String> {
-    match &app.mode {
-        Mode::Search { entries, .. } => entries
-            .iter()
-            .map(|e| format!("{}:{} {}", e.path, e.line, e.badge))
-            .collect(),
-        _ => panic!("not searching"),
-    }
+    searching(app)
+        .entries
+        .iter()
+        .map(|e| format!("{}:{} {}", e.path, e.line, e.badge))
+        .collect()
+}
+
+/// The open search box. Every assertion about it goes through here, so the
+/// tests know one thing about its shape and not seven.
+fn searching(app: &App) -> &Search {
+    app.search().expect("the search box is not open")
 }
 
 fn search_selected(app: &App) -> usize {
-    match &app.mode {
-        Mode::Search { selected, .. } => *selected,
-        _ => panic!("not searching"),
-    }
+    searching(app).selected
+}
+
+fn search_query(app: &App) -> &str {
+    searching(app).query()
 }
 
 /// Move the list onto the first occurrence in `path`.
@@ -8302,13 +8309,24 @@ fn enter_opens_the_window_to_reach_a_line_outside_every_hunk() {
 
 #[test]
 fn a_line_too_far_from_any_hunk_says_so_rather_than_opening_the_file() {
-    let (_r, mut app) = app_with_a_long_file();
-    search_for(&mut app, "filler30");
-    let Mode::Search { entries, .. } = &mut app.mode else {
-        panic!("not searching")
+    // The hunk is at the top and the word is 4,500 lines below it, which is
+    // past the cap on how far `enter` will pull a file open.
+    let r = TestRepo::new();
+    let body = |first: &str| {
+        let mut out = String::from(first);
+        for i in 2..=4500 {
+            out.push_str(&format!("let filler{i} = {i};\n"));
+        }
+        out.push_str("let needle = 0;\n");
+        out.into_bytes()
     };
-    // Past the reveal cap, which no fixture is long enough to reach honestly.
-    entries[0].line = 900_000;
+    r.write("src/vast.rs", &body("let before = 1;\n"));
+    r.commit_all("base");
+    r.write("src/vast.rs", &body("let after = 99;\n"));
+    r.commit_all("head");
+    let mut app = open_app_with(&r, &one_group_per_class(), ".dfr-vast-store");
+    search_for(&mut app, "needle");
+    assert_eq!(occurrences(&app).len(), 1);
     app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     assert!(
         app.status.contains("lines from the nearest hunk"),
@@ -8335,20 +8353,14 @@ fn every_printable_key_types_and_the_arrows_move() {
     search_for(&mut app, "j");
     app.handle_key(key('k'));
     app.handle_key(key('?'));
-    let Mode::Search { query, .. } = &app.mode else {
-        panic!("a printable key closed the box")
-    };
-    assert_eq!(query, "jk?");
+    assert_eq!(search_query(&app), "jk?");
     app.handle_key(ctrl('u'));
     search_for_more(&mut app, "helper");
     assert_eq!(search_selected(&app), 0);
     app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
     assert_eq!(search_selected(&app), 1, "the arrows move the list");
     app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
-    let Mode::Search { query, .. } = &app.mode else {
-        panic!("not searching")
-    };
-    assert_eq!(query, "helpe", "backspace edits the query");
+    assert_eq!(search_query(&app), "helpe", "backspace edits the query");
 }
 
 /// Type into a box that is already open.
@@ -8388,7 +8400,7 @@ let VALUE = 4;
 }
 
 #[test]
-fn the_query_is_a_literal_not_a_pattern() {
+fn the_query_is_a_literal_not_a_regexp() {
     let r = TestRepo::new();
     r.write(
         "src/dots.txt",
@@ -8524,10 +8536,10 @@ fn the_footer_names_ctrl_r_and_a_click_on_it_presses_it() {
     let row = footer_row(area);
     let hints = app.modal_footer();
     // The label says what the key WILL do, which is the footer's own rule.
-    let at = hint_named(&hints, "pattern");
+    let at = hint_named(&hints, "regexp");
     let (x, y) = on_hint(&hints, at, row.x, row);
     app.handle_mouse(click(x, y));
-    assert_eq!(app.search_reading(), Reading::Pattern);
+    assert_eq!(app.search_reading(), Reading::Regexp);
     // And now it offers the way back.
     let hints = app.modal_footer();
     assert!(
@@ -8539,24 +8551,24 @@ fn the_footer_names_ctrl_r_and_a_click_on_it_presses_it() {
 }
 
 #[test]
-fn a_pattern_reading_wears_a_pill_and_a_literal_one_does_not() {
+fn a_regexp_reading_wears_a_pill_and_a_literal_one_does_not() {
     let (_r, mut app) = make_app();
     sized(&mut app);
     search_for(&mut app, "helper");
-    // The QUERY row, not the whole screen: the footer says `ctrl-r pattern`
+    // The QUERY row, not the whole screen: the footer says `ctrl-r regexp`
     // in either reading, because a label says what the key WILL do.
     let query_row = |app: &App| -> String {
         let y = pane_inner(search_modal_area(layout(SCREEN).body)).y;
         screen(app, 100, 40)[y as usize].clone()
     };
     assert!(
-        !query_row(&app).contains("pattern"),
+        !query_row(&app).contains("regexp"),
         "a literal reading is the default and wears no badge: {}",
         query_row(&app)
     );
     app.handle_key(ctrl('r'));
     assert!(
-        query_row(&app).contains("pattern"),
+        query_row(&app).contains("regexp"),
         "the reading is a pill on the query row: {}",
         query_row(&app)
     );
@@ -8587,7 +8599,7 @@ fn the_preview_fills_the_hit_and_reverses_the_ink_out_of_it() {
 }
 
 #[test]
-fn ctrl_r_reads_the_query_as_a_pattern() {
+fn ctrl_r_reads_the_query_as_a_regexp() {
     let r = TestRepo::new();
     r.write("src/dots.txt", b"a.c\nabc\n");
     r.commit_all("base");
@@ -8608,29 +8620,73 @@ fn ctrl_r_reads_the_query_as_a_pattern() {
 }
 
 #[test]
-fn the_reading_mode_shows_on_the_query_row_and_survives_a_close() {
+fn the_reading_survives_a_close() {
     let (_r, mut app) = make_app();
     sized(&mut app);
     search_for(&mut app, "helper");
-    assert!(
-        screen(&app, 100, 40).iter().any(|r| r.contains("/helper")),
-        "a literal is led by a plain slash"
+    assert_eq!(
+        app.search_reading(),
+        Reading::Literal,
+        "a box opens literal"
     );
     app.handle_key(ctrl('r'));
-    assert!(
-        screen(&app, 100, 40).iter().any(|r| r.contains("/~helper")),
-        "a pattern says so"
-    );
     app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
     app.handle_key(key('/'));
-    assert!(
-        screen(&app, 100, 40).iter().any(|r| r.contains("/~helper")),
-        "and it comes back as a pattern"
+    assert_eq!(
+        app.search_reading(),
+        Reading::Regexp,
+        "and comes back as the reader left it"
     );
 }
 
 #[test]
-fn a_pattern_that_does_not_compile_says_so() {
+fn the_query_row_carries_no_lead_character() {
+    let (_r, mut app) = make_app();
+    sized(&mut app);
+    search_for(&mut app, "helper");
+    let y = pane_inner(search_modal_area(layout(SCREEN).body)).y;
+    let row = screen(&app, 100, 40)[y as usize].clone();
+    assert!(row.contains("helper"), "the query is on its row: {row}");
+    assert!(
+        !row.contains("/helper") && !row.contains("/~helper"),
+        "nothing leads it — the box's title says it is a search: {row}"
+    );
+}
+
+#[test]
+fn the_arrows_move_the_caret_and_typing_lands_on_it() {
+    let (_r, mut app) = make_app();
+    search_for(&mut app, "helper");
+    for _ in 0..3 {
+        app.handle_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
+    }
+    app.handle_key(key('X'));
+    assert_eq!(search_query(&app), "helXper", "typed where the caret was");
+    app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+    assert_eq!(search_query(&app), "helper", "and deleted before it");
+    app.handle_key(KeyEvent::new(KeyCode::End, KeyModifiers::NONE));
+    app.handle_key(key('s'));
+    assert_eq!(search_query(&app), "helpers");
+}
+
+#[test]
+fn an_arrow_keeps_a_query_that_came_back_and_typing_replaces_it() {
+    let (_r, mut app) = make_app();
+    search_for(&mut app, "helper");
+    app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    app.handle_key(key('/'));
+    // Moving the caret is not writing, so the word the reader came back to
+    // stays — and the next character still replaces the whole of it.
+    app.handle_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
+    assert_eq!(search_query(&app), "helper", "an arrow keeps it");
+    app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+    assert_eq!(search_query(&app), "helper", "and so does the list moving");
+    app.handle_key(key('o'));
+    assert_eq!(search_query(&app), "o", "typing replaces it");
+}
+
+#[test]
+fn a_regexp_that_does_not_compile_says_so() {
     let (_r, mut app) = make_app();
     sized(&mut app);
     search_for(&mut app, "helper");
@@ -8639,47 +8695,23 @@ fn a_pattern_that_does_not_compile_says_so() {
     assert!(occurrences(&app).is_empty());
     let on_screen = screen(&app, 100, 40).join("\n");
     assert!(
-        on_screen.contains("bad pattern"),
+        on_screen.contains("bad regexp"),
         "a typo and an honest answer have to look different:\n{on_screen}"
     );
 }
 
 #[test]
-fn a_query_that_comes_back_is_selected_so_one_key_replaces_it() {
-    let (_r, mut app) = make_app();
-    search_for(&mut app, "helper");
-    app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
-    app.handle_key(key('/'));
-    // One character, and the old word is gone rather than typed into.
-    app.handle_key(key('o'));
-    let Mode::Search { query, .. } = &app.mode else {
-        panic!("not searching")
-    };
-    assert_eq!(query, "o");
-}
-
-#[test]
-fn backspace_clears_a_selected_query_and_an_arrow_keeps_it() {
+fn backspace_clears_a_query_that_came_back_selected() {
     let (_r, mut app) = make_app();
     search_for(&mut app, "helper");
     app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
     app.handle_key(key('/'));
     app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
-    let Mode::Search { query, .. } = &app.mode else {
-        panic!("not searching")
-    };
-    assert_eq!(query, "", "backspace takes the whole selection");
-
-    // An arrow is not typing: it drops the selection and leaves the word.
-    search_for_more(&mut app, "helper");
-    app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
-    app.handle_key(key('/'));
-    app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
-    app.handle_key(key('s'));
-    let Mode::Search { query, .. } = &app.mode else {
-        panic!("not searching")
-    };
-    assert_eq!(query, "helpers");
+    assert_eq!(
+        search_query(&app),
+        "",
+        "backspace takes the whole selection"
+    );
 }
 
 #[test]
@@ -8763,7 +8795,7 @@ fn render_dump_search() {
         println!("{row}");
     }
     app.handle_key(ctrl('r'));
-    println!("\n=== ctrl-r — the same query, read as a pattern ===");
+    println!("\n=== ctrl-r — the same query, read as a regexp ===");
     for row in screen(&app, 100, 40) {
         println!("{row}");
     }

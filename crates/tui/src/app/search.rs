@@ -19,9 +19,13 @@
 //! exclusion. A lockfile is searched like anything else and ranks last
 //! because its group does, which is a view's ordering and not a filter.
 
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{Event as CrosstermEvent, KeyCode, KeyEvent, KeyModifiers};
 use ratatui::style::{Modifier, Style};
+use std::ops::Range;
+
 use regex::Regex;
+use tui_input::backend::crossterm::to_input_request;
+use tui_input::{Input, InputRequest};
 
 use crate::rows::{RowKind, SnippetLine};
 use crate::vendor::text_utils::split_pairs_at_ranges;
@@ -52,9 +56,10 @@ pub struct Occurrence {
     pub path: String,
     /// Head-side line number, counting from 1.
     pub line: u32,
-    /// The first hit's byte range within the line as the pane draws it.
-    pub start: usize,
-    pub end: usize,
+    /// The FIRST hit's byte range within the line as the pane draws it. One
+    /// range rather than two numbers, because nothing wants one without the
+    /// other: it is what the preview shifts sideways to keep on screen.
+    pub hit: Range<usize>,
     /// The group that owns this line, as a position in the reading plan.
     ///
     /// The group of the hunk holding the line, or — for a line inside no hunk
@@ -74,8 +79,55 @@ pub struct Occurrence {
     ///
     /// Empty where no group owns the file at all.
     pub badge: String,
-    /// Is the line inside a hunk this change wrote?
-    pub in_hunk: bool,
+    /// Is this where the reader already is — the file under the diff cursor,
+    /// or the group they have open? Ranking only; the row does not say it,
+    /// because the row is at the top and that IS saying it.
+    here: bool,
+    /// Is the line inside a hunk this change wrote? Ranking only, for the same
+    /// reason: the badge names a shape class exactly when this is true.
+    in_hunk: bool,
+}
+
+/// What ranks one hit above another, in the order it answers.
+///
+/// 1. **Where the reader already is.** The file under the diff cursor, or the
+///    group they have open. A hit in front of them is the one they meant.
+/// 2. **Inside a hunk.** The change is what this tool is for; a match in code
+///    the branch did not touch is context, and context comes second.
+/// 3. **Plan order.** The projection holds groups in reading order, so a
+///    group's position IS its rank — and a rank fixes a tier, which is why
+///    the tier is on every row and in none of this arithmetic.
+/// 4. **Path and line**, so equal hits have one order and not an arbitrary one.
+///
+/// A key by reference rather than a struct of owned copies: every field here
+/// is already on the occurrence, and the struct that held them was a second
+/// place for the same facts to be got wrong.
+/// One hunk of the file being scanned, as the scan needs it: the head-side
+/// lines it covers, the group it landed in, and its shape class. A tuple of
+/// four said none of those, and every use of it had to count commas.
+struct Hunk {
+    top: u32,
+    bot: u32,
+    group: Option<usize>,
+    class: String,
+}
+
+impl Hunk {
+    /// Does this hunk cover head-side line `line`? A hunk with no new-side
+    /// lines — a pure deletion — covers none.
+    fn holds(&self, line: u32) -> bool {
+        self.bot > self.top && line >= self.top && line < self.bot
+    }
+}
+
+fn rank(o: &Occurrence) -> (bool, bool, usize, &str, u32) {
+    (
+        !o.here,
+        !o.in_hunk,
+        o.group.unwrap_or(usize::MAX),
+        &o.path,
+        o.line,
+    )
 }
 
 /// Which way the query is read.
@@ -83,24 +135,15 @@ pub struct Occurrence {
 pub enum Reading {
     /// Every character stands for itself. `a.c` finds `a.c`, not `abc`.
     Literal,
-    /// The query is a pattern. `ctrl-r` is what asks for this.
-    Pattern,
+    /// The query is a regular expression. `ctrl-r` is what asks for this.
+    Regexp,
 }
 
 impl Reading {
     fn flip(self) -> Self {
         match self {
-            Reading::Literal => Reading::Pattern,
-            Reading::Pattern => Reading::Literal,
-        }
-    }
-
-    /// What the query row is led by, so the mode is on screen and not in the
-    /// reader's memory.
-    pub(super) fn sigil(self) -> &'static str {
-        match self {
-            Reading::Literal => " /",
-            Reading::Pattern => " /~",
+            Reading::Literal => Reading::Regexp,
+            Reading::Regexp => Reading::Literal,
         }
     }
 }
@@ -114,11 +157,11 @@ impl Reading {
 ///
 /// **Smart case**: an all-lowercase query ignores case, and one uppercase
 /// letter in it means the reader typed the case they meant. It holds for a
-/// pattern too, where `\w` and `\W` are the reader's own business.
+/// regexp too, where `\w` and `\W` are the reader's own business.
 ///
 /// `None` means there is nothing to search for: an empty query, or — only ever
-/// in [`Reading::Pattern`] — a pattern that does not compile. The box tells
-/// those two apart so it can say `bad pattern` rather than `no occurrence`.
+/// in [`Reading::Regexp`] — an expression that does not compile. The box tells
+/// those two apart so it can say `bad regexp` rather than `no occurrence`.
 pub(super) fn matcher(query: &str, reading: Reading) -> Option<Regex> {
     if query.is_empty() {
         return None;
@@ -126,12 +169,151 @@ pub(super) fn matcher(query: &str, reading: Reading) -> Option<Regex> {
     let folded = !query.chars().any(char::is_uppercase);
     let source = match reading {
         Reading::Literal => regex::escape(query),
-        Reading::Pattern => query.to_string(),
+        Reading::Regexp => query.to_string(),
     };
     regex::RegexBuilder::new(&source)
         .case_insensitive(folded)
         .build()
         .ok()
+}
+
+/// The box's own state.
+///
+/// One type rather than seven fields on the mode variant: nine functions each
+/// opened by naming a different subset of them, the draw took eight arguments
+/// to be handed the same thing, and three one-line accessors existed only to
+/// peek at one field of it.
+///
+/// **The boundary.** This owns what the box IS — the query, how it is read,
+/// what it found, where the cursor is in that. It owns none of what the box
+/// reads or does: scanning wants the document and the blob cache, and jumping
+/// wants the rows, so both live on [`App`] and take this as an argument. That
+/// is why nothing here needs a repository and every method on it is pure.
+pub struct Search {
+    /// The query and its caret.
+    ///
+    /// `tui_input`, not a `String` and an index of our own: a one-line field
+    /// owes its reader a caret, `←`/`→`, `home`/`end`, word delete and a row
+    /// that scrolls to follow the caret — and every one of those is a place to
+    /// get a character boundary wrong (design rule 5). It is STATE only, which
+    /// is why it fits: the query row is composed of spans around it.
+    pub input: Input,
+    pub reading: Reading,
+    /// The query came back from the last `/` and is SELECTED: the next
+    /// character typed replaces the whole of it, as it would in any text
+    /// field. Reopening on the old word is what a reader wants when they are
+    /// walking its hits; it is in the way when they are not, and this is the
+    /// one state that serves both without a second key.
+    ///
+    /// Ours, not the input's: `tui_input` has no selection, and this is the
+    /// only one the box needs.
+    pub picked: bool,
+    /// The compiled query, rebuilt by [`Search::retype`] and nowhere else.
+    ///
+    /// Held rather than compiled where it is wanted: the scan, the preview
+    /// and the header each want it, and each compiling its own was three
+    /// compiles per keystroke and three places for the case rule to drift.
+    re: Option<Regex>,
+    pub entries: Vec<Occurrence>,
+    pub selected: usize,
+    /// First visible occurrence. The list is longer than any box.
+    pub scroll: usize,
+    pub preview: Vec<SnippetLine>,
+}
+
+impl Search {
+    fn new(query: String, reading: Reading) -> Self {
+        let mut s = Search {
+            picked: !query.is_empty(),
+            input: Input::new(query),
+            reading,
+            re: None,
+            entries: Vec::new(),
+            selected: 0,
+            scroll: 0,
+            preview: Vec::new(),
+        };
+        s.retype();
+        s
+    }
+
+    pub fn query(&self) -> &str {
+        self.input.value()
+    }
+
+    /// The query or its reading changed: compile it again.
+    ///
+    /// Refilling `entries` is the caller's, because only [`App`] can see the
+    /// corpus. The two always happen together, and `App::rescan` is the one
+    /// place they do.
+    fn retype(&mut self) {
+        self.re = matcher(self.query(), self.reading);
+    }
+
+    /// Whether the box is holding an expression it could not compile. Only
+    /// ever true in [`Reading::Regexp`]: an escaped literal always compiles.
+    pub fn bad_regexp(&self) -> bool {
+        !self.query().is_empty() && self.re.is_none()
+    }
+
+    /// The occurrence the reader is standing on.
+    pub fn hit(&self) -> Option<&Occurrence> {
+        self.entries.get(self.selected)
+    }
+
+    /// Move the selection one step, and keep it in a window `rows` tall.
+    fn step(&mut self, rows: usize, down: bool) {
+        text::step_list(
+            &mut self.selected,
+            &mut self.scroll,
+            self.entries.len(),
+            rows,
+            down,
+        );
+    }
+
+    /// Put the selection on `hit`, and bring it into the same window.
+    fn select(&mut self, hit: usize, rows: usize) {
+        self.selected = hit;
+        self.scroll = text::follow(hit, self.scroll, rows);
+    }
+
+    /// Hand a key to the query, and say whether the text changed.
+    ///
+    /// A key that WRITES replaces a selected query; a key that only moves the
+    /// caret leaves it standing. Which of the two a key is, [`writes`] says.
+    fn edit(&mut self, key: KeyEvent) -> bool {
+        let Some(req) = to_input_request(&CrosstermEvent::Key(key)) else {
+            return false;
+        };
+        // Taken only by a key that WRITES. A caret move leaves the selection
+        // standing, which is the whole point of it: a reader who came back to
+        // a word and looked along it has not said they are done with it.
+        if writes(req) && std::mem::take(&mut self.picked) {
+            self.input = Input::default();
+        }
+        let before = self.input.value().to_string();
+        self.input.handle(req);
+        self.input.value() != before
+    }
+}
+
+/// Does this request change the text, rather than only move the caret?
+///
+/// A selected query is replaced by the first key that writes into it, and left
+/// alone by one that does not — which is what a selection means in any text
+/// field, and is why `←` and `→` keep the word the reader came back to.
+fn writes(req: InputRequest) -> bool {
+    !matches!(
+        req,
+        InputRequest::SetCursor(_)
+            | InputRequest::GoToPrevChar
+            | InputRequest::GoToNextChar
+            | InputRequest::GoToPrevWord
+            | InputRequest::GoToNextWord
+            | InputRequest::GoToStart
+            | InputRequest::GoToEnd
+    )
 }
 
 /// Ink for a hit: the palette's `highlight` accent as a FILL, with the ground
@@ -165,72 +347,26 @@ fn mark_hits(pairs: &[(Style, String)], re: &Regex, theme: &Theme) -> Vec<(Style
 }
 
 impl App {
-    /// Open the search, on the query the reader last used.
-    ///
-    /// The query survives a close, and so does which hit was selected: a
-    /// reader who has just jumped to one wants the next, and re-typing the
-    /// word to get it is the tool asking them to repeat themselves.
-    pub(super) fn open_search(&mut self) {
-        self.visual = None;
-        let query = self.last_query.clone();
-        let reading = self.last_reading;
-        let entries = self.search_scan(&query, reading);
-        let selected = self.last_hit.min(entries.len().saturating_sub(1));
-        let scroll = text::follow(selected, 0, self.search_list_rows());
-        self.mode = Mode::Search {
-            picked: !query.is_empty(),
-            query,
-            reading,
-            entries,
-            selected,
-            scroll,
-            preview: Vec::new(),
-        };
-        self.refresh_preview();
+    /// The open box, if one is open. The one place anything reaches into the
+    /// mode for it.
+    pub fn search(&self) -> Option<&Search> {
+        match &self.mode {
+            Mode::Search(s) => Some(s),
+            _ => None,
+        }
+    }
+
+    fn search_mut(&mut self) -> Option<&mut Search> {
+        match &mut self.mode {
+            Mode::Search(s) => Some(s),
+            _ => None,
+        }
     }
 
     /// How the open box is reading its query. `Literal` when none is open,
     /// which is what it opens as.
     pub fn search_reading(&self) -> Reading {
-        match &self.mode {
-            Mode::Search { reading, .. } => *reading,
-            _ => Reading::Literal,
-        }
-    }
-
-    /// Whether the box is holding a pattern it could not compile. Only ever
-    /// true in [`Reading::Pattern`]: an escaped literal always compiles.
-    pub(super) fn search_pattern_is_bad(&self) -> bool {
-        match &self.mode {
-            Mode::Search { query, reading, .. } => {
-                !query.is_empty() && matcher(query, *reading).is_none()
-            }
-            _ => false,
-        }
-    }
-
-    /// The first occurrence the list is showing.
-    pub(super) fn search_scroll(&self) -> usize {
-        match &self.mode {
-            Mode::Search { scroll, .. } => *scroll,
-            _ => 0,
-        }
-    }
-
-    /// Close it, keeping the query and the hit for the next `/`.
-    pub(super) fn close_search(&mut self) {
-        if let Mode::Search {
-            query,
-            reading,
-            selected,
-            ..
-        } = &self.mode
-        {
-            self.last_query = query.clone();
-            self.last_reading = *reading;
-            self.last_hit = *selected;
-        }
-        self.mode = Mode::Normal;
+        self.search().map_or(Reading::Literal, |s| s.reading)
     }
 
     /// Rows the occurrence list is drawn in — the number it scrolls against
@@ -239,19 +375,209 @@ impl App {
         text::search_list_rows(self.viewport.body_rows)
     }
 
+    /// Open the search, on the query the reader last used.
+    ///
+    /// The query survives a close, and so does which hit was selected: a
+    /// reader who has just jumped to one wants the next, and re-typing the
+    /// word to get it is the tool asking them to repeat themselves.
+    pub(super) fn open_search(&mut self) {
+        self.visual = None;
+        self.mode = Mode::Search(Search::new(self.last_query.clone(), self.last_reading));
+        self.rescan();
+        // The hit comes back too, which `rescan` has just reset to the first.
+        let (hit, rows) = (self.last_hit, self.search_list_rows());
+        if let Some(s) = self.search_mut() {
+            s.select(hit.min(s.entries.len().saturating_sub(1)), rows);
+        }
+        self.refresh_preview();
+    }
+
+    /// Close it, keeping the query, the reading and the hit for the next `/`.
+    pub(super) fn close_search(&mut self) {
+        if let Some((query, reading, hit)) = self
+            .search()
+            .map(|s| (s.query().to_string(), s.reading, s.selected))
+        {
+            self.last_query = query;
+            self.last_reading = reading;
+            self.last_hit = hit;
+        }
+        self.mode = Mode::Normal;
+    }
+
+    /// The query or its reading changed: compile it, scan again, and start at
+    /// the best hit. The one place those three happen, so they cannot drift.
+    fn rescan(&mut self) {
+        let Some(s) = self.search_mut() else { return };
+        s.retype();
+        // Cloned out because the scan reads the whole model and this borrows
+        // one field of it. A compiled regex is an `Arc` inside, so it is a
+        // pointer bump rather than a second compile.
+        let re = s.re.clone();
+        let found = match re {
+            Some(re) => self.search_scan(&re),
+            None => Vec::new(),
+        };
+        if let Some(s) = self.search_mut() {
+            s.entries = found;
+            s.selected = 0;
+            s.scroll = 0;
+        }
+    }
+
+    /// Rebuild the preview for whichever hit is selected.
+    ///
+    /// Reading a blob and running syntect both want `&mut self`, and `draw` is
+    /// a pure function of the model — so the preview is model state, exactly
+    /// as the symbol float's body is.
+    fn refresh_preview(&mut self) {
+        let body = self.build_preview();
+        if let Some(s) = self.search_mut() {
+            s.preview = body;
+        }
+    }
+
+    /// The selected hit's line, with context either side and every hit on
+    /// those lines marked. Empty when there is nothing to preview.
+    fn build_preview(&mut self) -> Vec<SnippetLine> {
+        let Mode::Search(s) = &self.mode else {
+            return Vec::new();
+        };
+        let (Some(re), Some(occ)) = (s.re.clone(), s.hit()) else {
+            return Vec::new();
+        };
+        let (path, line) = (occ.path.clone(), occ.line);
+        let rows = text::search_preview_rows(self.viewport.body_rows);
+        // The hit sits in the middle of what is shown, so the reader sees what
+        // leads to it as well as what follows.
+        let first = line.saturating_sub(rows as u32 / 2).max(1);
+        let added = self.added_ranges(&path);
+        let theme = self.theme.clone();
+        let (body, _) =
+            self.factory
+                .declaration(&theme, &path, first, first + rows as u32 - 1, rows, &added);
+        body.into_iter()
+            .map(|l| SnippetLine {
+                pairs: mark_hits(&l.pairs, &re, &theme),
+                ..l
+            })
+            .collect()
+    }
+
+    /// A key inside the box.
+    ///
+    /// Five keys are the box's; everything else is the query's. That is why
+    /// the list moves on the arrows that are NOT the query's, and why `?` is a
+    /// character here rather than help.
+    pub(super) fn search_key(&mut self, key: KeyEvent) {
+        let rows = self.search_list_rows();
+        let Some(s) = self.search_mut() else { return };
+        let mut edited = false;
+        let mut moved = false;
+        match (key.code, key.modifiers) {
+            (KeyCode::Esc, _) => {
+                self.close_search();
+                return;
+            }
+            (KeyCode::Enter, _) => {
+                let Some(occ) = s.hit().cloned() else {
+                    self.status = "nothing to jump to".into();
+                    return;
+                };
+                self.close_search();
+                self.jump_to_occurrence(&occ);
+                return;
+            }
+            // Up and down are the LIST's, not the query's — a one-line field
+            // has nothing for them to do, and this is the only box in the
+            // reviewer where that is worth saying out loud.
+            (KeyCode::Down, _) | (KeyCode::Char('n'), KeyModifiers::CONTROL) => {
+                s.step(rows, true);
+                moved = true;
+            }
+            (KeyCode::Up, _) | (KeyCode::Char('p'), KeyModifiers::CONTROL) => {
+                s.step(rows, false);
+                moved = true;
+            }
+            // The toggle, not a second box: the query a reader typed as a
+            // literal is usually most of the expression they now want.
+            (KeyCode::Char('r'), KeyModifiers::CONTROL) => {
+                s.reading = s.reading.flip();
+                edited = true;
+            }
+            _ => edited = s.edit(key),
+        }
+        if edited {
+            self.rescan();
+        }
+        if edited || moved {
+            self.refresh_preview();
+        }
+    }
+
+    /// Text pasted into the query box.
+    pub(super) fn search_paste(&mut self, text: &str) {
+        let Some(s) = self.search_mut() else { return };
+        // A paste replaces a selected query, as typing does.
+        if std::mem::take(&mut s.picked) {
+            s.input = Input::default();
+        }
+        // One line: the box is one row, and the rest of a multi-line paste
+        // would be typed into a field nobody can see. Fed a character at a
+        // time so it lands at the caret and the caret follows it.
+        for c in text.lines().next().unwrap_or_default().chars() {
+            s.input.handle(InputRequest::InsertChar(c));
+        }
+        self.rescan();
+        self.refresh_preview();
+    }
+
+    /// A click on content line `line` of the box: select that occurrence, or
+    /// jump to it if it is already the one.
+    ///
+    /// The line is the box's, not the list's — which row of the box is a row
+    /// of the list is decided here, so the hit test has one rule to obey and
+    /// not three.
+    pub(super) fn search_click(&mut self, line: usize) {
+        let rows = self.search_list_rows();
+        let Some(s) = self.search_mut() else { return };
+        // Row zero is the query; the rule and the preview are past the list.
+        let Some(line) = line.checked_sub(1).filter(|l| *l < rows) else {
+            return;
+        };
+        let hit = s.scroll + line;
+        if hit >= s.entries.len() {
+            return;
+        }
+        if hit == s.selected {
+            let occ = s.entries[hit].clone();
+            self.close_search();
+            self.jump_to_occurrence(&occ);
+            return;
+        }
+        s.select(hit, rows);
+        self.refresh_preview();
+    }
+
+    /// The wheel over the list.
+    pub(super) fn search_wheel(&mut self, down: bool) {
+        let rows = self.search_list_rows();
+        if let Some(s) = self.search_mut() {
+            s.step(rows, down);
+        }
+        self.refresh_preview();
+    }
+
     /// Every line of every changed file that matches, best first.
     ///
     /// Read-only: the corpus is already in memory, so this runs on the
     /// keystroke that changed the query.
-    fn search_scan(&self, query: &str, reading: Reading) -> Vec<Occurrence> {
-        let Some(re) = matcher(query, reading) else {
-            return Vec::new();
-        };
+    fn search_scan(&self, re: &Regex) -> Vec<Occurrence> {
         let plan = self.session.plan();
         let doc = self.session.doc();
         // Plan order is the position in `groups`, which the projection already
         // holds in reading order.
-        let rank: HashMap<&str, usize> = plan
+        let rank_of: HashMap<&str, usize> = plan
             .groups
             .iter()
             .enumerate()
@@ -261,7 +587,7 @@ impl App {
         let here_path = self.file_at_cursor().map(|i| self.files()[i].path.clone());
         let here_group = (self.view_mode == ViewMode::Groups).then_some(self.selected_group);
 
-        let mut out: Vec<(SortKey, Occurrence)> = Vec::new();
+        let mut out: Vec<Occurrence> = Vec::new();
         for f in &doc.files {
             // A blob of bytes is not text, and lossy-decoding one produces
             // matches nobody can go and read. This is classification, never
@@ -274,7 +600,7 @@ impl App {
                 continue;
             };
             // The file's hunks once, with the group each one landed in.
-            let hunks: Vec<(u32, u32, Option<usize>, String)> = plan
+            let hunks: Vec<Hunk> = plan
                 .files
                 .iter()
                 .find(|v| v.path == f.path)
@@ -283,280 +609,52 @@ impl App {
                         .iter()
                         .map(|h| {
                             let e = &doc.hunks[h.index()];
-                            let g = plan
-                                .group_of_hunk(*h)
-                                .and_then(|g| rank.get(g.id.as_str()).copied());
-                            (e.new_start, e.new_start + e.new_count, g, e.class.clone())
+                            Hunk {
+                                top: e.new_start,
+                                bot: e.new_start + e.new_count,
+                                group: plan
+                                    .group_of_hunk(*h)
+                                    .and_then(|g| rank_of.get(g.id.as_str()).copied()),
+                                class: e.class.clone(),
+                            }
                         })
                         .collect()
                 })
                 .unwrap_or_default();
             // A line in no hunk belongs to the first group that reads this
             // file — "the first plan it is contained by".
-            let file_group = hunks.iter().filter_map(|(_, _, g, _)| *g).min();
+            let file_group = hunks.iter().filter_map(|h| h.group).min();
 
             for (i, text) in lines.iter().enumerate() {
                 let Some(m) = re.find(text) else { continue };
                 let line = i as u32 + 1;
-                let owner = hunks
-                    .iter()
-                    .find(|(lo, hi, _, _)| *hi > *lo && line >= *lo && line < *hi);
-                let group = owner.and_then(|(_, _, g, _)| *g).or(file_group);
+                let owner = hunks.iter().find(|h| h.holds(line));
+                let group = owner.and_then(|h| h.group).or(file_group);
                 let badge = group
                     .and_then(|g| plan.groups.get(g))
-                    .map(|g| match owner {
-                        Some((_, _, _, class)) => {
-                            format!("{} {} {class}", g.id, plan.tier_name(g))
+                    .map(|g| {
+                        let (id, tier) = (&g.id, plan.tier_name(g));
+                        match owner {
+                            Some(h) => format!("{id} {tier} {}", h.class),
+                            None => format!("{id} {tier}"),
                         }
-                        None => format!("{} {}", g.id, plan.tier_name(g)),
                     })
                     .unwrap_or_default();
-                let here = here_path.as_deref() == Some(f.path.as_str())
-                    || (group.is_some() && group == here_group);
-                out.push((
-                    SortKey {
-                        elsewhere: !here,
-                        outside: owner.is_none(),
-                        group: group.unwrap_or(usize::MAX),
-                        path: f.path.clone(),
-                        line,
-                    },
-                    Occurrence {
-                        path: f.path.clone(),
-                        line,
-                        start: m.start(),
-                        end: m.end(),
-                        group,
-                        badge,
-                        in_hunk: owner.is_some(),
-                    },
-                ));
+                out.push(Occurrence {
+                    here: here_path.as_deref() == Some(f.path.as_str())
+                        || (group.is_some() && group == here_group),
+                    in_hunk: owner.is_some(),
+                    path: f.path.clone(),
+                    line,
+                    hit: m.start()..m.end(),
+                    group,
+                    badge,
+                });
             }
         }
-        out.sort_by(|a, b| a.0.cmp(&b.0));
+        out.sort_by(|a, b| rank(a).cmp(&rank(b)));
         out.truncate(MOST_HITS);
-        out.into_iter().map(|(_, o)| o).collect()
-    }
-
-    /// Rebuild the preview for whichever hit is selected.
-    ///
-    /// Reading a blob and running syntect both want `&mut self`, and `draw` is
-    /// a pure function of the model — so the preview is model state, exactly
-    /// as the symbol float's body is.
-    fn refresh_preview(&mut self) {
-        let Mode::Search {
-            query,
-            reading,
-            entries,
-            selected,
-            ..
-        } = &self.mode
-        else {
-            return;
-        };
-        let Some(re) = matcher(query, *reading) else {
-            if let Mode::Search { preview, .. } = &mut self.mode {
-                preview.clear();
-            }
-            return;
-        };
-        let Some(occ) = entries.get(*selected) else {
-            if let Mode::Search { preview, .. } = &mut self.mode {
-                preview.clear();
-            }
-            return;
-        };
-        let (path, line) = (occ.path.clone(), occ.line);
-        let rows = text::search_preview_rows(self.viewport.body_rows);
-        // The hit sits in the middle of what is shown, so the reader sees what
-        // leads to it as well as what follows.
-        let first = line.saturating_sub((rows as u32) / 2).max(1);
-        let added = self.added_ranges(&path);
-        let (body, _) = self.factory.declaration(
-            &self.theme,
-            &path,
-            first,
-            first + rows as u32 - 1,
-            rows,
-            &added,
-        );
-        let theme = self.theme.clone();
-        let body: Vec<SnippetLine> = body
-            .into_iter()
-            .map(|l| SnippetLine {
-                pairs: mark_hits(&l.pairs, &re, &theme),
-                ..l
-            })
-            .collect();
-        if let Mode::Search { preview, .. } = &mut self.mode {
-            *preview = body;
-        }
-    }
-
-    /// A key inside the box. Every printable one types, which is why the list
-    /// moves on the arrows and `?` is not help here.
-    pub(super) fn search_key(&mut self, key: KeyEvent) {
-        let rows = self.search_list_rows();
-        let Mode::Search {
-            query,
-            reading,
-            entries,
-            selected,
-            scroll,
-            picked,
-            ..
-        } = &mut self.mode
-        else {
-            return;
-        };
-        // A selected query behaves as one in any text field: the next thing
-        // typed replaces it, and anything else drops the selection and leaves
-        // the word alone.
-        let was_picked = std::mem::take(picked);
-        let mut edited = false;
-        let mut moved = false;
-        match (key.code, key.modifiers) {
-            (KeyCode::Esc, _) => {
-                self.close_search();
-                return;
-            }
-            (KeyCode::Enter, _) => {
-                let Some(occ) = entries.get(*selected) else {
-                    self.status = "nothing to jump to".into();
-                    return;
-                };
-                let occ = occ.clone();
-                self.close_search();
-                self.jump_to_occurrence(&occ);
-                return;
-            }
-            (KeyCode::Down, _) | (KeyCode::Char('n'), KeyModifiers::CONTROL) => {
-                text::step_list(selected, scroll, entries.len(), rows, true);
-                moved = true;
-            }
-            (KeyCode::Up, _) | (KeyCode::Char('p'), KeyModifiers::CONTROL) => {
-                text::step_list(selected, scroll, entries.len(), rows, false);
-                moved = true;
-            }
-            // The toggle, not a second box: the query a reader typed as a
-            // literal is usually most of the pattern they now want.
-            (KeyCode::Char('r'), KeyModifiers::CONTROL) => {
-                *reading = reading.flip();
-                edited = true;
-            }
-            (KeyCode::Backspace, _) => {
-                if was_picked {
-                    query.clear();
-                } else {
-                    query.pop();
-                }
-                edited = true;
-            }
-            // The two line-editing chords a one-line box owes its reader. A
-            // caret and its movement keys would cost the arrows, and the
-            // arrows are how the list moves.
-            (KeyCode::Char('u'), KeyModifiers::CONTROL) => {
-                query.clear();
-                edited = true;
-            }
-            (KeyCode::Char('w'), KeyModifiers::CONTROL) => {
-                let kept = query.trim_end_matches(|c: char| !c.is_alphanumeric());
-                let cut = kept.trim_end_matches(char::is_alphanumeric).len();
-                query.truncate(cut);
-                edited = true;
-            }
-            (KeyCode::Char(c), m) if m.is_empty() || m == KeyModifiers::SHIFT => {
-                if was_picked {
-                    query.clear();
-                }
-                query.push(c);
-                edited = true;
-            }
-            _ => {}
-        }
-        if edited {
-            self.rerun_search();
-        }
-        if edited || moved {
-            self.refresh_preview();
-        }
-    }
-
-    /// The query changed: scan again and start at the best hit.
-    fn rerun_search(&mut self) {
-        let Mode::Search { query, reading, .. } = &self.mode else {
-            return;
-        };
-        let (query, reading) = (query.clone(), *reading);
-        let found = self.search_scan(&query, reading);
-        if let Mode::Search {
-            entries,
-            selected,
-            scroll,
-            ..
-        } = &mut self.mode
-        {
-            *entries = found;
-            *selected = 0;
-            *scroll = 0;
-        }
-    }
-
-    /// Text pasted into the query box.
-    pub(super) fn search_paste(&mut self, text: &str) {
-        let Mode::Search { query, picked, .. } = &mut self.mode else {
-            return;
-        };
-        // A paste replaces a selected query, as typing does.
-        if std::mem::take(picked) {
-            query.clear();
-        }
-        // One line: the box is one row, and the rest of a multi-line paste
-        // would be typed into a field nobody can see.
-        query.push_str(text.lines().next().unwrap_or_default());
-        self.rerun_search();
-        self.refresh_preview();
-    }
-
-    /// Select the `hit`-th occurrence, or jump to it if it is already the one.
-    pub(super) fn search_click(&mut self, hit: usize) {
-        let rows = self.search_list_rows();
-        let Mode::Search {
-            entries,
-            selected,
-            scroll,
-            ..
-        } = &mut self.mode
-        else {
-            return;
-        };
-        if hit >= entries.len() {
-            return;
-        }
-        if hit == *selected {
-            let occ = entries[hit].clone();
-            self.close_search();
-            self.jump_to_occurrence(&occ);
-            return;
-        }
-        *selected = hit;
-        *scroll = text::follow(hit, *scroll, rows);
-        self.refresh_preview();
-    }
-
-    /// The wheel over the list.
-    pub(super) fn search_wheel(&mut self, down: bool) {
-        let rows = self.search_list_rows();
-        if let Mode::Search {
-            entries,
-            selected,
-            scroll,
-            ..
-        } = &mut self.mode
-        {
-            text::step_list(selected, scroll, entries.len(), rows, down);
-        }
-        self.refresh_preview();
+        out
     }
 
     /// Put the cursor on the matched line, wherever in the review it lives.
@@ -689,25 +787,6 @@ impl App {
     }
 }
 
-/// What ranks one hit above another, in order of what it answers.
-///
-/// 1. **Where the reader already is.** The file under the diff cursor, or the
-///    group they have open. A hit in front of them is the one they meant.
-/// 2. **Inside a hunk.** The change is what this tool is for; a match in code
-///    the branch did not touch is context, and context comes second.
-/// 3. **Plan order.** The projection holds groups in reading order, so a
-///    group's position IS its rank — and a rank fixes a tier, which is why
-///    the tier is on every row and in none of this arithmetic.
-/// 4. **Path and line**, so equal hits have one order and not an arbitrary one.
-#[derive(PartialEq, Eq, PartialOrd, Ord)]
-struct SortKey {
-    elsewhere: bool,
-    outside: bool,
-    group: usize,
-    path: String,
-    line: u32,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -721,7 +800,7 @@ mod tests {
         assert!(!re.is_match("readingsplit"), "an uppercase letter is meant");
         // And it holds for a pattern, where the reader owns the metacharacters
         // and not the case rule.
-        let re = matcher("reading.plit", Reading::Pattern).unwrap();
+        let re = matcher("reading.plit", Reading::Regexp).unwrap();
         assert!(re.is_match("ReadingSplit"));
     }
 
@@ -733,13 +812,13 @@ mod tests {
     }
 
     #[test]
-    fn a_pattern_query_is_one() {
-        let re = matcher("a.c", Reading::Pattern).unwrap();
+    fn a_regexp_query_is_one() {
+        let re = matcher("a.c", Reading::Regexp).unwrap();
         assert!(re.is_match("abc"), ". is any character now");
         assert!(re.is_match("a.c"));
         assert!(
-            matcher("a(", Reading::Pattern).is_none(),
-            "a pattern that does not compile finds nothing"
+            matcher("a(", Reading::Regexp).is_none(),
+            "an expression that does not compile finds nothing"
         );
         assert!(
             matcher("a(", Reading::Literal).is_some(),
@@ -750,34 +829,40 @@ mod tests {
     #[test]
     fn an_empty_query_matches_nothing_at_all() {
         assert!(matcher("", Reading::Literal).is_none());
-        assert!(matcher("", Reading::Pattern).is_none());
+        assert!(matcher("", Reading::Regexp).is_none());
+    }
+
+    /// An occurrence with nothing in it but what the ranking reads.
+    fn ranked(here: bool, in_hunk: bool, group: usize, line: u32) -> Occurrence {
+        Occurrence {
+            path: "a.rs".into(),
+            line,
+            hit: 0..1,
+            group: Some(group),
+            badge: String::new(),
+            here,
+            in_hunk,
+        }
     }
 
     #[test]
-    fn the_sort_puts_here_then_hunks_then_plan_order() {
-        let key = |elsewhere, outside, group, line| SortKey {
-            elsewhere,
-            outside,
-            group,
-            path: "a.rs".into(),
-            line,
-        };
-        let mut keys = [
-            key(true, false, 0, 1),
-            key(false, true, 9, 1),
-            key(false, false, 3, 2),
-            key(false, false, 3, 1),
+    fn the_rank_puts_here_then_hunks_then_plan_order() {
+        let mut hits = [
+            ranked(false, true, 0, 1),
+            ranked(true, false, 9, 1),
+            ranked(true, true, 3, 2),
+            ranked(true, true, 3, 1),
         ];
-        keys.sort();
+        hits.sort_by(|a, b| rank(a).cmp(&rank(b)));
         assert_eq!(
-            keys.iter()
-                .map(|k| (k.elsewhere, k.outside, k.group, k.line))
+            hits.iter()
+                .map(|o| (o.here, o.in_hunk, o.group.unwrap(), o.line))
                 .collect::<Vec<_>>(),
             vec![
-                (false, false, 3, 1),
-                (false, false, 3, 2),
-                (false, true, 9, 1),
-                (true, false, 0, 1),
+                (true, true, 3, 1),
+                (true, true, 3, 2),
+                (true, false, 9, 1),
+                (false, true, 0, 1),
             ]
         );
     }

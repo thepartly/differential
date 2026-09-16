@@ -86,19 +86,31 @@ per row: a list row is a path and a badge, and eight of them is already more tha
 compares at once, where the preview is code and every line of it is a line they may not have
 to go and open at all.
 
-**4. Literal by default, a pattern on `ctrl-r`.**
+**4. Literal by default, a regular expression on `ctrl-r`.**
 
-A toggle rather than a mode the reader chooses up front, and rather than a second key that
-opens a second box. The word someone typed as a literal is usually most of the pattern they
-now want, so the toggle keeps it and re-reads it. The query row carries which it is — `/word`
-or `/~word` — because a mode the reader has to remember is a mode they will be wrong about.
+A toggle rather than a reading the reader chooses up front, and rather than a second key that
+opens a second box. The word someone typed as a literal is usually most of the expression
+they now want, so the toggle keeps it and re-reads it.
 
-A pattern that does not compile finds nothing, which is indistinguishable from a word nothing
-holds unless the box says so. It says `bad pattern`. The distinction is the difference between
-a typo the reader can fix and an answer they should believe.
+One that does not compile finds nothing, which is indistinguishable from a word nothing holds
+unless the box says so. It says `bad regexp`. The distinction is the difference between a typo
+the reader can fix and an answer they should believe.
 
-Smart case holds in both readings. In a pattern the metacharacters are the reader's business
-and the case rule is not one of them.
+Smart case holds in both readings. In an expression the metacharacters are the reader's
+business and the case rule is not one of them.
+
+**5. The query is a one-line field, and `tui-input` is it.**
+
+A search box owes its reader a caret: `←`/`→` inside the word, `home`/`end`, word delete, and
+a row that scrolls to follow the caret when the query outgrows the box. Every one of those is
+a place to get a character boundary wrong, so none of it is hand-rolled (design rule 5).
+
+`tui-input` over `tui-textarea`, which this crate already depends on for the finding composer.
+The textarea is a multi-line widget that DRAWS ITSELF, and this row is composed — a field, a
+pill, and the space between them — so it would have had to be squeezed into a sub-rectangle
+between the two. `tui-input` is state and no drawing: it hands back a value, a caret column
+and `visual_scroll`, and the row goes on being built out of spans. The cost of the choice is
+that it has no selection, and decision 7's is the only one this box needs.
 
 **5. A hit is a filled block in an accent of the palette's own.**
 
@@ -132,20 +144,24 @@ difference. The module had already recorded this lesson once, about an invisible
 `highlight` is a seed rather than a derived value so that anything else meaning *this is what
 you asked for* can be derived from it later.
 
-**6. The reading is a pill, and its key is on the footer.**
+**6. The reading is a pill, and nothing else says it.**
 
 `ctrl-r` is a footer act rather than a quiet one, and it is the only key in this box that has
 to be: `?` types here, so the help modal cannot be opened from it and the footer is the only
 place the key is written down anywhere the reader can reach. Its label says what the press
-WILL do — `pattern` while reading a literal — which is the footer's own rule. `presses_for`
+WILL do — `regexp` while reading a literal — which is the footer's own rule. `presses_for`
 learned the `ctrl-<c>` chords so that clicking the button presses the key it names; a footer
 button that reads and does nothing would have been the wrong half of the convention.
 
-The reading itself is on the query row twice: as the lead (`/word`, `/~word`) and as a
-`pattern` pill. It is a fact about what the next keystroke will do, which is what a pill says
-here — as `selecting 4 lines` does on the window footer, and as a group's role and a hunk's
-class do in the panes. It appears while the reading is on and goes when it goes, so there is
-no pill meaning "literal": the absence is the statement, and the default needs no badge.
+The reading itself is a `regexp` pill at the right of the query row. It is a fact about what
+the next keystroke will do, which is what a pill says here — as `selecting 4 lines` does on
+the window footer, and as a group's role and a hunk's class do in the panes. It appears while
+the reading is on and goes when it goes, so there is no pill meaning "literal": the absence
+is the statement, and the default needs no badge.
+
+A lead character was tried and removed. `/word` and `/~word` put a second thing in front of
+the query saying what the box's own title and the pill already say, and cost a column of the
+field to do it.
 
 **7. A query that comes back is selected.**
 
@@ -155,9 +171,11 @@ clear a field before they can type.
 
 Selecting it serves both without a second key, and without either reader having to know which
 state they are in — the row is drawn on the band a selected list row wears, so they can see
-it. The next character typed replaces the whole query, backspace takes all of it, and
-anything that is not typing drops the selection and leaves the word alone. That is what a
-text field does everywhere else, which is the point.
+it. **A key that WRITES replaces the whole query; a key that only moves the caret leaves it
+standing.** That is what a selection means in any text field, and it is why `←` does not throw
+away the word the reader came back to. `↑` and `↓` do not touch it either: they belong to the
+occurrence list, which is the one place in this reviewer where an arrow belongs to something
+other than the thing under the caret.
 
 **8. Plain text, not symbols.**
 
@@ -186,6 +204,8 @@ column — which a hand-rolled ASCII fold would have had to guarantee by argumen
   four thousand lines it stops and says how far the line still is: every revealed line
   becomes a row and a syntect pass, and a generated file can put a match a very long way
   from anything.
+- **One dependency is added**, `tui-input`. It is state only and pulls in `crossterm`, which
+  this crate already has, and `unicode-segmentation`.
 - **A palette gains a field**, and a theme that picks a bad one fails in the palette test
   rather than in somebody's terminal.
 - **Nothing lands in the engine.** The scan is a view over a cache the renderer already

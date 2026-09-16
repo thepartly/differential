@@ -231,7 +231,7 @@ impl App {
             Mode::Help(_) | Mode::Notice { .. } => Area::Reading,
             Mode::FileList { .. } => Area::FileList,
             Mode::Findings { .. } => Area::Findings,
-            Mode::Search { .. } => Area::Search,
+            Mode::Search(_) => Area::Search,
             Mode::Editing { .. } => Area::Composer,
             Mode::Publish { .. } | Mode::DeleteComment { .. } => Area::Question,
             Mode::Normal => match self.focus {
@@ -258,7 +258,7 @@ impl App {
             Mode::Normal | Mode::FileList { .. } => true,
             // A box the query owns takes `?` as a character, exactly as the
             // composer does — and a reader may well be searching for one.
-            Mode::Search { .. } => false,
+            Mode::Search(_) => false,
             // While `D` waits for its answer, the next key IS the answer.
             Mode::Findings { confirming, .. } => !confirming,
             _ => false,
@@ -365,22 +365,19 @@ impl App {
                 // is already on — the pill on the query row says that.
                 match self.search_reading() {
                     Reading::Literal => {
-                        Act::footer("ctrl-r", "pattern", "read the query as a pattern")
+                        Act::footer("ctrl-r", "regexp", "read the query as a regular expression")
                     }
-                    Reading::Pattern => {
+                    Reading::Regexp => {
                         Act::footer("ctrl-r", "literal", "read the query as a literal again")
                     }
                 },
                 Act::footer("esc", "close", "close the search"),
-                Act::quiet("↑/↓", "move over the occurrences"),
-                Act::quiet(
-                    "ctrl-u  ·  ctrl-w",
-                    "clear the query · delete the last word",
-                ),
-                Act::quiet(
-                    "anything else",
-                    "types — the search reads every changed file as it is now",
-                ),
+                // No quiet rows, and they could not be read if there were.
+                // This is the one place `?` is a character rather than help,
+                // so `help_area` is never `Search` and nothing would ever
+                // draw them. The box's other keys are written down in
+                // `spec/tui.md` and this crate's README, which is where a
+                // reader who cannot press `?` goes.
             ],
             Area::Findings => vec![
                 Act::footer("enter", "jump", "jump to the note or thread"),

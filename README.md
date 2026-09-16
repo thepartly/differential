@@ -181,7 +181,7 @@ included, not just the hunks. Type, and every line holding the word is listed wi
 line itself previewed under it and the word marked.
 
 ```
- /reading_split                                     28 found
+ reading_split                                      28 found
  ▸ crates/engine/src/plan/tiers.rs:118        g2 focus C12
    crates/tui/src/rows.rs:791                 g2 focus C31
    crates/stack/src/lib.rs:44                    g5 skim
@@ -191,12 +191,12 @@ Each row says which group reads the line, at what tier, and which shape class th
 holding it belongs to. A line inside no hunk carries no class — that is how a row says it is
 unchanged code.
 
-The query is a literal. `ctrl-r` reads it as a pattern instead.
-
 What ranks first is where you already are, then the hits inside a hunk, then plan order. A
 hit inside something the plan deferred tells you before you go. `enter` puts the cursor on
-the line and opens whatever was in the way — a folded skim remainder, or a context gap the pane was not
-showing.
+the line and opens whatever was in the way — a folded skim remainder, or a context gap the
+pane was not showing.
+
+The query is a literal. `ctrl-r` reads it as a regular expression instead.
 
 Two things it cannot find, both for the same reason: a line the change **removed**, and a
 **deleted** file. Neither is in the file any more.

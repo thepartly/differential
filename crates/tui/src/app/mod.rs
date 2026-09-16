@@ -247,27 +247,11 @@ pub enum Mode {
     },
     /// `/` — a word, found anywhere in the changed files (see [`search`]).
     ///
-    /// Every printable key types into `query`, so the list moves on the
-    /// arrows and this is one of the places `?` is a character rather than
-    /// help. `preview` is model state for the reason `Peek`'s body is: it
-    /// costs a blob read and a syntect pass, and `draw` is a pure function of
-    /// the model.
-    Search {
-        query: String,
-        /// Literal, or a pattern. `ctrl-r` flips it.
-        reading: search::Reading,
-        /// The query came back from the last `/` and is SELECTED: the next
-        /// character typed replaces the whole of it, as it would in any text
-        /// field. Reopening on the old word is what a reader wants when they
-        /// are walking its hits; it is in the way when they are not, and this
-        /// is the one state that serves both without a second key.
-        picked: bool,
-        entries: Vec<search::Occurrence>,
-        selected: usize,
-        /// First visible occurrence. The list is longer than any box.
-        scroll: usize,
-        preview: Vec<crate::rows::SnippetLine>,
-    },
+    /// One payload, which that module owns: every printable key types into it,
+    /// so the box carries a query, how it is read, what it found and where the
+    /// reader is in that — seven fields, and naming them here would be seven
+    /// places outside the module that know its shape.
+    Search(search::Search),
 }
 
 pub struct FindingEntry {
@@ -668,7 +652,7 @@ pub use draw::{
     footer_row, pane_inner, publish_area, publish_footer, search_modal_area,
 };
 pub use help::{Act, Area, HelpSection};
-pub use search::{Occurrence, Reading};
+pub use search::{Occurrence, Reading, Search};
 pub use text::{Hint, Ink, hints_width};
 
 pub use forge::ForgeLink;

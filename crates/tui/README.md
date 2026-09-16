@@ -224,20 +224,20 @@ not a key in the composer, where it is a character, nor in a question, where eve
 
 ### The search modal (`/`)
 
-Every printable key types into the query. That is what a reader needs to search a path, and
-it is why the list moves on the arrows, why `?` is a character here rather than help, and
-why `esc` is the only key that closes.
+Every printable key types into the query, except the five the box keeps for itself. That is
+what a reader needs to search a path, and it is why `?` is a character here rather than help,
+and why `esc` is the only key that closes.
+
+The query is an ordinary one-line field otherwise: a caret, `←`/`→`, `home`/`end`,
+`backspace`, and a row that scrolls to follow the caret.
 
 | key | action |
 |---|---|
-| `↑` / `↓` | Previous / next occurrence. `ctrl-p` and `ctrl-n` do the same. |
+| `↑` / `↓` | Previous / next occurrence. `ctrl-p` and `ctrl-n` do the same. **The only arrows that are not the query's** — a one-line field has nothing for them to do. |
 | `enter` | Close and jump to that line, wherever in the review it lives. A folded skim remainder or noise group is opened, and so is a context gap. |
-| `ctrl-r` | Read the query as a pattern instead of a literal, and back. |
-| `backspace` | Delete the last character, or all of a query that came back selected. |
-| `ctrl-u` | Clear the query. |
-| `ctrl-w` | Delete the last word. |
-| `esc` | Close, keeping the query and the hit for the next `/`. |
-| anything printable | Types. Replaces the whole query when it came back selected. |
+| `ctrl-r` | Read the query as a regular expression instead of a literal, and back. |
+| `ctrl-u` / `ctrl-w` | Clear the query / delete the word before the caret. |
+| `esc` | Close, keeping the query, the reading and the hit for the next `/`. |
 
 It searches **every changed file as it is now**, unchanged lines included — not the diff. So
 a line the change removed is not found, and a deleted file holds nothing. Binary files hold
@@ -245,21 +245,22 @@ no text to find. Nothing is filtered out: a lockfile is searched like anything e
 ranks last because its group does.
 
 The query is a **literal**, so `a.c` finds `a.c` and not `abc`. `ctrl-r` reads it as a
-pattern instead. The query row says which reading it is on twice: as its lead — `/word` or
-`/~word` — and as a `pattern` pill, there only while the pattern reading is. A pattern that
-does not compile says `bad pattern` rather than finding nothing quietly. Either way an
-all-lowercase query ignores case, and one uppercase letter in it is the case you meant. One
-row per matching line, however many hits are on it; the preview marks them all, as a filled
-block in the palette's own highlight yellow.
-
-Closing keeps the query and the hit, so the next `/` picks up where you left off. The query
-comes back **selected**: one character replaces it, and `backspace` clears it.
+regular expression instead, and a `regexp` pill appears on the query row to say so — nothing
+leads the query, because the box's own title already says what it is. One that does not
+compile says `bad regexp` rather than finding nothing quietly. Either way an all-lowercase
+query ignores case, and one uppercase letter in it is the case you meant. One row per
+matching line, however many hits are on it; the preview marks them all, as a filled block in
+the palette's own highlight yellow.
 
 Rows are ranked by where you already are, then by whether the line is inside a hunk, then by
 plan order. Each says `g1 skim C0` — the group, its tier, and the shape class of the hunk
 holding the line. The tier means a hit inside something the plan deferred says so before you
 go there; the class means four hits in one class are one shape you may have read already. A
 line inside no hunk has no class, which is how the row says it is unchanged code.
+
+Closing keeps the query, the reading and the hit, so the next `/` picks up where you left
+off. The query comes back **selected**: the first key that writes replaces it, and one that
+only moves the caret leaves it alone.
 
 ### The findings list (`F`)
 
