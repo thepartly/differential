@@ -508,22 +508,25 @@ impl App {
                 _ => None,
             })
             .map(|(row_idx, path)| {
-                let info = self.files().iter().find(|f| f.path == path);
-                let (adds, dels, done) = info
-                    .map(|f| {
-                        (
-                            f.counts.adds,
-                            f.counts.dels,
-                            plan::all_reviewed(&f.hunks, &reviewed),
-                        )
-                    })
-                    .unwrap_or((0, 0, false));
+                // What this row says — both the counts and the ✓ — is about
+                // what the reader is being SHOWN of the file, not about the
+                // file. Reading a group that owns two of a file's ten hunks,
+                // the file's own totals describe the eight that are not here.
+                let view = self.session.plan();
+                let hunks = match (self.view_mode, self.file_index.get(path.as_str())) {
+                    (_, None) => Vec::new(),
+                    (ViewMode::Groups, Some(&i)) => view.hunks_in(self.selected_group, i),
+                    // The file view shows the file whole, so the whole file is
+                    // the honest answer there.
+                    (ViewMode::Files, Some(&i)) => view.files[i].hunks.clone(),
+                };
+                let counts = view.counts(&hunks);
                 FileListEntry {
                     path,
                     row_idx,
-                    adds,
-                    dels,
-                    reviewed: done,
+                    adds: counts.adds,
+                    dels: counts.dels,
+                    reviewed: plan::all_reviewed(&hunks, &reviewed),
                 }
             })
             .collect();

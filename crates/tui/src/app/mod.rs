@@ -29,6 +29,7 @@ use std::collections::{HashMap, HashSet};
 
 use differential_engine::FsReviewSession;
 use differential_engine::config::ThemeName;
+use differential_engine::plan::LineCounts;
 use differential_engine::review_state::{FindingStatus, Lines};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::Style;
@@ -353,10 +354,7 @@ pub enum ViewMode {
 /// state — folding here would move the file view's cursor.
 enum MapRow {
     /// A directory the group touches. Its children follow.
-    Dir {
-        depth: usize,
-        name: String,
-    },
+    Dir { depth: usize, name: String },
     /// A directory the group does not touch, and everything under it. A chain
     /// of single-child directories is joined, so one row says `a/b/c/`.
     Folded {
@@ -364,15 +362,17 @@ enum MapRow {
         name: String,
         files: usize,
     },
+    /// A file the group touches, carrying the group's part of it — not the
+    /// file's own totals. The map is drawn for ONE group, so a count on it
+    /// that described the whole file described something the reader is not
+    /// looking at.
     File {
         depth: usize,
         file_idx: usize,
+        counts: LineCounts,
     },
     /// A run of files the group does not touch, inside one it does.
-    More {
-        depth: usize,
-        files: usize,
-    },
+    More { depth: usize, files: usize },
 }
 
 impl MapRow {

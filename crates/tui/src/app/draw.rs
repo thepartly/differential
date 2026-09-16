@@ -970,7 +970,9 @@ impl App {
                     // Every file row IS one the group touches — the rest fold
                     // into a `…` row — so it is always lit, and the dot and
                     // the counts are unconditional.
-                    MapRow::File { file_idx, .. } => {
+                    MapRow::File {
+                        file_idx, counts, ..
+                    } => {
                         let f = &self.files()[*file_idx];
                         let name = basename(&f.path);
                         let style = Style::default()
@@ -988,12 +990,12 @@ impl App {
                             Span::styled(name.to_string(), style),
                             Span::styled("  ", style),
                             Span::styled(
-                                format!("+{}", f.counts.adds),
+                                format!("+{}", counts.adds),
                                 Style::default().fg(self.theme.add_fg),
                             ),
                             Span::styled(" ", style),
                             Span::styled(
-                                format!("−{}", f.counts.dels),
+                                format!("−{}", counts.dels),
                                 Style::default().fg(self.theme.del_fg),
                             ),
                         ])
@@ -1068,6 +1070,7 @@ impl App {
     pub(super) fn compute_map_rows(&self) -> Vec<MapRow> {
         let tree = &self.tree;
         let mine = &self.map_files;
+        let plan = self.session.plan();
         let n = tree.len();
 
         // A row is live if it IS a file the group touches, or holds one.
@@ -1147,9 +1150,13 @@ impl App {
                     i = end;
                 }
                 TreeKind::File { file_idx } if mine.contains(file_idx) => {
+                    // Sized here rather than at draw time, for the same reason
+                    // the rows are built here: this runs when the selection
+                    // moves, and drawing runs on every keypress.
                     out.push(MapRow::File {
                         depth,
                         file_idx: *file_idx,
+                        counts: plan.counts(&plan.hunks_in(self.selected_group, *file_idx)),
                     });
                     i += 1;
                 }
