@@ -659,12 +659,26 @@ impl RowFactory {
             .cloned()
     }
 
+    /// The head side of one file as the pane draws it — tabs expanded,
+    /// trailing whitespace gone — but ONLY if the file is already read.
+    ///
+    /// `None` rather than a blob read, for the reason `cached_raw_head_line`
+    /// gives: the callers are `draw` and the search scan, and neither may
+    /// stall a frame on a process. Every changed file is prefetched before the
+    /// reviewer opens, so the answer is there in practice.
+    pub fn cached_head_lines(&self, path: &str) -> Option<&[String]> {
+        self.cache.get(path).map(|s| s.new.as_slice())
+    }
+
     /// Read every file the rows are about to draw, in one `git` call.
     ///
     /// Reading a blob costs a process; doing it lazily per file meant two
     /// spawns per file, which was most of the wait the first time a group
     /// opened. The caller already knows the whole set, so it says so.
-    fn prefetch(&mut self, paths: &[&str]) {
+    ///
+    /// Public because the search corpus is this cache: the reviewer reads
+    /// every changed file once, before it opens, so `/` never waits on git.
+    pub fn prefetch(&mut self, paths: &[&str]) {
         let want: Vec<&str> = paths
             .iter()
             .copied()

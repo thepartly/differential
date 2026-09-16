@@ -22,8 +22,9 @@ use crate::vendor::text_utils::{
 };
 
 use super::text::{
-    Hint, Ink, basename, counts_columns, elide_head, file_list_rows, findings_rows, findings_skip,
-    joined, pad_to_width, plain, truncate_width,
+    Hint, Ink, SEARCH_BOX_ROWS, basename, counts_columns, elide_head, file_list_rows,
+    findings_rows, findings_skip, joined, pad_to_width, plain, search_list_rows,
+    search_preview_rows, truncate_width,
 };
 use super::*;
 use crossterm::event::KeyCode;
@@ -314,8 +315,196 @@ impl App {
                     area,
                 );
             }
+            Mode::Search {
+                query,
+                entries,
+                selected,
+                scroll,
+                preview,
+            } => self.draw_search(
+                frame, panes.body, query, entries, *selected, *scroll, preview,
+            ),
             Mode::Normal => {}
         }
+    }
+
+    /// The search box: the query, the ranked occurrences, and the selected
+    /// one previewed under them with every hit on the shown lines marked.
+    ///
+    /// The list above and the preview below, rather than side by side: a line
+    /// of code cut in half is a line nobody can read, and the list's rows are
+    /// short.
+    #[allow(clippy::too_many_arguments)]
+    fn draw_search(
+        &self,
+        frame: &mut Frame,
+        body: Rect,
+        query: &str,
+        entries: &[super::Occurrence],
+        selected: usize,
+        scroll: usize,
+        preview: &[crate::rows::SnippetLine],
+    ) {
+        let area = search_modal_area(body);
+        let inner_w = usize::from(area.width.saturating_sub(2));
+        let body_rows = usize::from(body.height);
+        // The same two numbers the keys and the wheel scroll against.
+        let list_rows = search_list_rows(body_rows);
+        let preview_rows = search_preview_rows(body_rows);
+
+        let dim = Style::default().fg(self.theme.gutter_fg);
+        let text = Style::default().fg(self.theme.context_fg);
+        let accent = Style::default().fg(self.theme.header_fg);
+
+        // The query row. The caret is drawn rather than placed: a terminal
+        // cursor would have to be shown and hidden around every other mode,
+        // and this box is the only one that has no `TextArea` to own it.
+        let mut lines: Vec<Line> = vec![Line::from(vec![
+            Span::styled(" /", dim),
+            Span::styled(query.to_string(), accent.add_modifier(Modifier::BOLD)),
+            Span::styled("▏", accent),
+        ])];
+
+        // What the list says about a hit, right-aligned so the paths line up
+        // on the left where the eye scans them.
+        let tail = |e: &super::Occurrence| {
+            let mut t = String::new();
+            if !e.badge.is_empty() {
+                t.push_str(&e.badge);
+            }
+            if e.in_hunk {
+                t.push_str("  in hunk");
+            }
+            t
+        };
+        let tail_col = entries
+            .iter()
+            .skip(scroll)
+            .take(list_rows)
+            .map(|e| UnicodeWidthStr::width(tail(e).as_str()))
+            .max()
+            .unwrap_or(0);
+
+        // The list is drawn at its full height whatever it holds. A box that
+        // grew and shrank under a query being typed would move the preview
+        // under the reader's eyes on every keystroke.
+        let mut drawn_rows = 0usize;
+        if entries.is_empty() {
+            let words = if query.is_empty() {
+                "type to search every changed file"
+            } else {
+                "no occurrence of that"
+            };
+            lines.push(Line::from(Span::styled(format!("  {words}"), dim)));
+            drawn_rows = 1;
+        } else {
+            for (i, e) in entries.iter().enumerate().skip(scroll).take(list_rows) {
+                let on = i == selected;
+                let mut style = text;
+                if on {
+                    style = style
+                        .bg(self.theme.selected_bg)
+                        .add_modifier(Modifier::BOLD);
+                }
+                let bg = |st: Style| match on {
+                    true => st.bg(self.theme.selected_bg),
+                    false => st,
+                };
+                let at = format!("{}:{}", e.path, e.line);
+                // Whole when it fits, cut at its HEAD when it does not: the
+                // file name and the line number identify the hit, and the
+                // directories above them do not.
+                let room = inner_w.saturating_sub(tail_col + 5);
+                let at = elide_head(&at, room);
+                let pad = room.saturating_sub(UnicodeWidthStr::width(at.as_str()));
+                let mut line = Line::from(vec![
+                    Span::styled(if on { " ▸ " } else { "   " }.to_string(), bg(accent)),
+                    Span::styled(at, style),
+                    Span::styled(" ".repeat(pad + 2), bg(dim)),
+                    Span::styled(tail(e), bg(dim)),
+                ]);
+                if on {
+                    pad_to_width(&mut line, inner_w, self.theme.selected_bg);
+                }
+                lines.push(line);
+                drawn_rows += 1;
+            }
+        }
+        for _ in drawn_rows..list_rows {
+            lines.push(Line::from(""));
+        }
+
+        // The rule between the two halves, so the preview reads as an answer
+        // to the row above it rather than as more list.
+        lines.push(Line::from(Span::styled("─".repeat(inner_w), dim)));
+
+        // The number column is as wide as its widest number, so the code
+        // starts in one place — the symbol float's rule, and for its reason.
+        let num_w = preview
+            .iter()
+            .map(|l| l.number.to_string().len())
+            .max()
+            .unwrap_or(1);
+        let hit = entries.get(selected).map(|e| e.line);
+        let room = inner_w.saturating_sub(num_w + 4);
+        // Shift the preview so the hit is on it. A match two hundred columns
+        // into a long line is a match the reader cannot see, and a preview
+        // that marks nothing reads as a preview of the wrong line.
+        let shift = entries
+            .get(selected)
+            .filter(|e| e.end > room)
+            .map_or(0, |e| e.end + 2 - room.min(e.end));
+        for l in preview.iter().take(preview_rows.saturating_sub(1)) {
+            let code_bg = self.theme.line_bg(l.origin);
+            let num_bg = self.theme.gutter_bg(l.origin);
+            let mut num = Style::default().fg(self.theme.gutter_fg);
+            if hit == Some(l.number) {
+                num = num.fg(self.theme.header_fg).add_modifier(Modifier::BOLD);
+            }
+            if let Some(bg) = num_bg {
+                num = num.bg(bg);
+            }
+            let mut spans = vec![Span::styled(
+                format!(" {n:>num_w$} │ ", n = l.number, num_w = num_w),
+                num,
+            )];
+            let mut drawn = 0usize;
+            for (st, t) in slice_pairs(&l.pairs, shift, shift + room) {
+                drawn += t.chars().count();
+                let st = match code_bg {
+                    Some(bg) if st.bg.is_none() => st.bg(bg),
+                    _ => st,
+                };
+                spans.push(Span::styled(t, st));
+            }
+            if let Some(bg) = code_bg
+                && drawn < room
+            {
+                spans.push(Span::styled(
+                    " ".repeat(room - drawn),
+                    Style::default().bg(bg),
+                ));
+            }
+            lines.push(Line::from(spans));
+        }
+
+        let found = match entries.len() {
+            0 => String::new(),
+            n if n >= super::search::MOST_HITS => format!(" {n}+ found "),
+            n => format!(" {n} found "),
+        };
+        clear_to_ground(frame, &self.theme, area);
+        frame.render_widget(
+            Paragraph::new(lines).block(
+                pane(&self.theme, " search ".into(), true)
+                    .title_bottom(Line::from(Span::styled(found, dim)).right_aligned()),
+            ),
+            area,
+        );
+        frame.render_widget(
+            Paragraph::new(footer_line(&self.theme, &self.modal_footer())),
+            footer_row(area),
+        );
     }
 
     pub(super) fn draw_groups(&self, frame: &mut Frame, area: Rect) {
@@ -2433,6 +2622,22 @@ pub fn file_list_modal_area(body: Rect, entries: &[FileListEntry]) -> Rect {
     // the border and took the file NAME with them, which is the one part of
     // a path worth reading.
     let width = (lead + widest + 2).max(70).min(body.width as usize) as u16;
+    centered_rect(body, width, height)
+}
+
+/// The search box: a fixed size, centred on the body and clamped to it.
+///
+/// **Over the whole body, not over the diff pane.** Nearly every key in this
+/// reviewer acts on the pane it is pressed in; `/` is the exception, because
+/// a name the reader is hunting for is a fact about the branch and not about
+/// the pane their cursor is parked in. A box measured against one pane would
+/// have said the opposite.
+///
+/// Wide, because two of the three things in it are long: a repository path,
+/// and a line of code. Shared with the hit test.
+pub fn search_modal_area(body: Rect) -> Rect {
+    let width = body.width.saturating_sub(8).clamp(40, 110);
+    let height = u16::try_from(SEARCH_BOX_ROWS).unwrap_or(u16::MAX);
     centered_rect(body, width, height)
 }
 

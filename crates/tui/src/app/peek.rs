@@ -232,7 +232,7 @@ impl App {
     /// Local to the float for now. The stack renderer has never needed it, and
     /// a second consumer is what would earn this a place in `engine::plan`
     /// beside the rest of the shared arithmetic.
-    fn added_ranges(&self, path: &str) -> Vec<std::ops::Range<u32>> {
+    pub(super) fn added_ranges(&self, path: &str) -> Vec<std::ops::Range<u32>> {
         self.session
             .doc()
             .hunks

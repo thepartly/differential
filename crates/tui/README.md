@@ -151,9 +151,13 @@ the diff cursor, whichever pane you are in.
 | `s` | either | Toggle side-by-side and unified layout. Saved per review; `review.diff` sets what a review opens as. |
 | `f` | left | Toggle the reading plan and the file tree. Saved per review. |
 | `f` | diff | Open the file-list modal. |
+| `/` | any | Open the search. See below. |
 
 `z` and `f` act on the pane you are in. The diff cursor exists whichever pane has focus, so
 without that rule a press in the file tree would open part of a file you were not looking at.
+
+`/` is the exception, and the only key that is. A name you are hunting for is a fact about
+the branch, and the reader asking has by definition not found the pane it is in yet.
 
 ### Normal mode — reviewing
 
@@ -217,6 +221,35 @@ not a key in the composer, where it is a character, nor in a question, where eve
 | `enter` | Close, jump the diff cursor to that file, and focus the diff pane. |
 | `?` | Open the help modal. The list comes back when help closes. |
 | `esc` / `f` / `q` | Close. |
+
+### The search modal (`/`)
+
+Every printable key types into the query. That is what a reader needs to search a path, and
+it is why the list moves on the arrows, why `?` is a character here rather than help, and
+why `esc` is the only key that closes.
+
+| key | action |
+|---|---|
+| `↑` / `↓` | Previous / next occurrence. `ctrl-p` and `ctrl-n` do the same. |
+| `enter` | Close and jump to that line, wherever in the review it lives. A folded skim remainder or noise group is opened, and so is a context gap. |
+| `backspace` | Delete the last character. |
+| `ctrl-u` | Clear the query. |
+| `ctrl-w` | Delete the last word. |
+| `esc` | Close, keeping the query and the hit for the next `/`. |
+| anything printable | Types. |
+
+It searches **every changed file as it is now**, unchanged lines included — not the diff. So
+a line the change removed is not found, and a deleted file holds nothing. Binary files hold
+no text to find. Nothing is filtered out: a lockfile is searched like anything else and
+ranks last because its group does.
+
+The query is a **literal**, so `a.c` finds `a.c` and not `abc`. An all-lowercase query
+ignores case; one uppercase letter in it is the case you meant. One row per matching line,
+however many hits are on it.
+
+Rows are ranked by where you already are, then by whether the line is inside a hunk, then by
+plan order. Each carries its group and tier — `g1 skim` — so a hit inside something the plan
+deferred says so before you go there.
 
 ### The findings list (`F`)
 

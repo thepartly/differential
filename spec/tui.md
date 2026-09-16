@@ -370,6 +370,60 @@ a half page, `n`, a jump from a list and a click all close it, and so does focus
 diff pane, because the underlines leave with the focus and a float over an unmarked row is
 an answer with no visible question.
 
+**A word, found anywhere in the changed files.** `/` opens a box over the whole window;
+typing into it lists every line that holds the word, and `enter` puts the cursor on the one
+picked. Under the list sits the line itself with three lines either side, syntax-highlighted
+and with every hit on them marked — the same accent and bold underline the symbol float
+lights its chosen name with. The box is a fixed size whatever the query finds, because a box
+that grew and shrank under a query being typed would move the preview under the reader's
+eyes on every keystroke.
+
+**`/` is the one key that does not act on the pane you are in.** Every other key does, and
+says so at the top of this file. A name a reader is hunting for is a fact about the branch,
+and the reader asking has by definition not found the pane it is in yet — so `/` opens from
+the plan pane, from the diff pane, over an open selection, which it drops, and out of the
+file list and the findings list, which close as it opens. Not from the composer, where it is
+a character being typed, and not from a question, where every key but `y` is the answer no.
+The box is centred on the whole body for the same reason, not on the diff pane.
+
+**What is searched is the files as they are now, not the diff.** Every changed file's head
+side, unchanged lines included — which is where most of the names a reader is hunting for
+are, and a search that only saw the hunks would answer "no" to half the questions worth
+asking. Two things follow and are worth saying out loud, because a reader will meet them: a
+line the change **removed** is not in the file any more and so is not found, and a **deleted
+file** holds nothing at all. A binary file holds no text to find either; it is still
+enumerated and still counted, and a search is a view, never a filter (ADR 0005, 0012). A
+lockfile is searched like anything else.
+
+**Literal, and smart about case.** The query is a literal, so `a.c` finds `a.c` and not
+`abc`. An all-lowercase query ignores case; one uppercase letter in it is the case the
+reader meant. One row per matching LINE, not per hit: a line with four of them is one thing
+to go and read, and the preview marks all four.
+
+**What ranks first is where the reader already is.** Then the hits inside a hunk, because
+the change is what this tool is for and a match in code the branch never touched is context.
+Then plan order, which is the order the groups are read in. A group's rank already fixes its
+tier, so the tier settles nothing here — but every row carries it (`g1 skim`), because a hit
+inside a deferred skim remainder or a folded noise group is reachable and the reader is owed
+the fact before they go. Deferring is an opinion, not a prohibition (ADR 0006), and `enter`
+opens the fold. A hit count is not coverage: it changes nothing about `read_hunks` or
+`skipped_hunks`.
+
+**`enter` opens whatever is in the way.** Reaching a row is a navigation and never a row
+index, exactly as it is from the findings list: select the group that owns the line — for a
+line inside no hunk, the first group by plan order that owns any hunk in that file — let the
+rows rebuild, then find the row again. If the hunk is behind a fold, the fold opens. If the
+line is outside every window, the nearest hunk's gap is pulled open towards it, which crosses
+nothing, because by "nearest" no hunk lies in that gap. Past four thousand lines it stops and
+the footer says how far the line still is: every revealed line is a row and a syntect pass,
+and a generated file can put a match a very long way from anything.
+
+**Every printable key types.** That is the price of a box a reader can search a path in, and
+it settles the rest of the keys: the list moves on `↑`/`↓`, `?` is a character here rather
+than help, and only `esc` closes. `ctrl-u` clears the query and `ctrl-w` drops its last word.
+The query and the hit it was left on survive a close, so finding the next occurrence is `/`
+and an arrow rather than the word typed again.
+
 **Only what the change itself declares.** The tool parses the files a diff touches and no
 others, so a call into an untouched helper lights nothing and `z` keeps the meaning it
 already had on that row. What it can resolve, it resolves on **any** line it draws, context
@@ -488,6 +542,7 @@ The full reference. `?` shows the subset that applies where the reader is standi
 | `s` | toggle side-by-side / unified diff layout (persisted) |
 | `w` | soft wrap long lines (persisted) |
 | `h`/`l`, `0` | shift the diff pane eight columns sideways · back to the left edge. Diff pane only; refused while `w` is on |
+| `/` | **search — a word, anywhere in the changed files.** The one key that does not act on the pane you are in: it opens from either pane, over a selection, and out of the file list and the findings list. The files as they are NOW, so a removed line is not found. Literal, smart case. `enter` jumps to the line, opening a fold or a context gap to reach it · `↑`/`↓` move · every other printable key types · `esc` closes |
 | `f` | files, in the pane you are in — plan pane: toggle reading plan ↔ file tree (persisted) · diff pane: the file-list modal (`enter` jumps to the file) |
 | `space` | mark reviewed — the whole selected group/file in the left pane, the **hunk** under the cursor in the diff pane |
 | `v` | start a line selection at the cursor · `j`/`k` extend it · `v` or `esc` drops it · `c` writes a finding over it |

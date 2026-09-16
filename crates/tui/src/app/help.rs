@@ -52,6 +52,8 @@ pub enum Area {
     },
     FileList,
     Findings,
+    /// `/` — the search box. Every printable key types into it.
+    Search,
     /// Writing a finding.
     Composer,
     /// A question only `y` answers: a publish, a comment's deletion.
@@ -82,6 +84,7 @@ impl Area {
             Area::Thread { own: true, .. } => "your own comment",
             Area::FileList => "the file list",
             Area::Findings => "the findings list",
+            Area::Search => "the search",
             Area::Composer => "writing a finding",
             Area::Question => "the question",
             Area::Reading => "here",
@@ -189,6 +192,7 @@ fn everywhere() -> Vec<Act> {
             "h/l  ·  0",
             "shift the diff sideways · back to the left edge",
         ),
+        Act::quiet("/", "find a word in any changed file"),
         Act::quiet("F", "every finding and thread, in one list"),
         Act::quiet("y", "copy the open findings"),
         Act::quiet("P", "publish the open findings (asks first)"),
@@ -219,6 +223,7 @@ impl App {
             Mode::Help(_) | Mode::Notice { .. } => Area::Reading,
             Mode::FileList { .. } => Area::FileList,
             Mode::Findings { .. } => Area::Findings,
+            Mode::Search { .. } => Area::Search,
             Mode::Editing { .. } => Area::Composer,
             Mode::Publish { .. } | Mode::DeleteComment { .. } => Area::Question,
             Mode::Normal => match self.focus {
@@ -243,6 +248,9 @@ impl App {
     pub(super) fn help_opens(&self) -> bool {
         match &self.mode {
             Mode::Normal | Mode::FileList { .. } => true,
+            // A box the query owns takes `?` as a character, exactly as the
+            // composer does — and a reader may well be searching for one.
+            Mode::Search { .. } => false,
             // While `D` waits for its answer, the next key IS the answer.
             Mode::Findings { confirming, .. } => !confirming,
             _ => false,
@@ -337,6 +345,21 @@ impl App {
                 Act::footer("enter", "jump", "jump to the file"),
                 Act::footer("esc", "close", "close the list · so does f"),
                 Act::quiet("j/k", "move over the files"),
+            ],
+            // The arrows, not `j`/`k`: every printable key types into the
+            // query, which is the price of a box you can search a path in.
+            Area::Search => vec![
+                Act::footer("enter", "open", "jump to the occurrence"),
+                Act::footer("esc", "close", "close the search"),
+                Act::quiet("↑/↓", "move over the occurrences"),
+                Act::quiet(
+                    "ctrl-u  ·  ctrl-w",
+                    "clear the query · delete the last word",
+                ),
+                Act::quiet(
+                    "anything else",
+                    "types — the search reads every changed file as it is now",
+                ),
             ],
             Area::Findings => vec![
                 Act::footer("enter", "jump", "jump to the note or thread"),

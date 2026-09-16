@@ -608,6 +608,7 @@ dependencies = [
  "palette",
  "pulldown-cmark",
  "ratatui",
+ "regex",
  "similar",
  "syntect",
  "textwrap",

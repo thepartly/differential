@@ -198,6 +198,37 @@ pub(super) fn file_list_rows(entries: usize, body_rows: usize) -> usize {
     (entries + 2).min(body_rows).saturating_sub(2)
 }
 
+/// The search box's height, before the body clamps it.
+///
+/// A fixed box, unlike the two lists, which take their height from what they
+/// hold: a list that grows and shrinks under a query being typed moves the
+/// preview under the reader's eyes on every keystroke.
+pub(super) const SEARCH_BOX_ROWS: usize = 22;
+
+/// The rows inside the search box that are neither its frame, its query row
+/// nor its key footer — the list and the preview between them.
+fn search_inner(body_rows: usize) -> usize {
+    SEARCH_BOX_ROWS
+        .min(body_rows)
+        .saturating_sub(2) // the frame
+        .saturating_sub(2) // the query row and the footer
+}
+
+/// Rows the occurrence list is drawn in, which is the number it scrolls
+/// against — one function for the keys, the mouse and the draw, for the reason
+/// `findings_rows` gives.
+///
+/// Half of what is left, at least one: a list with no rows is a list nobody
+/// can move in, however short the terminal.
+pub(super) fn search_list_rows(body_rows: usize) -> usize {
+    (search_inner(body_rows) / 2).max(1)
+}
+
+/// Rows the preview is drawn in: whatever the list did not take.
+pub(super) fn search_preview_rows(body_rows: usize) -> usize {
+    search_inner(body_rows).saturating_sub(search_list_rows(body_rows))
+}
+
 /// Keep `selected` inside a window `height` tall, moving `scroll` as little as
 /// it takes. The diff pane's own `follow_cursor` keeps a margin; a list this
 /// short does not need one.

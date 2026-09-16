@@ -7214,6 +7214,7 @@ use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
 use differential_tui::app::{
     Hint, centered_x, composer_area, composer_footer, file_list_modal_area, findings_modal_area,
     findings_question, footer_row, hints_width, layout, pane_inner, publish_area, publish_footer,
+    search_modal_area,
 };
 use ratatui::layout::Rect;
 
@@ -8146,4 +8147,464 @@ fn a_new_call_to_an_existing_helper_lights_up() {
         peek.body.iter().all(|l| l.origin == LineOrigin::Context),
         "the change never wrote this declaration"
     );
+}
+
+// ------------------------------------------------------------------ search
+
+/// `/` and a word typed into the box.
+fn search_for(app: &mut App, word: &str) {
+    app.handle_key(key('/'));
+    for c in word.chars() {
+        app.handle_key(key(c));
+    }
+}
+
+/// The occurrence list, as `path:line g<N> <tier>`.
+fn occurrences(app: &App) -> Vec<String> {
+    match &app.mode {
+        Mode::Search { entries, .. } => entries
+            .iter()
+            .map(|e| format!("{}:{} {}", e.path, e.line, e.badge))
+            .collect(),
+        _ => panic!("not searching"),
+    }
+}
+
+fn search_selected(app: &App) -> usize {
+    match &app.mode {
+        Mode::Search { selected, .. } => *selected,
+        _ => panic!("not searching"),
+    }
+}
+
+/// Move the list onto the first occurrence in `path`.
+fn select_occurrence_in(app: &mut App, path: &str) {
+    let want = occurrences(app)
+        .iter()
+        .position(|o| o.starts_with(&format!("{path}:")))
+        .unwrap_or_else(|| panic!("no occurrence in {path}: {:?}", occurrences(app)));
+    while search_selected(app) < want {
+        app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+    }
+    while search_selected(app) > want {
+        app.handle_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
+    }
+}
+
+/// The head-side line the cursor is standing on.
+fn cursor_line(app: &App) -> Option<u32> {
+    app.rows[app.cursor].line.as_ref()?.line_on("new")
+}
+
+fn cursor_path(app: &App) -> Option<String> {
+    app.file_at_cursor().map(|i| app.files()[i].path.clone())
+}
+
+#[test]
+fn slash_finds_a_word_in_every_changed_file() {
+    let (_r, mut app) = make_app();
+    search_for(&mut app, "helper");
+    assert_eq!(
+        occurrences(&app),
+        vec![
+            "src/a.txt:1 g1 skim",
+            "src/b.txt:1 g1 skim",
+            "src/c.txt:1 g1 skim",
+        ],
+        "one row per matching LINE, each labelled with its group and tier"
+    );
+}
+
+#[test]
+fn the_search_reads_the_file_as_it_is_now_so_a_removed_word_is_gone() {
+    let (_r, mut app) = app_with_a_long_file();
+    search_for(&mut app, "after");
+    assert_eq!(
+        occurrences(&app),
+        vec!["src/long.rs:20 g0 focus", "src/long.rs:40 g0 focus"],
+        "the head side is what is searched"
+    );
+    app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    search_for(&mut app, "before");
+    assert!(
+        occurrences(&app).is_empty(),
+        "the change removed both of those lines, so they are not in the file"
+    );
+}
+
+#[test]
+fn a_hit_inside_a_hunk_ranks_above_one_outside() {
+    let (_r, mut app) = app_with_a_long_file();
+    // `9` is on two changed lines (20 and 40) and on six unchanged ones.
+    search_for(&mut app, "9");
+    let found = occurrences(&app);
+    assert_eq!(
+        &found[..2],
+        &["src/long.rs:20 g0 focus", "src/long.rs:40 g0 focus"],
+        "the changed lines come first: {found:?}"
+    );
+    assert!(
+        found.len() > 2,
+        "the unchanged lines are found too: {found:?}"
+    );
+}
+
+#[test]
+fn the_group_the_reader_has_open_ranks_first() {
+    let (_r, mut app) = make_app();
+    // g1 is the skim sweep over a, b and c; g0 is the one file main.txt.
+    app.handle_key(key('J'));
+    search_for(&mut app, "content");
+    assert!(
+        occurrences(&app).first().is_some_and(|o| o.contains("g1")),
+        "the open group's hits lead: {:?}",
+        occurrences(&app)
+    );
+}
+
+#[test]
+fn enter_lands_the_cursor_on_the_matched_line() {
+    let (_r, mut app) = app_with_a_long_file();
+    search_for(&mut app, "also_after");
+    app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(matches!(app.mode, Mode::Normal), "the box closes");
+    assert_eq!(app.focus, Focus::Detail);
+    assert_eq!(cursor_path(&app).as_deref(), Some("src/long.rs"));
+    assert_eq!(cursor_line(&app), Some(40));
+}
+
+#[test]
+fn enter_opens_a_folded_skim_remainder_to_reach_its_line() {
+    let (_r, mut app) = make_app();
+    search_for(&mut app, "helper");
+    // a, b and c share one shape class, so the skim group lists one of them
+    // and defers the rest. Reaching a deferred one has to open the fold.
+    select_occurrence_in(&mut app, "src/c.txt");
+    app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(cursor_path(&app).as_deref(), Some("src/c.txt"));
+    assert_eq!(cursor_line(&app), Some(1));
+}
+
+#[test]
+fn enter_opens_the_window_to_reach_a_line_outside_every_hunk() {
+    let (_r, mut app) = app_with_a_long_file();
+    // Line 30 sits in the gap between the two hunks, which the pane does not
+    // show until something opens it.
+    search_for(&mut app, "filler30");
+    assert_eq!(occurrences(&app), vec!["src/long.rs:30 g0 focus"]);
+    app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(cursor_line(&app), Some(30), "the gap was opened");
+}
+
+#[test]
+fn a_line_too_far_from_any_hunk_says_so_rather_than_opening_the_file() {
+    let (_r, mut app) = app_with_a_long_file();
+    search_for(&mut app, "filler30");
+    let Mode::Search { entries, .. } = &mut app.mode else {
+        panic!("not searching")
+    };
+    // Past the reveal cap, which no fixture is long enough to reach honestly.
+    entries[0].line = 900_000;
+    app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(
+        app.status.contains("lines from the nearest hunk"),
+        "the footer says how far it still is: {:?}",
+        app.status
+    );
+}
+
+#[test]
+fn the_query_and_the_hit_survive_a_close() {
+    let (_r, mut app) = make_app();
+    search_for(&mut app, "helper");
+    app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+    app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    app.handle_key(key('/'));
+    assert_eq!(occurrences(&app).len(), 3, "the query came back");
+    assert_eq!(search_selected(&app), 1, "and so did the hit it was on");
+}
+
+#[test]
+fn every_printable_key_types_and_the_arrows_move() {
+    let (_r, mut app) = make_app();
+    // `j`, `k`, `q` and `?` are keys of the review, and characters here.
+    search_for(&mut app, "j");
+    app.handle_key(key('k'));
+    app.handle_key(key('?'));
+    let Mode::Search { query, .. } = &app.mode else {
+        panic!("a printable key closed the box")
+    };
+    assert_eq!(query, "jk?");
+    app.handle_key(ctrl('u'));
+    search_for_more(&mut app, "helper");
+    assert_eq!(search_selected(&app), 0);
+    app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+    assert_eq!(search_selected(&app), 1, "the arrows move the list");
+    app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+    let Mode::Search { query, .. } = &app.mode else {
+        panic!("not searching")
+    };
+    assert_eq!(query, "helpe", "backspace edits the query");
+}
+
+/// Type into a box that is already open.
+fn search_for_more(app: &mut App, word: &str) {
+    for c in word.chars() {
+        app.handle_key(key(c));
+    }
+}
+
+#[test]
+fn an_uppercase_letter_makes_the_query_case_sensitive() {
+    let r = TestRepo::new();
+    r.write(
+        "src/case.txt",
+        b"let value = 1;
+let VALUE = 2;
+",
+    );
+    r.commit_all("base");
+    r.write(
+        "src/case.txt",
+        b"let value = 3;
+let VALUE = 4;
+",
+    );
+    r.commit_all("head");
+    let mut app = open_app_with(&r, &one_group_per_class(), ".dfr-case-store");
+    search_for(&mut app, "value");
+    assert_eq!(occurrences(&app).len(), 2, "all lowercase folds case");
+    app.handle_key(ctrl('u'));
+    search_for_more(&mut app, "VALUE");
+    assert_eq!(
+        occurrences(&app),
+        vec!["src/case.txt:2 g0 focus"],
+        "an uppercase letter is the case the reader meant"
+    );
+}
+
+#[test]
+fn the_query_is_a_literal_not_a_pattern() {
+    let r = TestRepo::new();
+    r.write(
+        "src/dots.txt",
+        b"a.c
+abc
+",
+    );
+    r.commit_all("base");
+    r.write(
+        "src/dots.txt",
+        b"a.c
+abc
+more
+",
+    );
+    r.commit_all("head");
+    let mut app = open_app_with(&r, &one_group_per_class(), ".dfr-dots-store");
+    search_for(&mut app, "a.c");
+    assert_eq!(occurrences(&app), vec!["src/dots.txt:1 g0 focus"]);
+}
+
+#[test]
+fn the_search_opens_from_either_pane_and_from_either_list() {
+    let (_r, mut app) = make_app();
+    for focus in [Focus::Groups, Focus::Detail] {
+        app.focus = focus;
+        app.handle_key(key('/'));
+        assert!(matches!(app.mode, Mode::Search { .. }), "from {focus:?}");
+        app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    }
+    // And from the two list modals, which close as it opens.
+    app.focus = Focus::Detail;
+    app.handle_key(key('f'));
+    assert!(matches!(app.mode, Mode::FileList { .. }));
+    app.handle_key(key('/'));
+    assert!(
+        matches!(app.mode, Mode::Search { .. }),
+        "from the file list"
+    );
+    app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    // The findings list needs a finding in it before it opens.
+    app.handle_key(key('c'));
+    app.handle_paste("a note");
+    app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    app.handle_key(key('F'));
+    assert!(matches!(app.mode, Mode::Findings { .. }));
+    app.handle_key(key('/'));
+    assert!(
+        matches!(app.mode, Mode::Search { .. }),
+        "from the findings list"
+    );
+}
+
+#[test]
+fn the_box_spans_both_panes() {
+    let (_r, mut app) = make_app();
+    sized(&mut app);
+    let body = layout(SCREEN).body;
+    let area = search_modal_area(body);
+    let plan = layout(SCREEN).plan;
+    assert!(area.x < plan.right(), "it starts over the plan pane");
+    assert!(area.right() > plan.right(), "and ends over the diff pane");
+}
+
+#[test]
+fn a_click_selects_an_occurrence_and_a_second_opens_it() {
+    let (_r, mut app) = make_app();
+    sized(&mut app);
+    search_for(&mut app, "helper");
+    let area = search_modal_area(layout(SCREEN).body);
+    // The list starts one row below the query row.
+    let (x, y) = on_line(area, 2);
+    app.handle_mouse(click(x, y));
+    assert_eq!(search_selected(&app), 1, "a click selects");
+    app.handle_mouse(click(x, y));
+    assert!(matches!(app.mode, Mode::Normal), "a second click opens it");
+    assert_eq!(cursor_path(&app).as_deref(), Some("src/b.txt"));
+}
+
+#[test]
+fn a_click_outside_the_box_closes_the_search() {
+    let (_r, mut app) = make_app();
+    sized(&mut app);
+    search_for(&mut app, "helper");
+    app.handle_mouse(click(0, 0));
+    assert!(matches!(app.mode, Mode::Normal));
+}
+
+#[test]
+fn the_wheel_steps_the_occurrence_list() {
+    let (_r, mut app) = make_app();
+    sized(&mut app);
+    search_for(&mut app, "helper");
+    let area = search_modal_area(layout(SCREEN).body);
+    let (x, y) = on_line(area, 2);
+    app.handle_mouse(wheel_down(x, y));
+    assert_eq!(search_selected(&app), 1);
+    app.handle_mouse(wheel_up(x, y));
+    assert_eq!(search_selected(&app), 0);
+}
+
+#[test]
+fn the_footer_keys_are_buttons_here_too() {
+    let (_r, mut app) = make_app();
+    sized(&mut app);
+    search_for(&mut app, "helper");
+    let area = search_modal_area(layout(SCREEN).body);
+    let row = footer_row(area);
+    let hints = app.modal_footer();
+    // The second button is `esc close`; the first piece is the lead padding.
+    let (x, y) = on_hint(&hints, 3, row.x, row);
+    app.handle_mouse(click(x, y));
+    assert!(matches!(app.mode, Mode::Normal), "esc was pressed");
+}
+
+#[test]
+fn the_preview_marks_the_hit() {
+    let (_r, mut app) = make_app();
+    sized(&mut app);
+    search_for(&mut app, "helper");
+    let buf = buffer_of(&app);
+    let marked: Vec<String> = (0..40u16)
+        .flat_map(|y| (0..100u16).map(move |x| (x, y)))
+        .filter(|&(x, y)| {
+            buf[(x, y)]
+                .style()
+                .add_modifier
+                .contains(ratatui::style::Modifier::UNDERLINED)
+        })
+        .map(|(x, y)| buf[(x, y)].symbol().to_string())
+        .collect();
+    assert_eq!(
+        marked.join(""),
+        "helper",
+        "the word is underlined where the preview shows it"
+    );
+}
+
+#[test]
+fn the_preview_shifts_so_a_hit_far_along_a_line_is_on_it() {
+    let r = TestRepo::new();
+    let long = format!("let x = 1; // {}NEEDLE\n", "pad ".repeat(60));
+    r.write("src/wide.txt", b"let x = 0;\n");
+    r.commit_all("base");
+    r.write("src/wide.txt", long.as_bytes());
+    r.commit_all("head");
+    let mut app = open_app_with(&r, &one_group_per_class(), ".dfr-wide-store");
+    sized(&mut app);
+    search_for(&mut app, "NEEDLE");
+    assert_eq!(occurrences(&app), vec!["src/wide.txt:1 g0 focus"]);
+    let on_screen = screen(&app, 100, 40).join("\n");
+    assert!(
+        on_screen.contains("NEEDLE"),
+        "the hit is 250 columns in and has to be shown:\n{on_screen}"
+    );
+}
+
+#[test]
+fn the_search_box_keeps_the_themes_ground() {
+    use differential_engine::config::ThemeName;
+    let (_r, mut app) = make_app();
+    app.set_theme(Theme::named(ThemeName::SolarizedLight));
+    sized(&mut app);
+    search_for(&mut app, "helper");
+    let ground = Some(Theme::named(ThemeName::SolarizedLight).bg);
+    let buf = buffer_of(&app);
+    let area = search_modal_area(layout(SCREEN).body);
+    let stray: Vec<String> = (area.y..area.bottom())
+        .flat_map(|y| (area.x..area.right()).map(move |x| (x, y)))
+        .filter(|&(x, y)| buf[(x, y)].style().bg == Some(Color::Reset))
+        .map(|(x, y)| format!("({x},{y})"))
+        .take(5)
+        .collect();
+    assert!(stray.is_empty(), "cells left to the terminal: {stray:?}");
+    assert!(
+        (area.x..area.right()).any(|x| buf[(x, area.y + 1)].style().bg == ground),
+        "the box carries none of the theme's ground"
+    );
+}
+
+#[test]
+fn a_binary_file_is_searched_for_nothing() {
+    let r = TestRepo::new();
+    r.write(
+        "src/keep.txt",
+        b"searchable word here
+",
+    );
+    r.write("blob.bin", &[0u8, 159, 146, 150, b'w', b'o', b'r', b'd', 0]);
+    r.commit_all("base");
+    r.write(
+        "src/keep.txt",
+        b"searchable word there
+",
+    );
+    r.write("blob.bin", &[0u8, 1, 2, b'w', b'o', b'r', b'd', 0, 3]);
+    r.commit_all("head");
+    let mut app = open_app_with(&r, &one_group_per_class(), ".dfr-bin-store");
+    search_for(&mut app, "word");
+    assert_eq!(
+        occurrences(&app),
+        vec!["src/keep.txt:1 g0 focus"],
+        "the binary file is enumerated and counted, and holds no text to find"
+    );
+}
+
+/// `cargo test -p differential-tui --test tui -- --ignored --nocapture render_dump_search`
+#[ignore = "a dump for the author's eyes, not an assertion"]
+#[test]
+fn render_dump_search() {
+    let (_r, mut app) = make_app();
+    sized(&mut app);
+    search_for(&mut app, "helper");
+    println!("\n=== / helper — the list, and the preview under it ===");
+    for row in screen(&app, 100, 40) {
+        println!("{row}");
+    }
+    app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    println!("\n=== enter — landed on src/a.txt:1 ===");
+    for row in screen(&app, 100, 40) {
+        println!("{row}");
+    }
 }
