@@ -105,8 +105,11 @@ files under it, and a chain of such directories is joined into that row (`▸ a/
 deep path the reader is not going into costs one line rather than four. Inside a directory
 the group does enter, the files it does not touch fold to a count (`… 6 more`). What
 remains is exactly the group's own files, each lit, in the tree that holds them — which is
-the question the float is asked. The fold is the map's own: it never touches the file
-view's folds, whose state belongs to the reader's `z` and to that pane's cursor.
+the question the float is asked. The fold is the map's own, and the independence runs
+both ways: it never touches the file view's folds, whose state belongs to the reader's
+`z` and to that pane's cursor, and those folds never reach it — the map folds the
+document's whole tree, so a directory the reader put away in the file view still shows
+the group's files lit here.
 
 Reading the **detail**, a flat list of the files in view floats over the foot of the plan
 pane, the current one lit edge to edge and the title counting `file 2 of 7`. Lit, not

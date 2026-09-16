@@ -1061,12 +1061,14 @@ impl App {
     /// map is asked — what does this group span — with the rest of the tree
     /// present as context rather than as rows.
     ///
-    /// Reads `self.tree` and never writes it: the file view's left pane and
-    /// its cursor are the same rows.
+    /// Reads `self.map_tree`: the document's whole tree, which the reader's
+    /// `z` never touches. The file view's `tree` would arrive here already
+    /// folded, and a directory the reader had put away would hide the group's
+    /// own files from the one view whose job is to show them.
     /// The computation behind the `map_rows` field. Called only from
     /// `rebuild_overviews`, because it reads nothing a frame can change.
     pub(super) fn compute_map_rows(&self) -> Vec<MapRow> {
-        let tree = &self.tree;
+        let tree = &self.map_tree;
         let mine = &self.map_files;
         let n = tree.len();
 
@@ -1142,7 +1144,13 @@ impl App {
                     out.push(MapRow::Folded {
                         depth,
                         name,
-                        files: self.files_of_tree_row(i).len(),
+                        // This tree is never folded, so every file under the
+                        // directory IS a row in its span. `files_of_tree_row`
+                        // indexes the file view's tree and cannot answer here.
+                        files: tree[i + 1..end]
+                            .iter()
+                            .filter(|e| matches!(e.kind, TreeKind::File { .. }))
+                            .count(),
                     });
                     i = end;
                 }
@@ -2120,7 +2128,8 @@ pub(super) fn compose_half(
 /// A tree drawn as bare indentation reads as a list that happens to be ragged;
 /// the guides are what say which directory a file is under. Each row gets `│ `
 /// for every ancestor that still has siblings below, then `└─` if it is the
-/// last of its parent's children or `├─` if it is not.
+/// last of its parent's children or `├─` if it is not. A tree of one row wears
+/// no arm — there is nothing for it to hang off.
 pub(super) fn tree_guides(tree: &[TreeEntry]) -> Vec<String> {
     guides_for_depths(&tree.iter().map(|e| e.depth).collect::<Vec<_>>())
 }
@@ -2146,7 +2155,12 @@ pub(super) fn guides_for_depths(depths: &[usize]) -> Vec<String> {
         .map(|(i, &depth)| {
             open.truncate(depth);
             let mut prefix: String = open.iter().map(|&o| if o { "│ " } else { "  " }).collect();
-            if depth > 0 || i + 1 < depths.len() {
+            // Every row but the lone one. The guard used to be "not the last
+            // row, unless it is nested", which drops the arm from the last
+            // TOP-LEVEL row too — so a folded `spec/` at the foot of the tree
+            // lost the `└─` it wore a moment earlier, and stepped two columns
+            // left of the siblings it belongs beside.
+            if depths.len() > 1 {
                 prefix.push_str(if more_after[i] { "├─" } else { "└─" });
             }
             open.push(more_after[i]);

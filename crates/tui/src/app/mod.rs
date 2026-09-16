@@ -405,6 +405,16 @@ pub struct App {
 
     /// Visible rows of the file tree (rebuilt when a directory folds).
     pub tree: Vec<TreeEntry>,
+    /// The same tree with nothing folded — what the group map folds on the
+    /// group, and what the reader's `z` must never reach.
+    ///
+    /// A second copy rather than `tree`, because the two folds must not share
+    /// state in EITHER direction (see `MapRow`). Reading `tree` meant a
+    /// directory the reader had folded in the file view arrived at the map
+    /// already folded, so the map drew `▸ src/ 4` where the group's own lit
+    /// files belong. Built once: the document does not change while a session
+    /// is open.
+    map_tree: Vec<TreeEntry>,
     /// Which files each tree row covers, by row. Rebuilt with `tree`, because
     /// it is a pure function of it and the file list.
     tree_files: Vec<Vec<usize>>,
@@ -472,7 +482,7 @@ pub struct App {
     /// `rebuild_rows`, which every path that changes a mark ends with.
     reviewed: HashSet<usize>,
     map_files: HashSet<usize>,
-    /// The group map's rows, derived from `tree` and `map_files`.
+    /// The group map's rows, derived from `map_tree` and `map_files`.
     map_rows: Vec<MapRow>,
     listed_files: Vec<usize>,
     /// Measured geometry. An input to update, never a draw-time output.
@@ -520,6 +530,7 @@ impl App {
             factory,
             theme,
             tree: Vec::new(),
+            map_tree: Vec::new(),
             tree_files: Vec::new(),
             collapsed: HashSet::new(),
             focus: Focus::Groups,
@@ -557,6 +568,7 @@ impl App {
             .enumerate()
             .map(|(i, f)| (f.path.clone(), i))
             .collect();
+        app.build_map_tree();
         app.rebuild_tree();
         // The persisted cursor names a path; reveal it in the tree.
         if app.view_mode == ViewMode::Files

@@ -13,61 +13,81 @@ use crate::window::Side;
 use super::draw::{Paint, compose_row_lines, overflow};
 use super::*;
 
+/// The tree rows for `files`, with every directory named in `folded` folded
+/// away: the folded directory keeps its own row — there would be nothing left
+/// to unfold otherwise — and everything beneath it, subdirectories included,
+/// loses one.
+///
+/// Free rather than a method because it is called with TWO fold sets: the
+/// reader's, for the file view's pane, and the empty one the group map reads.
+fn build_tree(files: &[plan::FileView], folded: &HashSet<String>) -> Vec<TreeEntry> {
+    let mut paths: Vec<(usize, Vec<String>)> = files
+        .iter()
+        .enumerate()
+        .map(|(i, f)| (i, f.path.split('/').map(str::to_string).collect()))
+        .collect();
+    paths.sort_by(|a, b| a.1.cmp(&b.1));
+
+    let mut tree = Vec::new();
+    let mut open: Vec<String> = Vec::new(); // directory components in scope
+    // …and whether each of them is folded, carried alongside so that a
+    // directory the NEXT file does not re-enter still hides what is under it.
+    // Asking only the directories this file opens is what let a folded
+    // directory's second subdirectory draw a row while its first one, and
+    // every file, correctly disappeared.
+    let mut open_folded: Vec<bool> = Vec::new();
+    for (file_idx, parts) in paths {
+        let dirs = &parts[..parts.len() - 1];
+        // Close directories we have left.
+        while open.len() > dirs.len() || (!open.is_empty() && open[..] != dirs[..open.len()]) {
+            open.pop();
+            open_folded.pop();
+        }
+        // Open the ones we entered. One question answers for both row kinds:
+        // is anything ABOVE me folded?
+        for (d, name) in dirs.iter().enumerate() {
+            if d < open.len() {
+                continue;
+            }
+            open.push(name.clone());
+            let path = open.join("/");
+            if !open_folded.iter().any(|&f| f) {
+                tree.push(TreeEntry {
+                    depth: d,
+                    kind: TreeKind::Dir { path: path.clone() },
+                });
+            }
+            open_folded.push(folded.contains(&path));
+        }
+        if !open_folded.iter().any(|&f| f) {
+            tree.push(TreeEntry {
+                depth: dirs.len(),
+                kind: TreeKind::File { file_idx },
+            });
+        }
+    }
+    tree
+}
+
 impl App {
     /// Rebuild the visible tree rows from the flat file list, honouring
     /// collapsed directories. Directory rows appear once, in path order.
     pub fn rebuild_tree(&mut self) {
-        let mut paths: Vec<(usize, Vec<String>)> = self
-            .files()
-            .iter()
-            .enumerate()
-            .map(|(i, f)| (i, f.path.split('/').map(str::to_string).collect()))
-            .collect();
-        paths.sort_by(|a, b| a.1.cmp(&b.1));
-
-        let mut tree = Vec::new();
-        let mut open: Vec<String> = Vec::new(); // directory components in scope
-        for (file_idx, parts) in paths {
-            let dirs = &parts[..parts.len() - 1];
-            // Close directories we have left.
-            while open.len() > dirs.len() || (!open.is_empty() && open[..] != dirs[..open.len()]) {
-                open.pop();
-            }
-            // Open the ones we entered.
-            let mut hidden = false;
-            for (d, name) in dirs.iter().enumerate() {
-                if d < open.len() {
-                    continue;
-                }
-                open.push(name.clone());
-                let path = open.join("/");
-                if !hidden {
-                    tree.push(TreeEntry {
-                        depth: d,
-                        kind: TreeKind::Dir { path: path.clone() },
-                    });
-                }
-                if self.collapsed.contains(&path) {
-                    hidden = true;
-                }
-            }
-            // A file under any collapsed ancestor is not a visible row.
-            let under_collapsed =
-                (1..=dirs.len()).any(|n| self.collapsed.contains(&dirs[..n].join("/")));
-            if !under_collapsed {
-                tree.push(TreeEntry {
-                    depth: dirs.len(),
-                    kind: TreeKind::File { file_idx },
-                });
-            }
-        }
-        self.tree = tree;
+        self.tree = build_tree(self.files(), &self.collapsed);
         // Answered once per rebuild, not once per row per frame. Drawing the
         // file pane asks this for EVERY visible row, and the directory arm
         // allocated a prefix, scanned every file and sorted the result — so a
         // repaint cost O(rows x files log files) to redraw a tree that had
         // not changed.
         self.tree_files = (0..self.tree.len()).map(|r| self.files_under(r)).collect();
+    }
+
+    /// The group map's copy of the tree, with nothing folded.
+    ///
+    /// Built once, from `new`: it is a pure function of the file list, and the
+    /// document does not change while a session is open.
+    pub(super) fn build_map_tree(&mut self) {
+        self.map_tree = build_tree(self.files(), &HashSet::new());
     }
 
     /// File indices covered by a tree row: one file, or every file under a

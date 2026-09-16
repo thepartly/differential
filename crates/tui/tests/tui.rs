@@ -150,6 +150,36 @@ fn make_app_with(opts: ReviewOptions) -> (TestRepo, App) {
     (r, app)
 }
 
+/// A repo with real nesting. `make_app`'s four files all sit directly under
+/// `src/`, so folding a directory that CONTAINS one was never exercised —
+/// which is how #98 survived.
+///
+/// Two sibling subdirectories under one parent is the minimum the bug needs,
+/// and it needs them at both levels: `src/a` and `src/b` for a fold of `src/`,
+/// `src/a/inner` and `src/a/other` for a fold of `src/a`. `docs/` proves the
+/// fold stops at its own subtree.
+fn app_with_nested_dirs() -> (TestRepo, App) {
+    let r = TestRepo::new();
+    let files = [
+        "src/main.txt",
+        "src/a/x.txt",
+        "src/a/inner/i.txt",
+        "src/a/other/o.txt",
+        "src/b/z.txt",
+        "docs/readme.txt",
+    ];
+    for path in files {
+        r.write(path, b"use old_helper_name;\nother content here\n");
+    }
+    r.commit_all("base");
+    for path in files {
+        r.write(path, b"use new_helper_name;\nother content here\n");
+    }
+    r.commit_all("head");
+    let app = open_app_with(&r, &skim_first_backend(), ".dfr-nested-store");
+    (r, app)
+}
+
 /// Switch the left pane between the reading plan and the file tree. `f` acts
 /// on the pane it is pressed in, so this presses it there and puts focus back.
 fn switch_left_pane(app: &mut App) {
@@ -734,6 +764,9 @@ fn n_and_shift_n_jump_between_hunks() {
     assert_eq!(app.cursor, first, "N goes back");
 }
 
+/// The flat case: one directory, four files, nothing nested. A fold that
+/// reaches a SUBDIRECTORY needs a fixture this one cannot carry, which is why
+/// `folding_a_directory_folds_its_subdirectories_too` exists beside it.
 #[test]
 fn file_view_is_a_collapsible_tree() {
     use differential_tui::app::{TreeKind, ViewMode};
@@ -781,6 +814,119 @@ fn file_view_is_a_collapsible_tree() {
     );
     app.handle_key(key('z'));
     assert_eq!(files_visible(&app), 4, "unfold restores them");
+}
+
+/// The row a tree entry stands for, as a test can read it.
+fn tree_paths(app: &App) -> Vec<String> {
+    use differential_tui::app::TreeKind;
+    app.tree
+        .iter()
+        .map(|e| match &e.kind {
+            TreeKind::Dir { path } => format!("{path}/"),
+            TreeKind::File { file_idx } => app.files()[*file_idx].path.clone(),
+        })
+        .collect()
+}
+
+/// Put the tree cursor on the row for `path` and fold it.
+fn fold(app: &mut App, path: &str) {
+    let want = format!("{path}/");
+    app.focus = Focus::Groups;
+    app.selected_file = tree_paths(app)
+        .iter()
+        .position(|p| *p == want)
+        .unwrap_or_else(|| panic!("no row for {path}: {:#?}", tree_paths(app)));
+    app.handle_key(key('z'));
+}
+
+/// A fold reaches the WHOLE subtree. It used to reach the files and the first
+/// subdirectory branch only: the "is an ancestor folded" answer was recomputed
+/// per file from the directories that file opened, so a directory carried over
+/// from the previous file was skipped — and its siblings drew childless rows
+/// dangling under a `▸`.
+#[test]
+fn folding_a_directory_folds_its_subdirectories_too() {
+    let (_r, mut app) = app_with_nested_dirs();
+    switch_left_pane(&mut app);
+    let before = tree_paths(&app);
+    assert!(
+        before.contains(&"src/a/".to_string()) && before.contains(&"src/b/".to_string()),
+        "the fixture needs two sibling subdirectories: {before:#?}"
+    );
+
+    fold(&mut app, "src");
+    let after = tree_paths(&app);
+    let under_src: Vec<&String> = after
+        .iter()
+        .filter(|p| p.starts_with("src/") && *p != "src/")
+        .collect();
+    assert!(
+        under_src.is_empty(),
+        "a folded directory keeps only its own row: {after:#?}"
+    );
+    assert!(after.contains(&"src/".to_string()), "{after:#?}");
+    assert!(
+        after.contains(&"docs/".to_string()) && after.contains(&"docs/readme.txt".to_string()),
+        "the fold stops at its own subtree: {after:#?}"
+    );
+
+    fold(&mut app, "src");
+    assert_eq!(tree_paths(&app), before, "unfold gives back the same rows");
+}
+
+/// The arm is a row's place in the tree, so it cannot come and go with a fold.
+/// The last TOP-LEVEL row used to lose its `└─` — the guard that spares a
+/// one-row tree an arm to nothing also caught it — and folding a directory at
+/// the foot of the tree is the quickest way to make one. It then sat two
+/// columns left of the siblings it belongs beside.
+#[test]
+fn the_last_top_level_row_keeps_its_arm() {
+    let (_r, mut app) = app_with_nested_dirs();
+    switch_left_pane(&mut app);
+    // The left pane only: the diff's file header names a path too.
+    let armed = |a: &App| {
+        screen(a, 100, 24)
+            .iter()
+            .map(|r| r.chars().take(40).collect::<String>())
+            .find(|r| r.contains("src/"))
+            .unwrap_or_else(|| panic!("no src/ row"))
+    };
+    assert!(armed(&app).contains("└─▾ src/"), "{}", armed(&app));
+
+    // `src/` is now the tree's last row, and still its second root.
+    fold(&mut app, "src");
+    assert!(
+        armed(&app).contains("└─▸ src/"),
+        "a fold must not cost a row its arm: {}",
+        armed(&app)
+    );
+}
+
+/// A fold reaches DOWN, not sideways.
+#[test]
+fn folding_an_inner_directory_leaves_its_siblings() {
+    let (_r, mut app) = app_with_nested_dirs();
+    switch_left_pane(&mut app);
+
+    fold(&mut app, "src/a");
+    let after = tree_paths(&app);
+    assert!(after.contains(&"src/a/".to_string()), "{after:#?}");
+    let under_a: Vec<&String> = after
+        .iter()
+        .filter(|p| p.starts_with("src/a/") && *p != "src/a/")
+        .collect();
+    assert!(
+        under_a.is_empty(),
+        "its files AND its own subdirectories go: {after:#?}"
+    );
+    assert!(
+        after.contains(&"src/b/".to_string()) && after.contains(&"src/b/z.txt".to_string()),
+        "its sibling stays: {after:#?}"
+    );
+    assert!(
+        after.contains(&"src/main.txt".to_string()),
+        "so does the file beside it: {after:#?}"
+    );
 }
 
 /// A repo whose two groups have a real symbol def -> use edge between them, so
@@ -2529,11 +2675,10 @@ fn the_counts_keep_one_pair_of_colours() {
 
 // -------------------------------------------------- the overview surfaces
 
-/// The map folds on the GROUP: a directory the group never enters is one row,
-/// and the files it does not touch inside one it does enter are a count. A
-/// document of any size then fits the float instead of running past it.
-#[test]
-fn the_group_map_folds_what_the_group_does_not_touch() {
+/// A deep document whose selected group touches exactly one file, `src/target.rs`
+/// — the one group whose map has a folded chain above it AND folded siblings
+/// beside it. Returns the app parked on that group, and its drawn screen.
+fn app_on_the_group_that_owns_target(store: &str) -> (TestRepo, App, Vec<String>) {
     let r = TestRepo::new();
     // Every file changes, so every one is a row in the document's tree. Only
     // ONE of them lands in the group the map is drawn for.
@@ -2568,11 +2713,9 @@ fn the_group_map_folds_what_the_group_does_not_touch() {
 
     // One class per group, so the selected group touches exactly one file.
     let backend = one_group_per_class();
-    let mut app = open_app_with(&r, &backend, ".dfr-map-fold-store");
+    let mut app = open_app_with(&r, &backend, store);
     app.focus = Focus::Groups;
 
-    // Walk to the group that owns `src/target.rs`: it is the one whose map has
-    // a folded chain above it AND folded siblings beside it.
     let mut rows = drawn_rows(&mut app);
     for _ in 0..files.len() {
         if rows.iter().any(|l| l.contains("● target.rs")) {
@@ -2581,6 +2724,15 @@ fn the_group_map_folds_what_the_group_does_not_touch() {
         app.handle_key(key('j'));
         rows = drawn_rows(&mut app);
     }
+    (r, app, rows)
+}
+
+/// The map folds on the GROUP: a directory the group never enters is one row,
+/// and the files it does not touch inside one it does enter are a count. A
+/// document of any size then fits the float instead of running past it.
+#[test]
+fn the_group_map_folds_what_the_group_does_not_touch() {
+    let (_r, _app, rows) = app_on_the_group_that_owns_target(".dfr-map-fold-store");
 
     // The chain the group never enters is ONE row, with its path joined.
     assert!(
@@ -2603,6 +2755,44 @@ fn the_group_map_folds_what_the_group_does_not_touch() {
     assert!(
         !rows.iter().any(|l| l.contains("three.rs")),
         "a folded file must not be named: {rows:#?}"
+    );
+}
+
+/// The map folds on the group and on NOTHING ELSE. It used to read the file
+/// view's tree, so a directory the reader had put away with `z` arrived here
+/// already folded — and the map, whose whole job is to show what the group
+/// spans, hid the group's own file behind a `▸ src/ 6`.
+#[test]
+fn the_group_map_is_not_folded_by_the_file_view() {
+    let (_r, mut app, before) = app_on_the_group_that_owns_target(".dfr-map-indep-store");
+    let map_before: Vec<&String> = before.iter().filter(|l| l.contains("▸ ")).collect();
+    assert!(
+        !map_before.is_empty(),
+        "the map needs a folded row: {before:#?}"
+    );
+
+    // Fold `src/` in the file view — the directory the group's file lives in.
+    switch_left_pane(&mut app);
+    fold(&mut app, "src");
+    assert!(
+        !tree_paths(&app).iter().any(|p| p == "src/target.rs"),
+        "the file view really did fold it"
+    );
+
+    // Back to the plan: the map is unmoved.
+    switch_left_pane(&mut app);
+    let after = drawn_rows(&mut app);
+    assert!(
+        after.iter().any(|l| l.contains("● target.rs")),
+        "the group's own file stays lit: {after:#?}"
+    );
+    assert!(
+        after.iter().any(|l| l.contains("▸ deep/a/b/c/")),
+        "and the map's own folds are unchanged: {after:#?}"
+    );
+    assert!(
+        !after.iter().any(|l| l.contains("▸ src/")),
+        "the reader's fold must not reach the map: {after:#?}"
     );
 }
 
