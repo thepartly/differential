@@ -342,11 +342,21 @@ next move is often to go and read that group first, and the id is what the plan 
 and their `after:` lines are keyed by.
 
 **The line says so before the key is pressed.** Standing on a row **underlines** every name
-on it the change can resolve, and the one the float is answering takes the accent as well.
-Without that a reader would have to press `z` on every line to learn which ones have
-anything to say, and the key would be one nobody found. The mark is an underline — a shape,
-not a colour — so a name keeps its syntax ink and the row gains nothing competing with its
-change tint.
+on it the change can resolve, and the one the float is answering takes the **highlight** as
+well. Without that a reader would have to press `z` on every line to learn which ones have
+anything to say, and the key would be one nobody found. The quiet mark is an underline — a
+shape, not a colour — so a name keeps its syntax ink and the row gains nothing competing with
+its change tint.
+
+**The lit one is the palette's highlight, not its accent.** The accent is a colour the syntax
+theme already spends on types and keywords, so the one mark here that carries its meaning in
+COLOUR was saying it in a colour that meant something else, and on a busy line the lit name
+was inked like the code it had to be told from. The highlight is the palette's attention
+accent and is spent on nothing else in this pane — the same yellow a search hit fills with,
+because the two say the same thing about the thing under them. It is an ink here and a fill
+there for the reason the next section gives. On a light palette it is deepened until it reads
+on the ground: the fill is chosen so dark text reads ON it, which leaves it too pale to BE
+text.
 
 **The float says what the change did to what it shows.** Its lines wear the same tint the
 diff behind them does: a line the change wrote takes the addition colour, in the code and in
@@ -379,12 +389,14 @@ reader's eyes on every keystroke.
 
 **A hit is a filled block, not an underline.** It wears the palette's own `highlight` accent
 — its yellow, at fill strength — with whichever of the theme's extremes reads on it reversed
-out. The symbol float's underline is the other kind of mark and says the other thing: it
-marks a name on a row the reader is ALREADY reading and has to stay out of the way, where
-this marks the thing they went looking for, on a line they have not read yet, and being out
-of the way is the one thing it must not be. A fill is possible here and not in the diff pane
-because nothing in this box goes through the colour-value dispatch the pane's tints are told
-apart by. The accent is each palette's own, and it is a seed rather than a shade of the skim
+out. It shares that accent with the lit symbol, and deliberately: both mean *this is the
+thing you asked about*, so one colour says it in both places. What differs is the STRENGTH,
+and the difference is what sits behind. A symbol mark is on a row the reader is ALREADY
+reading and has to stay out of the way, so it is an ink; a hit is on a line they have not read
+yet, and being out of the way is the one thing it must not be, so it is a fill. A fill is
+possible here and not in the diff pane because nothing in this box goes through the
+colour-value dispatch the pane's tints are told apart by — and a new background there would
+pass that dispatch unmatched, staying flat while the rest of the cursor's row stepped. The accent is each palette's own, and it is a seed rather than a shade of the skim
 tier's yellow: a skim ink has to read ON the ground, which on a light theme makes it a dark
 brown, where this is a fill the ground's ink has to read on.
 

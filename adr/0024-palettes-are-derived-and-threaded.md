@@ -19,9 +19,16 @@ terminal's showed through, and pale ink over black is what a light theme would h
 ### One derived system, no special case
 
 A theme declares a **seed**: which syntect theme paints the code, and six accents that a
-syntect theme has no opinion about — an addition, a deletion, the accent, the skim tier, a
-finding, a reviewed mark. The other thirty-odd colours are mixed from those against the
-ground the syntect theme itself declares.
+syntect theme has no opinion about — an addition, a deletion, the accent, the skim tier, the
+highlight, a finding. The other thirty-odd colours are mixed from those against the ground
+the syntect theme itself declares.
+
+The list has moved twice since, both ways, and each move says what earns a seat. A reviewed
+mark **left**: all eleven seeds set it to the same literal as `add`, which is eleven files
+agreeing by hand to keep two fields in step, so it is derived from `add` now. The highlight
+**joined** (ADR 0034): it is spent three ways — a fill, the ink that reads on that fill, and
+the ink that reads on the ground — and no one of the three can be derived from another,
+because what reads on a fill and what reads on the ground are opposite on a light palette.
 
 That pairing is the point. The chrome is derived from the same theme the code is painted
 in, so the two are one palette rather than two that drift. Adding a theme is a
@@ -86,9 +93,11 @@ be unreadable in ways no test could catch.
   off-white. Each deviation is recorded in that theme's own file with the number that
   forced it.
 
-- Two colour-keyed dispatches (`Theme::gutter_cursor`, `Theme::lit_band`) compare colour
-  *values*, so two fields deriving to the same colour would silently collapse into one. A
-  distinctness test guards the pairs.
+- Three colour-keyed dispatches (`Theme::gutter_cursor`, `Theme::lit_band`, `Theme::step_band`)
+  compare colour *values*, so two fields deriving to the same colour would silently collapse
+  into one. A distinctness test guards the pairs, and `step_band`'s four are guarded pairwise
+  because its chain is not a two-way choice. It is also why a new BACKGROUND on a diff row is
+  expensive and a new ink is free: an ink is invisible to all three.
 
 - Eleven themes ship, and the marginal cost of the twelfth is a seed file — because the
   tests run over all of them, a palette that does not hold up fails the build rather than
