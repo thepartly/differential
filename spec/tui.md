@@ -159,9 +159,25 @@ anyway.
 **Diff pane.** Unified layout by default, `s` toggles a side-by-side split (the layout
 choice persists per review); syntax highlighting and word-level change emphasis.
 
+**The split view's middle moves too, by drag alone.** A press on the `│` between the two
+halves grabs it, and the drags that follow put it under the pointer. It is one column and
+one column only: the middle is a line the reader can see, and a grab that reached either
+side of it would take presses the rows beneath have a use for. It is kept as a distance
+from the centre rather than a width or a ratio, so widening the diff pane gives both halves
+the new room and leaves the skew alone — the middle was moved because one side's lines were
+longer, and that is a fact in columns. Neither half goes below eight columns, which is the
+line-number cell and a little after it; a pane too narrow for two of those splits down the
+middle and ignores the drag. It has no key, because a reader who wants the halves even
+again drags it back, and it is **transient**, as the pane divider and the shift are.
+
+The two halves are no longer equal, and were never required to be. What side-by-side needs
+is that the halves shift **together** — the paragraph below — not that they are the same
+width.
+
 **The pane also moves sideways.** `h` and `l` shift the file content eight columns at a
 time and `0` returns it to the left edge. A line wider than the pane is cut with an
-ellipsis, and in split the column is half a pane, so it happens twice as often there —
+ellipsis, and in split a line has only its own half to fit in, so it happens more often
+there —
 `w` was the only way to reach the end of one, and wrapping code is often unwanted. Only
 **file content** moves: a hunk header, a context boundary, a fold, a finding and a group
 header are chrome and prose, already fitted to the pane, and a `╱` band slid sideways says
@@ -660,13 +676,15 @@ being drawn at its pane's full width. The divider wins there: it runs the whole 
 the screen, and one that went dead over a transient float would read as a divider that
 sometimes does not work.
 
-**A press on the divider grabs it, and the drags that follow move it.** The divider is two
-columns — the left pane's right border and the diff pane's left — and the one grabbed is the
-one that stays under the pointer. A press anywhere else lets go, and so does any key. A drag
-that did not start on the divider is not read at all, so a button held down while the
-pointer wanders leaves both the panes and the footer's message alone. There is no release to
-read: a drag arrives only while the button is down, and the next gesture announces itself
-with its own press. In the file-list and findings modals the wheel steps the list, a click
+**A press on a divider grabs it, and the drags that follow move it.** There are two: the one
+between the panes, and the split view's middle. The pane divider is two columns — the left
+pane's right border and the diff pane's left — and the one grabbed is the one that stays
+under the pointer; the middle is one column. Each is grabbable only where its line is
+actually drawn, so a press below the pane divider, on the status row, is a press on nothing.
+A press anywhere else lets go, and so does any key. A drag that did not start on a divider is
+not read at all, so a button held down while the pointer wanders leaves the panes, the middle
+and the footer's message alone. There is no release to read: a drag arrives only while the
+button is down, and the next gesture announces itself with its own press. In the file-list and findings modals the wheel steps the list, a click
 selects an entry, a second click is `enter`, and a click outside the box closes it. Help and
 a notice close on a click. **A footer names its keys, and each is a button**: a click
 on `enter save`, `esc close`, `dd delete`, the `y` of a question, or any key on the

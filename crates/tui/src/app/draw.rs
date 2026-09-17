@@ -1637,6 +1637,7 @@ impl App {
                     // keyed on the row as well, so the two cannot disagree.
                     symbols: if on { &symbols } else { &[] },
                     lit: self.peek.as_ref().filter(|p| p.row == i).map(|p| p.nth),
+                    split: self.split_offset(),
                 },
             )
             .into_iter()
@@ -1677,7 +1678,7 @@ impl App {
                 &self.theme,
                 &self.rows[header].content,
                 inner_w,
-                Paint::plain(false),
+                Paint::plain(false, self.split_offset()),
             )
             .swap_remove(0)
             .style(Style::default().bg(self.theme.sticky_bg));
@@ -2001,6 +2002,14 @@ pub(super) struct Paint<'a> {
     pub symbols: &'a [(usize, usize)],
     /// Which of `symbols` the open float is showing.
     pub lit: Option<usize>,
+    /// Where the split view's middle sits, as a signed distance from the
+    /// centre of the pane. Zero is the middle, and the only value a unified
+    /// row cares about, because a unified row has no middle.
+    ///
+    /// Here for the same reason `hscroll` is: it is a thing the reader has
+    /// dragged, it changes what a row is drawn at without changing the row,
+    /// and a row rebuilt to carry it would rebuild on every drag.
+    pub split: i16,
 }
 
 impl Paint<'_> {
@@ -2008,7 +2017,7 @@ impl Paint<'_> {
     ///
     /// The pinned file header and the height measurement both want exactly
     /// this, and both used to spell out six arguments to say it.
-    pub(super) fn plain(wrap: bool) -> Self {
+    pub(super) fn plain(wrap: bool, split: i16) -> Self {
         Paint {
             cursor: false,
             selected: false,
@@ -2018,6 +2027,7 @@ impl Paint<'_> {
             hscroll: 0,
             symbols: &[],
             lit: None,
+            split,
         }
     }
 }
@@ -2100,7 +2110,7 @@ pub(super) fn compose_row_lines(
                 .collect()
         }
         RowContent::Split { old, new } => {
-            let (lw, rw) = half_widths(width);
+            let (lw, rw) = half_widths(width, paint.split);
             // Both gutters light: a split row IS one row, and a cursor that
             // showed on one side only read as a cursor on that side's line.
             let mut left = compose_half_lines(theme, old, lw, paint);
@@ -2207,22 +2217,46 @@ fn mark_symbols(
     }
 }
 
+/// The narrowest either half of a split row may be dragged to.
+///
+/// Room for the line-number cell and a few columns of code after it. Below
+/// that a half says which line it is and nothing about what is on it.
+pub const MIN_HALF: usize = 8;
+
 /// The two column widths a split row lays out in, either side of the `│`.
 ///
 /// One copy, because the overflow a horizontal shift is bounded by has to be
 /// measured against the width the content is actually drawn at. Two copies of
 /// this arithmetic would let the pane shift past its own longest line, or stop
-/// short of it.
-pub(super) fn half_widths(width: usize) -> (usize, usize) {
-    let lw = width.saturating_sub(1) / 2;
-    (lw, width.saturating_sub(1).saturating_sub(lw))
+/// short of it. It is also what the hit test asks for the middle's column, so
+/// the line a drag grabs is the line the draw paints.
+///
+/// `split` is the reader's drag, as a signed distance from the middle rather
+/// than a width or a ratio. The middle moved because one side's lines were
+/// longer, which is a fact in columns: an absolute skew keeps that when the
+/// pane grows, where a ratio would spend the new room re-centring.
+///
+/// A pane too narrow to hold two halves at `MIN_HALF` ignores the drag and
+/// splits down the middle — the same answer it gave before there was a drag.
+pub fn half_widths(width: usize, split: i16) -> (usize, usize) {
+    let inner = width.saturating_sub(1);
+    let middle = inner / 2;
+    let max = inner.saturating_sub(MIN_HALF);
+    let lw = if max < MIN_HALF {
+        middle
+    } else {
+        middle
+            .saturating_add_signed(split as isize)
+            .clamp(MIN_HALF, max)
+    };
+    (lw, inner - lw)
 }
 
 /// How many columns of a row's content fall off the right edge at `width`.
 ///
 /// Zero for a row that fits. What bounds the horizontal shift: past the widest
 /// row's overflow there is nothing left to reveal.
-pub(super) fn overflow(content: &RowContent, width: usize) -> usize {
+pub(super) fn overflow(content: &RowContent, width: usize, split: i16) -> usize {
     let over = |h: &Half, w: usize| {
         let rest = w.saturating_sub(UnicodeWidthStr::width(h.gutter.text.as_str()));
         h.pairs
@@ -2236,7 +2270,7 @@ pub(super) fn overflow(content: &RowContent, width: usize) -> usize {
         RowContent::Full(_) => 0,
         RowContent::Unified(half) => over(half, width),
         RowContent::Split { old, new } => {
-            let (lw, rw) = half_widths(width);
+            let (lw, rw) = half_widths(width, split);
             over(old, lw).max(over(new, rw))
         }
     }

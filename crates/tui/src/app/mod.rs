@@ -159,6 +159,21 @@ pub fn layout(area: Rect, plan_cols: u16) -> Panes {
     }
 }
 
+/// What a drag has hold of.
+///
+/// One field and not two flags: the pointer has hold of one thing at a time,
+/// and two options would spell a state that cannot happen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Grab {
+    /// The divider between the panes, carrying which of its two columns the
+    /// press landed on as a distance from the left pane's width. A drag that
+    /// assumed the first column would run one ahead of a pointer that grabbed
+    /// the second, for the whole gesture.
+    Panes(i16),
+    /// The split view's middle. One column, so there is no offset to carry.
+    Split,
+}
+
 /// The two columns the divider paints on: the left pane's right border and the
 /// detail pane's left.
 ///
@@ -550,15 +565,15 @@ pub struct App {
     plan_cols: u16,
     /// The divider, with the file tree in the left pane.
     tree_cols: u16,
-    /// Where on the divider a press landed, as an offset from the left pane's
-    /// width, while the button is still down. `None` once it is let go.
+    /// Where the split view's middle sits, as a signed distance from the
+    /// centre of the diff pane.
     ///
-    /// The offset and not a bare "yes": the divider is two columns wide — the
-    /// left pane's right border and the diff pane's left — and a drag that
-    /// assumed the first would run one column ahead of a pointer that grabbed
-    /// the second, for the whole gesture. Carrying the offset makes both
-    /// columns track the pointer exactly.
-    divider_grab: Option<i16>,
+    /// Zero opens every review, and a unified diff ignores it. Transient, as
+    /// the pane divider is: where the reader put the middle is a reading
+    /// position for this sitting.
+    split_offset: i16,
+    /// What the pointer took hold of, while the button is still down.
+    divider_grab: Option<Grab>,
     pending_d: bool,
     /// The forge this review is of, when it is of a request (ADR 0029).
     forge: Option<forge::ForgeLink>,
@@ -639,6 +654,7 @@ impl App {
             viewport: Viewport::default(),
             plan_cols: DEFAULT_PLAN_COLS,
             tree_cols: DEFAULT_PLAN_COLS,
+            split_offset: 0,
             divider_grab: None,
             pending_d: false,
             forge: None,
@@ -715,9 +731,9 @@ mod text;
 // Exposed so a test can aim a click at the box the draw will place, rather
 // than at a number that was true of the box once.
 pub use draw::{
-    FRAME_ROWS, centered_x, composer_area, composer_footer, delete_comment_area,
+    FRAME_ROWS, MIN_HALF, centered_x, composer_area, composer_footer, delete_comment_area,
     delete_comment_footer, file_list_modal_area, findings_modal_area, findings_question,
-    footer_row, pane_inner, publish_area, publish_footer, search_modal_area,
+    footer_row, half_widths, pane_inner, publish_area, publish_footer, search_modal_area,
 };
 pub use help::{Act, Area, HelpSection};
 pub use search::{Occurrence, Reading, Search};

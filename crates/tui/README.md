@@ -177,6 +177,18 @@ for the list it is switching to.
 Nothing about it is saved. Where the divider sits is a reading position for this sitting, as
 the sideways shift is, so every review opens at 40.
 
+### The split view's middle
+
+In the side-by-side layout, the `│` between `old` and `new` is draggable too. Press it and
+drag; it follows the pointer. It has no key.
+
+It is kept as a distance from the centre, so widening the diff pane gives both halves the
+new room and leaves your skew alone. Neither half goes below 8 columns — the line-number
+cell and a little after it. A pane too narrow for two of those splits down the middle and
+ignores the drag.
+
+It is not saved either, and `s` to unified and back keeps it.
+
 ### Normal mode — reviewing
 
 `space` is the only key here that depends on the pane. `v`, `c` and `dd` always act on the

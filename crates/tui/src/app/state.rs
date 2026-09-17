@@ -10,7 +10,7 @@ use ratatui::text::Line;
 use crate::rows::{Row, RowKind, RowsContext};
 use crate::window::Side;
 
-use super::draw::{Paint, compose_row_lines, overflow};
+use super::draw::{Paint, compose_row_lines, half_widths, overflow, pane_inner};
 use super::*;
 
 /// The tree rows for `files`, with every directory named in `folded` folded
@@ -377,6 +377,43 @@ impl App {
     /// the hit test asks, so a click lands in the pane the reader can see.
     pub fn panes(&self) -> Panes {
         layout(self.viewport.area, self.plan_cols())
+    }
+
+    /// Where the split view's middle sits, as a distance from the centre.
+    pub fn split_offset(&self) -> i16 {
+        self.split_offset
+    }
+
+    /// The screen column the split view's middle is painted on, or `None` when
+    /// there is no middle to grab: a unified diff has one column.
+    ///
+    /// Asks `half_widths`, which is what draws the middle, so the line under
+    /// the pointer is the line on the screen.
+    pub fn split_column(&self) -> Option<u16> {
+        if !self.split_diff() {
+            return None;
+        }
+        let inner = pane_inner(self.panes().detail);
+        let (lw, _) = half_widths(inner.width as usize, self.split_offset);
+        Some(inner.x + lw as u16)
+    }
+
+    /// Put the split view's middle under screen column `x`.
+    ///
+    /// Stored as a distance from the centre, so the two halves keep their skew
+    /// when the pane divider or the terminal moves. `half_widths` clamps, so a
+    /// pointer dragged past either half's floor stops there.
+    pub(super) fn drag_split_to(&mut self, x: u16) {
+        let inner = pane_inner(self.panes().detail);
+        let middle = inner.width.saturating_sub(1) / 2;
+        self.split_offset = i32::from(x)
+            .saturating_sub(i32::from(inner.x))
+            .saturating_sub(i32::from(middle))
+            .clamp(i16::MIN.into(), i16::MAX.into()) as i16;
+        // The middle changes how wide each half draws at, so it changes what
+        // hangs off their right edges and how tall a wrapped row is. Both are
+        // what `remeasure` re-derives.
+        self.remeasure();
     }
 
     /// Put the divider at `cols`, and say so when it will not go.
@@ -945,7 +982,7 @@ impl App {
         self.rows
             .iter()
             .filter(|r| matches!(r.kind, RowKind::Diff(_)))
-            .map(|r| overflow(&r.content, self.viewport.detail_cols))
+            .map(|r| overflow(&r.content, self.viewport.detail_cols, self.split_offset))
             .max()
             .unwrap_or(0)
     }
@@ -1003,7 +1040,7 @@ impl App {
                 &self.theme,
                 &r.content,
                 self.viewport.detail_cols,
-                Paint::plain(self.wraps(r)),
+                Paint::plain(self.wraps(r), self.split_offset),
             )
             .len()
         })

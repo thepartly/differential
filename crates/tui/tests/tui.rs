@@ -7214,9 +7214,10 @@ mod forge_threads {
 
 use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
 use differential_tui::app::{
-    DEFAULT_PLAN_COLS, Hint, MIN_PANE, centered_x, clamp_cols, composer_area, composer_footer,
-    divider, file_list_modal_area, findings_modal_area, findings_question, footer_row, hints_width,
-    layout, pane_inner, publish_area, publish_footer, search_modal_area,
+    DEFAULT_PLAN_COLS, Hint, MIN_HALF, MIN_PANE, centered_x, clamp_cols, composer_area,
+    composer_footer, divider, file_list_modal_area, findings_modal_area, findings_question,
+    footer_row, half_widths, hints_width, layout, pane_inner, publish_area, publish_footer,
+    search_modal_area,
 };
 use ratatui::layout::Rect;
 
@@ -9329,6 +9330,30 @@ fn the_help_modal_names_the_divider_keys() {
     );
 }
 
+/// `cargo test -p differential-tui --test tui -- --ignored --nocapture render_dump_split`
+#[ignore = "a dump for the author's eyes, not an assertion"]
+#[test]
+fn render_dump_split() {
+    let (_r, mut app) = make_app();
+    sized(&mut app);
+    let row = pane_inner(app.panes().detail).y + 4;
+    for drop_at in [0u16, 45, 85] {
+        if drop_at > 0 {
+            let grab = app.split_column().expect("split view");
+            app.handle_mouse(click(grab, row));
+            app.handle_mouse(drag(drop_at, row));
+        }
+        println!(
+            "\n== middle at column {:?} (offset {}) ==",
+            app.split_column(),
+            app.split_offset()
+        );
+        for line in screen(&app, SCREEN.width, 14) {
+            println!("{line}");
+        }
+    }
+}
+
 /// `cargo test -p differential-tui --test tui -- --ignored --nocapture render_dump_divider`
 #[ignore = "a dump for the author's eyes, not an assertion"]
 #[test]
@@ -9352,4 +9377,213 @@ fn render_dump_divider() {
             println!("{line}");
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// The split view's middle.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn the_middle_sits_at_the_centre_until_it_is_dragged() {
+    // Offset zero must give exactly the arithmetic the split view had before
+    // there was a drag, or every review opens looking different.
+    for width in [20usize, 41, 58, 99] {
+        let (lw, rw) = half_widths(width, 0);
+        assert_eq!(lw, (width - 1) / 2);
+        assert_eq!(lw + rw, width - 1, "the `│` takes the odd column");
+    }
+}
+
+#[test]
+fn the_middle_moves_by_its_offset_and_stops_at_each_floor() {
+    let (lw, _) = half_widths(58, 10);
+    assert_eq!(lw, 28 + 10);
+    let (lw, _) = half_widths(58, -10);
+    assert_eq!(lw, 28 - 10);
+
+    // Neither half may be dragged below its floor.
+    let (lw, rw) = half_widths(58, -100);
+    assert_eq!(lw, MIN_HALF);
+    assert_eq!(lw + rw, 57);
+    let (lw, rw) = half_widths(58, 100);
+    assert_eq!(rw, MIN_HALF);
+    assert_eq!(lw + rw, 57);
+}
+
+#[test]
+fn a_pane_too_narrow_for_two_halves_ignores_the_drag() {
+    // The same answer it gave before there was a drag, rather than a clamp
+    // that would panic with its low bound past its high one.
+    let narrow = 2 * MIN_HALF;
+    for offset in [-50, 0, 50] {
+        let (lw, rw) = half_widths(narrow, offset);
+        assert_eq!(lw, (narrow - 1) / 2);
+        assert_eq!(lw + rw, narrow - 1);
+    }
+}
+
+#[test]
+fn a_unified_diff_has_no_middle_to_grab() {
+    let (_r, mut app) = make_app();
+    sized(&mut app);
+    assert!(app.split_column().is_some());
+    app.handle_key(key('s'));
+    assert!(!app.wrap_on_for_test());
+    assert_eq!(app.split_column(), None, "unified is one column");
+    app.handle_key(key('s'));
+    assert!(app.split_column().is_some());
+}
+
+#[test]
+fn the_middle_is_where_the_draw_paints_it() {
+    let (_r, mut app) = make_app();
+    sized(&mut app);
+    let row = pane_inner(app.panes().detail).y + 4;
+    let grab = app.split_column().expect("split view");
+    app.handle_mouse(click(grab, row));
+    app.handle_mouse(drag(85, row));
+
+    let at = app.split_column().expect("split view");
+    let rows = screen(&app, SCREEN.width, SCREEN.height);
+    // The `old`/`new` header is the row that names both halves, so it is the
+    // one that must carry the middle between them.
+    let header = rows
+        .iter()
+        .find(|r| r.contains(" old ") && r.contains(" new "))
+        .expect("the split header row");
+    let chars: Vec<char> = header.chars().collect();
+    assert_eq!(chars[at as usize], '│', "header was {header:?}");
+}
+
+#[test]
+fn a_press_on_the_middle_grabs_it_and_a_drag_moves_it() {
+    let (_r, mut app) = make_app();
+    sized(&mut app);
+    let row = pane_inner(app.panes().detail).y + 4;
+
+    for drop_at in [85u16, 60, 70] {
+        let grab = app.split_column().expect("split view");
+        app.handle_mouse(click(grab, row));
+        app.handle_mouse(drag(drop_at, row));
+        assert_eq!(
+            app.split_column(),
+            Some(drop_at),
+            "the middle follows the pointer"
+        );
+    }
+}
+
+#[test]
+fn a_press_that_is_not_on_the_middle_does_not_grab_it() {
+    let (_r, mut app) = make_app();
+    sized(&mut app);
+    let row = pane_inner(app.panes().detail).y + 4;
+    let before = app.split_column();
+
+    // One column either side of it, and a press on a pane's own content.
+    for miss in [before.unwrap() - 1, before.unwrap() + 1] {
+        app.handle_mouse(click(miss, row));
+        app.handle_mouse(drag(85, row));
+        assert_eq!(app.split_column(), before);
+    }
+}
+
+#[test]
+fn the_middle_is_not_grabbable_off_the_end_of_its_line() {
+    // The status row is under the diff pane's frame, and the middle is not
+    // drawn there. A press on nothing grabs nothing, whatever column it is in.
+    let (_r, mut app) = make_app();
+    sized(&mut app);
+    let before = app.split_column();
+    let at = before.unwrap();
+    app.handle_mouse(click(at, app.panes().status.y));
+    app.handle_mouse(drag(85, app.panes().status.y));
+    assert_eq!(app.split_column(), before);
+}
+
+#[test]
+fn the_middle_keeps_its_skew_when_the_pane_divider_moves() {
+    // Stored as a distance from the centre, so widening the diff pane gives
+    // both halves the new room and leaves the skew the reader chose alone.
+    let (_r, mut app) = make_app();
+    sized(&mut app);
+    let row = pane_inner(app.panes().detail).y + 4;
+    let grab = app.split_column().expect("split view");
+    app.handle_mouse(click(grab, row));
+    app.handle_mouse(drag(80, row));
+    let offset = app.split_offset();
+    assert!(offset > 0);
+
+    app.handle_key(alt('='));
+    assert_eq!(app.split_offset(), offset, "the skew is kept");
+    let inner = pane_inner(app.panes().detail);
+    let (lw, _) = half_widths(inner.width as usize, offset);
+    assert_eq!(app.split_column(), Some(inner.x + lw as u16));
+}
+
+#[test]
+fn s_to_unified_and_back_keeps_the_middle() {
+    let (_r, mut app) = make_app();
+    sized(&mut app);
+    let row = pane_inner(app.panes().detail).y + 4;
+    let grab = app.split_column().expect("split view");
+    app.handle_mouse(click(grab, row));
+    app.handle_mouse(drag(80, row));
+    let at = app.split_column();
+
+    app.handle_key(key('s'));
+    app.handle_key(key('s'));
+    assert_eq!(app.split_column(), at);
+}
+
+#[test]
+fn the_middle_opens_at_the_centre_every_sitting() {
+    // Nothing about it reaches the sidecar, as nothing about the pane divider
+    // does: where the middle sits is a reading position for this sitting.
+    let (_r, mut app) = make_app();
+    sized(&mut app);
+    assert_eq!(app.split_offset(), 0);
+}
+
+#[test]
+fn moving_the_middle_re_wraps_the_rows_it_narrows() {
+    // A row's height is a function of the columns its halves draw at, and the
+    // scroll budget counts screen lines. A middle that moved without
+    // re-measuring would leave every one of those heights stale.
+    let (_r, mut app) = app_with_a_long_line();
+    sized(&mut app);
+    // The fixture opens unified; the middle only exists in the split view.
+    app.handle_key(key('s'));
+    app.handle_key(key('w'));
+    // A DIFF row, because a banner is built to the pane and has no halves.
+    let row = (0..app.rows.len())
+        .filter(|&i| matches!(app.rows[i].kind, RowKind::Diff(_)))
+        .max_by_key(|&i| app.row_height(i))
+        .expect("a diff row");
+    let tall = app.row_height(row);
+    assert!(tall > 1, "the fixture must have a diff row that wraps");
+
+    let y = pane_inner(app.panes().detail).y + 4;
+    let move_middle_to = |app: &mut App, x: u16| {
+        let grab = app.split_column().expect("split view");
+        app.handle_mouse(click(grab, y));
+        app.handle_mouse(drag(x, y));
+    };
+
+    // The long line is on the NEW side. Dragging the middle right narrows that
+    // half, so the row takes more screen lines.
+    move_middle_to(&mut app, 85);
+    let narrowed = app.row_height(row);
+    assert!(
+        narrowed > tall,
+        "a narrower half wraps into more lines: {tall} -> {narrowed}"
+    );
+
+    // And left again gives the room back.
+    move_middle_to(&mut app, 50);
+    let widened = app.row_height(row);
+    assert!(
+        widened < tall,
+        "a wider half wraps into fewer: {tall} -> {widened}"
+    );
 }

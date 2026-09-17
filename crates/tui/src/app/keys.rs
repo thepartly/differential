@@ -298,9 +298,22 @@ impl App {
                 // drawn at their pane's full width, so each covers one of the
                 // divider's two columns and would swallow the grab.
                 let (left, right) = divider(&panes);
+                // Each grab is allowed only where its line is actually drawn:
+                // the pane divider runs the height of the body and stops above
+                // the status row, and the split's middle runs inside the diff
+                // pane's frame. A press off the end of a line is a press on
+                // nothing, whatever column it is in.
                 if click {
-                    self.divider_grab = (at.x == left || at.x == right)
-                        .then(|| at.x as i16 - self.plan_cols() as i16);
+                    self.divider_grab =
+                        if (at.x == left || at.x == right) && panes.body.contains(at) {
+                            Some(Grab::Panes(at.x as i16 - self.plan_cols() as i16))
+                        } else if self.split_column() == Some(at.x)
+                            && pane_inner(panes.detail).contains(at)
+                        {
+                            Some(Grab::Split)
+                        } else {
+                            None
+                        };
                     if self.divider_grab.is_some() {
                         return Vec::new();
                     }
@@ -308,15 +321,21 @@ impl App {
                 if let Some(grab) = self.divider_grab
                     && drag
                 {
-                    // The column the reader took hold of stays under the
-                    // pointer, which is what `grab` records: the width is the
-                    // pointer's column from the body's left edge, less the
-                    // offset the grab was at. Read from the pointer each time
-                    // rather than accumulated, so a drag that runs into the
-                    // clamp and comes back does not drift.
-                    let cols =
-                        (at.x as i32 - panes.body.x as i32 - grab as i32).clamp(0, u16::MAX as i32);
-                    self.set_plan_cols(cols as u16);
+                    match grab {
+                        // The column the reader took hold of stays under the
+                        // pointer, which is what the offset records: the width
+                        // is the pointer's column from the body's left edge,
+                        // less the offset the grab was at. Read from the
+                        // pointer each time rather than accumulated, so a drag
+                        // that runs into the clamp and comes back does not
+                        // drift.
+                        Grab::Panes(off) => {
+                            let cols = (at.x as i32 - panes.body.x as i32 - off as i32)
+                                .clamp(0, u16::MAX as i32);
+                            self.set_plan_cols(cols as u16);
+                        }
+                        Grab::Split => self.drag_split_to(at.x),
+                    }
                     return Vec::new();
                 }
                 // The symbol float is a map too, and unlike the other two it
