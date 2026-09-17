@@ -10,12 +10,12 @@ crates.
 ## The renderer binary
 
 ```sh
-dfr review [--repo <path>] [--config <path>] [--name <s>] [--no-cache] <range>
-dfr review [--repo <path>] [--config <path>] [--no-cache] --pr [N] | --mr [N]
-dfr stack [--repo <path>] [--config <path>] [--ref <name>] [--no-cache] <range>
-dfr findings [--repo <path>] [--config <path>] [--name <s>] [--summary] [--no-cache] <range>
-dfr findings [--repo <path>] [--config <path>] [--summary | --post] [--no-cache] --pr [N] | --mr [N]
-dfr check [--repo <path>] [--config <path>] [--json] <range>
+dfr review [--repo <path>] [--config <path>] [--user-config <path>] [--name <s>] [--no-cache] <range>
+dfr review [--repo <path>] [--config <path>] [--user-config <path>] [--no-cache] --pr [N] | --mr [N]
+dfr stack [--repo <path>] [--config <path>] [--user-config <path>] [--ref <name>] [--no-cache] <range>
+dfr findings [--repo <path>] [--config <path>] [--user-config <path>] [--name <s>] [--summary] [--no-cache] <range>
+dfr findings [--repo <path>] [--config <path>] [--user-config <path>] [--summary | --post] [--no-cache] --pr [N] | --mr [N]
+dfr check [--repo <path>] [--config <path>] [--user-config <path>] [--json] <range>
 dfr agent --doc <path>
 dfr agents [--probe [<name>]] [--user-config <path>] [--timeout-secs <N>]
 dfr clean [--repo <path>] [--dry-run]
