@@ -144,14 +144,14 @@ Type "alias_of"
 # count at all, so a fixture that has drifted stops the recording here instead
 # of filming an empty box.
 #
-# `alias_of` has four hits in this range: the trait method, its impl, the one
-# call, and a test. Which of them the list ranks first depends on where the
-# cursor already is, so the number below is the one thing in this tape read off
-# the screen rather than derived. Any of the four is a code line and lands the
-# next beat; confirm it once and the wait below keeps it honest after that.
+# `alias_of` has five hits here, and the second one is chosen, not counted to.
+# It is `catalogue.alias_of(&id)` — a CALL, where the peek below has something
+# to resolve and a group to name. The trait method and its impl are
+# declarations, and the row in the test file resolves nothing at all: `z` there
+# opens no float, which is the case the wait below exists to catch.
 Wait+Screen@10s / found /
 Sleep 1.4s
-Down@200ms 2
+Down@200ms 1
 Sleep 1.2s
 
 # `enter` puts the cursor on the line and opens whatever was in the way — a
@@ -171,10 +171,13 @@ Sleep 1.4s
 # invisible from here and would run every later beat on the wrong plan. No
 # float, no recording.
 #
-# The regex matches the float's TITLE and not a symbol: `z` steps a line's
-# names in column order, so which one wins is a fact about the line rather
-# than about this tape. `· <path>:<line>` is drawn nowhere else on this screen
-# — the search box has closed, and no finding is written yet.
+# One press, not two. `z` steps a line's names in column order and closes past
+# the last one rather than wrapping, and this line has one it can resolve.
+#
+# The regex matches the float's TITLE and not a symbol name: which name wins is
+# a fact about the line rather than about this tape. `· <path>:<line>` is drawn
+# nowhere else on this screen — the search box has closed, and no finding is
+# written yet.
 Type "z"
 Wait+Screen@10s /· .*\.rs:[0-9]+/
 Sleep 2s
