@@ -92,7 +92,7 @@ impl Default for ReviewOptions {
 /// three-row window cannot produce nonsense.
 const MIN_VIEWPORT: usize = 8;
 
-/// The reviewer's panes: a fixed-width plan pane, the detail, a status row.
+/// The reviewer's panes: the left pane, the detail, a status row.
 pub struct Panes {
     pub body: Rect,
     pub plan: Rect,
@@ -100,20 +100,56 @@ pub struct Panes {
     pub status: Rect,
 }
 
+/// The left pane's width before the reader moves the divider.
+pub const DEFAULT_PLAN_COLS: u16 = 40;
+
+/// The narrowest either pane may be squeezed to.
+///
+/// A pane spends two columns on its border, and the diff pane halves what is
+/// left again in the split view, so a floor of a handful of columns would buy
+/// a pane that draws a frame around nothing.
+pub const MIN_PANE: u16 = 20;
+
+/// The divider, held inside the screen.
+///
+/// The one rule about the width, and it lives here because `layout` is the one
+/// function `draw` and the hit test both call: a clamp applied anywhere else
+/// could disagree with the frame on screen.
+///
+/// A terminal too narrow to hold two panes at `MIN_PANE` gets **half each**,
+/// not the floor and a remainder. Handing the floor to the left pane would
+/// starve the diff — the pane the reader opened the tool for — and at twenty
+/// columns it would leave it nothing at all. Half is also what keeps this
+/// total: `u16::clamp` panics when its low bound passes its high one, and
+/// that terminal is the case that reaches it.
+pub fn clamp_cols(cols: u16, width: u16) -> u16 {
+    let max = width.saturating_sub(MIN_PANE);
+    if max < MIN_PANE {
+        return width / 2;
+    }
+    cols.clamp(MIN_PANE, max)
+}
+
 /// The one layout. `draw` places widgets with it and the event loop measures
 /// with it, so the two can never disagree about how tall the detail pane is.
 ///
-/// Focus does NOT enter into it. The overviews each focus brings up float over
+/// `plan_cols` is the reader's divider, and the ONLY thing they move. Focus
+/// still does not enter into it: the overviews each focus brings up float over
 /// a pane rather than splitting one, which is what lets the pane heights stay a
-/// function of the terminal alone — and lets a key never change them.
-pub fn layout(area: Rect) -> Panes {
+/// function of the terminal alone — and lets a key never change them. The width
+/// arrives as an argument rather than being read from the model, so this stays
+/// the single place the number turns into a rectangle.
+pub fn layout(area: Rect, plan_cols: u16) -> Panes {
     let outer = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(0), Constraint::Length(1)])
         .split(area);
     let panes = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Length(40), Constraint::Min(0)])
+        .constraints([
+            Constraint::Length(clamp_cols(plan_cols, area.width)),
+            Constraint::Min(0),
+        ])
         .split(outer[0]);
     Panes {
         body: outer[0],
@@ -121,6 +157,16 @@ pub fn layout(area: Rect) -> Panes {
         detail: panes[1],
         status: outer[1],
     }
+}
+
+/// The two columns the divider paints on: the left pane's right border and the
+/// detail pane's left.
+///
+/// Shared with the hit test, so a drag grabs the columns the draw will paint
+/// rather than a number that was true of them once.
+pub fn divider(panes: &Panes) -> (u16, u16) {
+    let right = panes.plan.x + panes.plan.width;
+    (right.saturating_sub(1), right)
 }
 
 /// Measured terminal geometry, pushed into the model BEFORE any key is
@@ -144,14 +190,14 @@ pub struct Viewport {
     /// have already subtracted their borders from.
     pub body_rows: usize,
     /// The whole screen the panes were laid out on. A mouse event names a
-    /// cell, and which pane that cell is in is `layout(area)` — the same call
-    /// `draw` makes, so a hit test and a frame cannot disagree.
+    /// cell, and which pane that cell is in is [`App::panes`] — the same
+    /// `layout` call `draw` makes, so a hit test and a frame cannot disagree.
     pub area: Rect,
 }
 
 impl Viewport {
-    pub fn measure(area: Rect) -> Self {
-        let panes = layout(area);
+    pub fn measure(area: Rect, plan_cols: u16) -> Self {
+        let panes = layout(area, plan_cols);
         Viewport {
             // Every pane is bordered.
             detail_rows: panes.detail.height.saturating_sub(2) as usize,
@@ -494,6 +540,25 @@ pub struct App {
     listed_files: Vec<usize>,
     /// Measured geometry. An input to update, never a draw-time output.
     viewport: Viewport,
+    /// The divider, with the reading plan in the left pane.
+    ///
+    /// Two numbers and not one because `f` swaps two different lists into that
+    /// pane: a group block is a paragraph that wants room, and a tree row is a
+    /// path that wants more of it. One width made `f` a choice between the two
+    /// readings. Neither reaches the sidecar — where the divider sits is a
+    /// reading position for this sitting, as the sideways shift is.
+    plan_cols: u16,
+    /// The divider, with the file tree in the left pane.
+    tree_cols: u16,
+    /// Where on the divider a press landed, as an offset from the left pane's
+    /// width, while the button is still down. `None` once it is let go.
+    ///
+    /// The offset and not a bare "yes": the divider is two columns wide — the
+    /// left pane's right border and the diff pane's left — and a drag that
+    /// assumed the first would run one column ahead of a pointer that grabbed
+    /// the second, for the whole gesture. Carrying the offset makes both
+    /// columns track the pointer exactly.
+    divider_grab: Option<i16>,
     pending_d: bool,
     /// The forge this review is of, when it is of a request (ADR 0029).
     forge: Option<forge::ForgeLink>,
@@ -572,6 +637,9 @@ impl App {
             map_rows: Vec::new(),
             listed_files: Vec::new(),
             viewport: Viewport::default(),
+            plan_cols: DEFAULT_PLAN_COLS,
+            tree_cols: DEFAULT_PLAN_COLS,
+            divider_grab: None,
             pending_d: false,
             forge: None,
             inflight: None,

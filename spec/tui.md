@@ -10,9 +10,24 @@ order — keys before and after it each see the geometry that was true when they
 pressed. Row *contents* still compose their columns at draw time from the pane width, which
 is why a resize never rebuilds rows.
 
-The panes are a fixed split and **focus never changes a height**: the overviews below float
-over a pane rather than taking room from one, which is what keeps the heights a function of
-the terminal alone.
+**Focus never changes a height**: the overviews below float over a pane rather than taking
+room from one, which is what keeps the heights a function of the terminal alone.
+
+**The divider is the reader's, and it is the only thing they move.** The left pane opens at
+40 columns; `alt--` and `alt-=` move the divider four columns at a time, and a drag on it
+moves it to the pointer. Neither pane may fall below 20 columns, and a terminal too narrow
+to hold two of those gives each half — the diff pane is what the reader came for, and
+handing the floor to the left pane would starve it. Width is the whole of it: the heights
+stay a function of the terminal, and focus still moves nothing.
+
+There are **two dividers, one per list**, because `f` swaps two different things into that
+pane: a group block is a paragraph that wants room, and a tree row is a path that wants more
+of it. One width made `f` a choice between the two readings. Neither reaches the sidecar —
+where the divider sits is a reading position for this sitting, as the sideways shift is
+(below), so every review opens at 40.
+
+The divider carries no pill the way the shift does. The shift needs one because an offset is
+invisible; a divider is the one piece of this state the reader can already see.
 
 **A wrapped line is still one row.** `w` soft-wraps the detail pane, and a line that takes
 three screen lines is one selectable row throughout: the cursor indexes rows, a finding
@@ -30,7 +45,12 @@ exist, and a reader who cannot see the end of one is missing the point of the pa
 Wrapping FILE CONTENT is the reader's call, because wrapping code is often unwanted;
 `w` is persisted per review, as `s` is.
 
-**Keys act on the pane you are in.** `z` shows what is being withheld — a context
+**Keys act on the pane you are in**, with two exceptions that say so where they are
+written down: `/` below, and the divider keys above — `alt--` and `alt-=` always name the
+**diff** pane, whichever pane has focus, because making room for the diff is the thing being
+asked for and the left pane is what pays for it.
+
+`z` shows what is being withheld — a context
 boundary's hidden lines, a folded remainder, a directory — and which of those it means is
 decided by the focused pane, not by where the diff's cursor happens to be parked. The
 cursor is a diff row wherever the focus is, so without that rule a press in the file tree
@@ -91,7 +111,7 @@ group's files lit — `files in g0 · 3 of 8` — so what a group spans is one l
 walk through its hunks. It sits at the **foot of the detail pane** at full pane width, the
 same shape the file list takes at the foot of the plan pane, so one focus reads like the
 other. Its height is **capped against the group's header block**, leaving the full label
-and description readable where the 40-column plan pane truncates them, and the diff carries
+and description readable where the narrower plan pane truncates them, and the diff carries
 on above it as a preview of what entering the group will show. **A pane too short for both
 the header block and a box yields the box**: the map lifts entirely rather than land on the
 label the cap exists to protect. The tree is drawn with
@@ -400,7 +420,8 @@ pass that dispatch unmatched, staying flat while the rest of the cursor's row st
 tier's yellow: a skim ink has to read ON the ground, which on a light theme makes it a dark
 brown, where this is a fill the ground's ink has to read on.
 
-**`/` is the one key that does not act on the pane you are in.** Every other key does, and
+**`/` is one of the two keys that do not act on the pane you are in** — the divider keys
+are the other. Every other key does, and
 says so at the top of this file. A name a reader is hunting for is a fact about the branch,
 and the reader asking has by definition not found the pane it is in yet — so `/` opens from
 the plan pane, from the diff pane, over an open selection, which it drops, and out of the
@@ -575,7 +596,7 @@ one that did not fit.
 
 **`?` answers for where the reader is standing.** Three sections: the place's own keys
 under its name, then the keys that mean the same thing anywhere — `s`, `w`, `h/l  ·  0`,
-`F`, `y`, `P`, `R`, `?` and `q  ·  ctrl-c` — then **getting about, in one run at the
+`alt-=/alt--`, `/`, `F`, `y`, `P`, `R`, `?` and `q  ·  ctrl-c` — then **getting about, in one run at the
 bottom**: `j/k`, `J/K  { }`, `n/N`, `ctrl-d/u`, `g/G` and `tab`. Acting comes before
 moving because a reader opening `?` is asking what they can DO here, and the movement keys
 are the ones they already know; last is where a reference belongs. Movement is ONE run
@@ -607,6 +628,7 @@ The full reference. `?` shows the subset that applies where the reader is standi
 | `z` | show what is being withheld, in the pane you are in — diff pane: on a `──` context boundary row, more of the file, or the hunk it names · on a resolved review thread, open or close it · **on a code row whose line uses a symbol the change declares, what declares it** (again for the next symbol on the line, once more to close; `esc` closes too) · elsewhere, the skim remainder or noise group · plan pane, file view: a directory |
 | `s` | toggle side-by-side / unified diff layout (persisted) |
 | `w` | soft wrap long lines (persisted) |
+| `alt--`/`alt-=` | move the divider four columns: narrow or widen the **diff** pane. From either pane — one of the two keys that do not act on the pane you are in. Neither pane goes below 20 columns, and the footer says which wall it is against. Transient: every review opens at 40, and the plan and the tree each keep their own |
 | `h`/`l`, `0` | shift the diff pane eight columns sideways · back to the left edge. Diff pane only; refused while `w` is on |
 | `/` | **search — a word, anywhere in the changed files.** The one key that does not act on the pane you are in: it opens from either pane, over a selection, and out of the file list and the findings list. The files as they are NOW, so a removed line is not found. Literal and smart case; `ctrl-r` reads the query as a regular expression instead. `enter` jumps to the line, opening a fold or a context gap to reach it · `↑`/`↓` move the list, the only arrows that are not the query's · `←`/`→` and `home`/`end` move the caret · `ctrl-u`/`ctrl-w` clear the query or the word before the caret · every other printable key types · `esc` closes, keeping the query selected for the next `/` |
 | `f` | files, in the pane you are in — plan pane: toggle reading plan ↔ file tree (persisted) · diff pane: the file-list modal (`enter` jumps to the file) |
@@ -633,7 +655,18 @@ themselves as the "select text anyway" key while a program has the mouse, and ne
 on (Ghostty's `mouse-shift-capture`, off by default, is one). A click selects the row or
 entry under it; a click on what is already selected is `enter`; a click on a row the cursor cannot land on — the group header,
 a blank — leaves the cursor where it was. The two floating overviews are maps, and a click
-on one does nothing. In the file-list and findings modals the wheel steps the list, a click
+on one does nothing — **except on the divider's own column**, which each of them covers,
+being drawn at its pane's full width. The divider wins there: it runs the whole height of
+the screen, and one that went dead over a transient float would read as a divider that
+sometimes does not work.
+
+**A press on the divider grabs it, and the drags that follow move it.** The divider is two
+columns — the left pane's right border and the diff pane's left — and the one grabbed is the
+one that stays under the pointer. A press anywhere else lets go, and so does any key. A drag
+that did not start on the divider is not read at all, so a button held down while the
+pointer wanders leaves both the panes and the footer's message alone. There is no release to
+read: a drag arrives only while the button is down, and the next gesture announces itself
+with its own press. In the file-list and findings modals the wheel steps the list, a click
 selects an entry, a second click is `enter`, and a click outside the box closes it. Help and
 a notice close on a click. **A footer names its keys, and each is a button**: a click
 on `enter save`, `esc close`, `dd delete`, the `y` of a question, or any key on the

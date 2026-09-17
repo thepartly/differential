@@ -151,13 +151,31 @@ the diff cursor, whichever pane you are in.
 | `s` | either | Toggle side-by-side and unified layout. Saved per review; `review.diff` sets what a review opens as. |
 | `f` | left | Toggle the reading plan and the file tree. Saved per review. |
 | `f` | diff | Open the file-list modal. |
+| `alt-=` | any | Widen the **diff** pane four columns, narrowing the left pane. |
+| `alt--` | any | Narrow the **diff** pane four columns. |
 | `/` | any | Open the search. See below. |
 
 `z` and `f` act on the pane you are in. The diff cursor exists whichever pane has focus, so
 without that rule a press in the file tree would open part of a file you were not looking at.
 
-`/` is the exception, and the only key that is. A name you are hunting for is a fact about
-the branch, and the reader asking has by definition not found the pane it is in yet.
+`/` and the divider keys are the exceptions, and the only ones. A name you are hunting for
+is a fact about the branch, and the reader asking has by definition not found the pane it is
+in yet. The divider keys always name the diff pane because making room for the diff is what
+is being asked for, and the left pane is what pays for it.
+
+### The divider
+
+The left pane opens at 40 columns. `alt--` and `alt-=` move the divider four columns at a
+time, and dragging it with the mouse moves it to the pointer. Neither pane goes below 20
+columns; a terminal too narrow for two of those gives each half. When a key cannot move it,
+the footer says which wall it is against.
+
+There are two dividers, one per list. A group block is a paragraph that wants room and a
+tree row is a path that wants more of it, so `f` moves the divider to where you last put it
+for the list it is switching to.
+
+Nothing about it is saved. Where the divider sits is a reading position for this sitting, as
+the sideways shift is, so every review opens at 40.
 
 ### Normal mode — reviewing
 

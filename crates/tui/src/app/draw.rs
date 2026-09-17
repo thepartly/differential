@@ -42,7 +42,7 @@ impl App {
             ratatui::widgets::Block::default().style(self.theme.ground()),
             frame.area(),
         );
-        let panes = layout(frame.area());
+        let panes = layout(frame.area(), self.plan_cols());
         self.draw_groups(frame, panes.plan);
         self.draw_diff(frame, panes.detail);
         self.draw_status(frame, panes.status);
@@ -1049,7 +1049,7 @@ impl App {
     /// pane is too short to hold it. Shared with the hit test.
     pub fn group_map_area(&self, detail: Rect) -> Option<Rect> {
         // The group's header block is what the height is capped against, so its
-        // full label and description — which the 40-column plan pane truncates —
+        // full label and description — which the narrow left pane truncates —
         // stay readable however many files the group touches.
         let header = self
             .rows

@@ -329,6 +329,97 @@ impl App {
         self.clamp_hscroll();
     }
 
+    /// Measure `area` against the divider in force and fold the answer in.
+    ///
+    /// The one way geometry enters the model. Moving the divider goes through
+    /// it as a terminal resize does, because the two change the same numbers:
+    /// a narrower diff pane wraps its rows at a narrower width, and the scroll
+    /// budget that counts screen lines has to be re-clamped either way.
+    pub fn set_area(&mut self, area: Rect) {
+        self.set_viewport(Viewport::measure(area, self.plan_cols()));
+    }
+
+    /// Re-measure on the screen already recorded. What moving the divider and
+    /// switching the left pane's list both end with.
+    pub(super) fn remeasure(&mut self) {
+        self.set_area(self.viewport.area);
+    }
+
+    /// The divider in force: the left pane's width, for the list it is
+    /// showing, as the screen can actually show it.
+    ///
+    /// Clamped on the way OUT, so the model and the frame can never disagree
+    /// about where the divider is. Without that, a width the reader chose on a
+    /// wide terminal survived a shrink as a number nothing on screen matched,
+    /// and a resize key read the stored number, moved it, wrote back the same
+    /// clamped width and reported a move that never happened. The stored
+    /// number is left alone: a terminal that widens again puts the divider
+    /// back where they left it.
+    pub fn plan_cols(&self) -> u16 {
+        let cols = match self.view_mode {
+            ViewMode::Groups => self.plan_cols,
+            ViewMode::Files => self.tree_cols,
+        };
+        clamp_cols(cols, self.viewport.area.width)
+    }
+
+    /// The same number, to write. `f` swaps which one the reader is moving.
+    fn plan_cols_mut(&mut self) -> &mut u16 {
+        match self.view_mode {
+            ViewMode::Groups => &mut self.plan_cols,
+            ViewMode::Files => &mut self.tree_cols,
+        }
+    }
+
+    /// The panes as they are on screen now.
+    ///
+    /// `layout` against the measured screen and the divider in force — what
+    /// the hit test asks, so a click lands in the pane the reader can see.
+    pub fn panes(&self) -> Panes {
+        layout(self.viewport.area, self.plan_cols())
+    }
+
+    /// Put the divider at `cols`, and say so when it will not go.
+    ///
+    /// Returns whether it moved. A press that changes nothing reads as a key
+    /// that does not work, which is why the callers that are keys speak up.
+    pub(super) fn set_plan_cols(&mut self, cols: u16) -> bool {
+        let want = clamp_cols(cols, self.viewport.area.width);
+        if want == self.plan_cols() {
+            return false;
+        }
+        *self.plan_cols_mut() = want;
+        self.remeasure();
+        true
+    }
+
+    /// `alt-=` and `alt--`: widen or narrow the DIFF pane by `by` columns.
+    ///
+    /// The diff pane, whichever pane has focus. Every other key acts on the
+    /// pane you are in; this one and `/` do not, because the diff is the pane
+    /// the reader asked to make room for.
+    pub(super) fn resize_diff(&mut self, by: i16) {
+        let cols = self.plan_cols().saturating_add_signed(-by);
+        if self.set_plan_cols(cols) {
+            return;
+        }
+        // A press that changes nothing reads as a key that does not work, so
+        // the footer says which wall it is against and names the way back —
+        // except on a screen too narrow to move the divider at all, where
+        // naming the other key would be a lie.
+        let width = self.viewport.area.width;
+        self.status = if width < 2 * MIN_PANE {
+            format!(
+                "the terminal is too narrow to move the divider — it needs {} columns",
+                2 * MIN_PANE
+            )
+        } else if by > 0 {
+            format!("the diff pane is as wide as it goes · the left pane keeps {MIN_PANE} columns")
+        } else {
+            "the diff pane is as narrow as it goes · alt-= widens it".to_string()
+        };
+    }
+
     /// Diff-pane scroll offset. Decided in update, never at draw time — which
     /// is why the field itself is private.
     /// The pane heights currently in force.
@@ -510,6 +601,10 @@ impl App {
         };
         self.cursor = 0;
         self.scroll = 0;
+        // The divider is per list, so switching lists moves it — and the diff
+        // pane's width with it. Re-measure before the rows are built, or they
+        // wrap at the width the pane had a moment ago.
+        self.remeasure();
         self.follow_plan_scroll();
         self.rebuild_rows();
         self.status = if on { "file view" } else { "reading plan view" }.into();
@@ -863,6 +958,13 @@ impl App {
     /// places that change it, rather than measured on every frame: the scan is
     /// O(rows) and drawing is not the place for one.
     pub(super) fn clamp_hscroll(&mut self) {
+        // A pane at its left edge is already in range, and `max_hscroll` walks
+        // every row to measure the widest overflow. That cost was accepted on
+        // a keypress; a divider dragged across forty columns pays it forty
+        // times, and the answer is zero every one of them.
+        if self.hscroll == 0 {
+            return;
+        }
         self.hscroll = self.hscroll.min(self.max_hscroll());
     }
 
