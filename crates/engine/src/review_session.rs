@@ -11,7 +11,7 @@ use std::collections::HashSet;
 use crate::schema;
 
 use crate::EngineError;
-use crate::forge::{self, OwnComment, Published, RemoteThread};
+use crate::forge::{self, ForgeError, OwnComment, Published, RemoteThread};
 use crate::model::DiffView;
 use crate::plan;
 use crate::ports::ReviewStore;
@@ -33,6 +33,21 @@ pub struct ReviewSession<S: ReviewStore> {
     /// The login the forge knows the reader as, once told. What makes a
     /// comment with no marker and no record theirs.
     me: Option<String>,
+}
+
+/// What a publish did to this session, for a renderer to say in its own
+/// words.
+#[derive(Debug)]
+pub struct Recorded {
+    /// Findings the refetched threads gave an address that the publish's
+    /// answer had not.
+    pub reconciled: usize,
+    /// Of the findings sent, how many now have an address — from the answer
+    /// or from a marker the refetch carried.
+    pub landed: usize,
+    /// The refetch that failed, when it did. The comments are on the request
+    /// regardless; the next fetch reconciles them.
+    pub refetch_failed: Option<ForgeError>,
 }
 
 impl<S: ReviewStore> ReviewSession<S> {
@@ -626,6 +641,36 @@ impl<S: ReviewStore> ReviewSession<S> {
             self.store.save_findings(&self.findings)?;
         }
         Ok(n)
+    }
+
+    /// Record a publish: the answer first, then what the refetched threads
+    /// carry by marker, then how much of THIS batch is now on the request.
+    ///
+    /// The order is the point, and it is written once so the reviewer's `P`
+    /// and `dfr findings --post` cannot count differently. A finding is
+    /// published when either the answer or a marker says so, and the count
+    /// reads the batch's findings afterwards rather than the answer alone: an
+    /// answer can be lost on the way back while the comments stand.
+    pub fn record_publish(
+        &mut self,
+        sent: &[String],
+        published: &[Published],
+        threads: Result<Vec<RemoteThread>, ForgeError>,
+    ) -> Result<Recorded, EngineError> {
+        self.mark_published(published)?;
+        let (reconciled, refetch_failed) = match threads {
+            Ok(threads) => (self.set_threads(threads)?, None),
+            Err(e) => (0, Some(e)),
+        };
+        let landed = sent
+            .iter()
+            .filter(|id| self.own_of_finding(id).is_some())
+            .count();
+        Ok(Recorded {
+            reconciled,
+            landed,
+            refetch_failed,
+        })
     }
 
     /// Delete every finding not on the request. Returns how many went.

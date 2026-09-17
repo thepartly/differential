@@ -479,6 +479,87 @@ fn the_batch_sends_bodies_with_their_markers() {
 }
 
 #[test]
+fn the_batch_names_its_findings_comments_first() {
+    let (r, base, head) = two_hunk_repo();
+    let tmp = tempfile::TempDir::new().unwrap();
+    let mut s = session(&r, &base, &head, tmp.path());
+    s.set_threads(vec![thread("T1", "src/lib.rs", "new", Some(8))])
+        .unwrap();
+    // The reply is filed first and still comes second: the batch's order is
+    // comments then replies, whatever the reader's was.
+    let reply = s
+        .add_reply("T1", "agreed".into())
+        .map(|f| f.id.clone())
+        .unwrap();
+    let note = finding_on_line_3(&mut s, "on the change");
+    let plan = s.publish_plan(forge::ForgeKind::Github);
+    assert_eq!(plan.batch.finding_ids(), vec![note, reply]);
+}
+
+#[test]
+fn a_publish_is_recorded_from_its_answer_and_then_its_refetch() {
+    let (r, base, head) = two_hunk_repo();
+    let tmp = tempfile::TempDir::new().unwrap();
+    let mut s = session(&r, &base, &head, tmp.path());
+    let first = finding_on_line_3(&mut s, "first");
+    let second = finding_on_line_3(&mut s, "second");
+    let sent = s.publish_plan(forge::ForgeKind::Github).batch.finding_ids();
+    assert_eq!(sent.len(), 2);
+
+    // The answer names one; the refetched threads carry the other's marker.
+    // Both are published, and only the second counts as reconciled.
+    let published = vec![forge::Published {
+        finding: first.clone(),
+        thread: "TA".into(),
+        comment: "CA".into(),
+        url: None,
+    }];
+    let mut t = thread("TB", "src/lib.rs", "new", Some(3));
+    t.comments[0].id = "CB".into();
+    t.comments[0].finding = Some(second.clone());
+    t.comments[0].body = "second".into();
+    let recorded = s.record_publish(&sent, &published, Ok(vec![t])).unwrap();
+    assert_eq!((recorded.landed, recorded.reconciled), (2, 1));
+    assert!(recorded.refetch_failed.is_none());
+    assert_eq!(
+        s.own_of_finding(&first).map(|o| o.comment),
+        Some("CA".to_string())
+    );
+    assert_eq!(
+        s.own_of_finding(&second).map(|o| o.comment),
+        Some("CB".to_string())
+    );
+    assert!(
+        s.publish_plan(forge::ForgeKind::Github).batch.is_empty(),
+        "nothing sent twice"
+    );
+}
+
+#[test]
+fn a_publish_whose_refetch_failed_still_records_its_answer() {
+    let (r, base, head) = two_hunk_repo();
+    let tmp = tempfile::TempDir::new().unwrap();
+    let mut s = session(&r, &base, &head, tmp.path());
+    let id = finding_on_line_3(&mut s, "on the change");
+    let sent = s.publish_plan(forge::ForgeKind::Github).batch.finding_ids();
+    let published = vec![forge::Published {
+        finding: id.clone(),
+        thread: "T1".into(),
+        comment: "C1".into(),
+        url: None,
+    }];
+    let refetch = Err(forge::ForgeError::Cancelled {
+        command: "gh".into(),
+    });
+    let recorded = s.record_publish(&sent, &published, refetch).unwrap();
+    assert_eq!((recorded.landed, recorded.reconciled), (1, 0));
+    assert!(recorded.refetch_failed.is_some());
+    // The answer stands: the finding has its address and is not sent again.
+    assert!(s.own_of_finding(&id).is_some());
+    assert!(s.publish_plan(forge::ForgeKind::Github).batch.is_empty());
+}
+
+#[test]
 fn an_unmarked_reply_by_the_reader_heals_its_draft_and_the_side_is_checked() {
     let (r, base, head) = two_hunk_repo();
     let tmp = tempfile::TempDir::new().unwrap();

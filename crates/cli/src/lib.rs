@@ -542,8 +542,10 @@ fn publish(
         println!("nothing to publish");
         return Ok(ExitCode::SUCCESS);
     }
-    // The same sequence the reviewer's `P` runs — head check, send, refetch —
-    // from one function, so the two cannot order it differently.
+    // The same sequence the reviewer's `P` runs: head check, send and refetch
+    // in `forge::publish`; the answer, the markers and the count in
+    // `record_publish`. Each from one function, so the two cannot order or
+    // count it differently.
     let outcome = match forge::publish(forge, req, &session.doc().source.head, &plan.batch) {
         Ok(o) => o,
         Err(e @ differential_engine::forge::ForgeError::HeadMoved { .. }) => {
@@ -552,15 +554,8 @@ fn publish(
         }
         Err(e) => return Err(e).with_context(|| format!("publishing to {}", req.url)),
     };
-    let sent: Vec<String> = plan
-        .batch
-        .comments
-        .iter()
-        .map(|c| c.finding.clone())
-        .chain(plan.batch.replies.iter().map(|r| r.finding.clone()))
-        .collect();
+    let sent = plan.batch.finding_ids();
     let published = outcome.published;
-    session.mark_published(&published)?;
     if let Some(e) = &outcome.failed {
         eprintln!(
             "note: the forge stopped part-way: {e}; what landed is recorded, run again for the rest"
@@ -568,14 +563,12 @@ fn publish(
     }
     // The CLI has no login to heal by; the marker still does its work. A
     // refetch that fails is said, not fatal: the comments are already there.
-    match outcome.threads {
-        Ok(threads) => {
-            let reconciled = session.set_threads(threads)?;
-            if reconciled > 0 {
-                println!("{reconciled} found already published by marker");
-            }
-        }
-        Err(e) => eprintln!("note: the threads could not be fetched back: {e}"),
+    let recorded = session.record_publish(&sent, &published, outcome.threads)?;
+    if recorded.reconciled > 0 {
+        println!("{} found already published by marker", recorded.reconciled);
+    }
+    if let Some(e) = &recorded.refetch_failed {
+        eprintln!("note: the threads could not be fetched back: {e}");
     }
     for p in &published {
         let at = session
@@ -586,11 +579,7 @@ fn publish(
     }
     // Counted as the reviewer counts: this batch's findings that now have an
     // address, whether the answer or the refetched markers gave it.
-    let landed = sent
-        .iter()
-        .filter(|id| session.own_of_finding(id).is_some())
-        .count();
-    let unconfirmed = sent.len().saturating_sub(landed);
+    let unconfirmed = sent.len().saturating_sub(recorded.landed);
     if unconfirmed > 0 {
         println!("{unconfirmed} not confirmed by the forge; run again to retry");
     }

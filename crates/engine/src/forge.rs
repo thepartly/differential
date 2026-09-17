@@ -318,6 +318,16 @@ impl Batch {
     pub fn len(&self) -> usize {
         self.comments.len() + self.replies.len()
     }
+
+    /// The findings this batch sends, comments then replies: the ids a
+    /// publish is afterwards held to account for.
+    pub fn finding_ids(&self) -> Vec<String> {
+        self.comments
+            .iter()
+            .map(|c| c.finding.clone())
+            .chain(self.replies.iter().map(|r| r.finding.clone()))
+            .collect()
+    }
 }
 
 /// A finding a publish left out, and why, in words for the status line.
