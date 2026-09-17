@@ -4,7 +4,6 @@
 //! without this the terminal looked hung between picking a source and the
 //! reviewer opening. Stages arrive on a channel from the worker thread.
 
-use std::io::Stdout;
 use std::sync::mpsc::{Receiver, TryRecvError};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -19,7 +18,6 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use super::osc::Wrap;
 use super::osc::progress::{Bar, State};
 use super::theme::Theme;
-use super::vendor;
 
 const SPINNER: [&str; 8] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧"];
 
@@ -143,7 +141,7 @@ fn bar_state(current: usize, agent: Option<&(String, bool)>) -> State {
 /// Draw the splash until the worker finishes, and drive the terminal's own
 /// progress bar alongside it.
 pub fn run<T>(
-    terminal: &mut vendor::terminal::TerminalSession<Stdout>,
+    terminal: &mut ratatui::DefaultTerminal,
     theme: &Theme,
     wrap: Wrap,
     rx: Receiver<Progress>,
@@ -216,7 +214,7 @@ pub fn run<T>(
 /// Shown while an abandoned run is being torn down — killing the agent
 /// subprocess takes a moment, and a frozen screen would look like a hang.
 pub fn draw_cancelling(
-    terminal: &mut vendor::terminal::TerminalSession<Stdout>,
+    terminal: &mut ratatui::DefaultTerminal,
     theme: &Theme,
 ) -> anyhow::Result<()> {
     terminal.draw(|frame| {

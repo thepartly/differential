@@ -40,7 +40,7 @@ const RECENT: usize = 30;
 /// Open the picker inside an existing terminal session. `Ok(None)` =
 /// cancelled.
 pub fn pick_source(
-    terminal: &mut super::vendor::terminal::TerminalSession<std::io::Stdout>,
+    terminal: &mut ratatui::DefaultTerminal,
     repo: &Repo,
     theme: &Theme,
 ) -> anyhow::Result<Option<PickedSource>> {

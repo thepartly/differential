@@ -6,7 +6,9 @@
 //! is gone (a search feature that was never ported, the suspend/resume
 //! terminal machinery, and — once the reviewer stopped highlighting whole
 //! files, ADR 0021 — tuicr's split-diff sequence helpers and its no-op
-//! `plain()` highlighter). Keep it that way — do not re-add a helper "for
+//! `plain()` highlighter). The rest of tuicr's terminal lifecycle went when
+//! ratatui grew `init`/`restore` of its own; what the reviewer adds on top
+//! lives in `crate::terminal` and is ours. Keep it that way — do not re-add a helper "for
 //! later", and do not make the module public, which would make every `pub fn`
 //! in it exported surface and silence the dead-code lint entirely.
 //!
@@ -15,15 +17,14 @@
 //!
 //! Adapted from:
 //!
-//! - `agavra/tuicr` — syntax highlighting, terminal lifecycle, and one span
-//!   truncation helper. Its span-wrapping and search utilities were taken too
-//!   and are the bulk of what the trim removed.
+//! - `agavra/tuicr` — syntax highlighting and one span truncation helper.
+//!   Its span-wrapping and search utilities and its terminal lifecycle were
+//!   taken too and are the bulk of what the trim removed.
 //! - `jnsahaj/lumen` — the blob-to-rows diff engine with word-level emphasis.
 
 pub mod diff_algo;
 pub mod diff_types;
 pub mod syntax;
-pub mod terminal;
 pub mod text_utils;
 
 /// Which side of a diff a rendered line belongs to (tuicr's `LineOrigin`,

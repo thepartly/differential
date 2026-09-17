@@ -12,6 +12,9 @@ pub mod osc;
 pub mod picker;
 pub mod rows;
 pub mod splash;
+/// The terminal guard: ratatui's init and restore, plus the two modes the
+/// reviewer adds around them.
+mod terminal;
 pub mod theme;
 /// Vendored MIT code (tuicr, lumen). PRIVATE: nothing outside this crate uses
 /// it, and while it was public the compiler could never tell us which of it
@@ -19,7 +22,6 @@ pub mod theme;
 mod vendor;
 pub mod window;
 
-use std::io::Stdout;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
@@ -41,7 +43,7 @@ use picker::PickedSource;
 use ratatui::layout::Rect;
 use rows::RowFactory;
 
-type Session = vendor::terminal::TerminalSession<Stdout>;
+type Session = ratatui::DefaultTerminal;
 
 /// A pipeline result plus the review's IDENTITY — the head AS TYPED keeps a
 /// branch review stable while its tip moves, uncommitted reviews key on a real
@@ -72,24 +74,11 @@ where
         + Send
         + 'static,
 {
-    // One terminal guard (vendored, Drop-safe) + one chained panic hook for
-    // the whole surface.
-    let original_hook = std::panic::take_hook();
-    std::panic::set_hook(Box::new(move |info| {
-        vendor::terminal::restore_stdio_best_effort();
-        original_hook(info);
-    }));
-    let mut terminal = vendor::terminal::TerminalFeatures::new()
-        // Capture means one wheel notch is one `ScrollDown` here, not the
-        // three arrow keys a terminal fakes for an alternate screen — three
-        // rows per notch was the complaint. It costs the terminal's own
-        // drag-select, which shift-drag or option-drag still gives.
-        .mouse_enabled(true)
-        .keyboard_enhancements_supported(false)
-        .enter(std::io::stdout())?;
-
-    let result = review_in(&mut terminal, repo, pick, opts, pipeline);
-    terminal.restore()?;
+    // One terminal guard for the whole surface: entered here, restored on
+    // the way out whichever way that is (`terminal`).
+    let mut guard = terminal::Guard::enter()?;
+    let result = review_in(guard.terminal(), repo, pick, opts, pipeline);
+    guard.restore()?;
     result
 }
 

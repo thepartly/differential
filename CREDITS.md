@@ -15,8 +15,6 @@ Commit `0dacb6b`. MIT License, Copyright (c) 2025 tuicr contributors.
 - [`crates/tui/src/vendor/syntax.rs`](crates/tui/src/vendor/syntax.rs) — syntax
   highlighting over `syntect`. The markdown layer and the whole-file highlight heuristic
   were removed. `highlight_ranges`, `Highlighted` and `LOOKBACK` are ours, not tuicr's.
-- [`crates/tui/src/vendor/terminal.rs`](crates/tui/src/vendor/terminal.rs) — the terminal
-  lifecycle: enter, draw, restore, and a teardown that runs on `Drop`.
 - [`crates/tui/src/vendor/text_utils.rs`](crates/tui/src/vendor/text_utils.rs) — one span
   truncation helper.
 
