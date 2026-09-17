@@ -30,7 +30,7 @@ pub struct GroupingOptions<'a, C: GroupingCache, A: ArtefactStore> {
     /// to run — the one runtime-open seam in this stage (ADR 0016, 0020).
     ///
     /// Cancellation is a property of the backend the caller built
-    /// (`CommandBackend::with_cancel`), not of the pipeline: killing an
+    /// (`llmio::CommandBackend::with_cancel`), not of the pipeline: killing an
     /// in-flight subprocess was never a pipeline concern.
     pub backend: &'a dyn LlmBackend,
     /// Where groupings are pinned. Disabling is a state of the cache
@@ -42,7 +42,7 @@ pub struct GroupingOptions<'a, C: GroupingCache, A: ArtefactStore> {
     /// this process, so composition supplies it.
     ///
     /// The backend's tool allowlist MUST be built from the same string
-    /// (`CommandBackend::claude_cli`), or the prompt names a command the model
+    /// (`llmio::CommandBackend::claude_cli`), or the prompt names a command the model
     /// is not permitted to run.
     pub fetch: &'a str,
     /// Stage notifications for renderers that show progress while the

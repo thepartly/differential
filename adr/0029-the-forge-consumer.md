@@ -48,14 +48,14 @@ delete before anyone is notified.
 
 **1. The forge is a tool on the path.** The adapter runs `gh` for GitHub and `glab` for
 GitLab and parses their JSON. No HTTP client, no token, no hostname, no config table. Both
-are subprocesses with a deadline and a cancel flag, on the pattern `llm::CommandBackend`
+are subprocesses with a deadline and a cancel flag, on the pattern `llmio::CommandBackend`
 already validated. The user installs and logs in to the tool; the error when they have not
 is the tool's own, passed through.
 
 **2. The trait is domain; the adapter is chosen at run time.** `engine::forge` declares what
 the domain needs — the pull request's endpoints, its review threads, a way to publish a
 batch, a way to resolve a thread — and the types those speak in. The two adapters live in a
-module named in the layering test's `ADAPTER_MODULES`, exactly as `llm.rs` does, and the
+module named in the layering test's `ADAPTER_MODULES`, exactly as `llmio.rs` does, and the
 application layer composes one. This is the third `dyn` seam after `LlmBackend` and
 `Language` ([ADR 0020](0020-ports-and-static-dispatch.md)): which forge a repository is on is
 a run-time answer, and nothing else in this design is.

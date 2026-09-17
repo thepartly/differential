@@ -31,6 +31,7 @@ const ADAPTERS: &[(&str, &str)] = &[
     ("std::env", "the process environment"),
     ("etcetera", "platform config directories"),
     ("tempfile", "temporary files"),
+    ("crate::subprocess", "subprocesses (the shared runner)"),
 ];
 
 /// The adapters themselves. The rule constrains what depends on what; these
@@ -39,7 +40,7 @@ const ADAPTERS: &[(&str, &str)] = &[
 const ADAPTER_MODULES: &[&str] = &[
     "gitio.rs",
     "forgeio.rs",
-    "llm.rs",
+    "llmio.rs",
     "store.rs",
     "subprocess.rs",
 ];
@@ -179,6 +180,10 @@ fn the_shared_domain_policy_is_pure() {
 /// `ConfigSource::read_required` keeps an error coming from the same `std::fs`
 /// call) — flagging prose would push authors toward vaguer comments, which is
 /// the opposite of what this file is for.
+///
+/// The cut is at the FIRST `#[cfg(test)]`, so production code placed below one
+/// is not scanned. Nothing sits there today, and the convention this guard
+/// leans on is exactly that nothing does: tests go at the bottom of a module.
 fn production_source(text: &str) -> String {
     let code = match text.find("#[cfg(test)]") {
         Some(i) => &text[..i],

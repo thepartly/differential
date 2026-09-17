@@ -89,8 +89,8 @@ fn main() -> ExitCode {
     };
     // In the repository root, because the prompt hands the model repo-relative
     // paths for `git diff` and git resolves a bare pathspec against the cwd.
-    let backend =
-        differential_engine::llm::CommandBackend::claude_cli(&fetch).with_working_dir(repo.root());
+    let backend = differential_engine::llmio::CommandBackend::claude_cli(&fetch)
+        .with_working_dir(repo.root());
 
     let out = match run_grouped_pipeline(
         &repo,

@@ -154,7 +154,7 @@ same type from the picker's answer.
 
 ```rust
 use differential_engine::{GroupingOptions, run_grouped_pipeline};
-use differential_engine::llm::CommandBackend;
+use differential_engine::llmio::CommandBackend;
 use differential_engine::store::{FsArtefactStore, FsGroupingCache};
 
 let backend = CommandBackend::claude_cli(&fetch);   // or codex_cli(), droid_cli(), …
@@ -194,10 +194,11 @@ needs killing is a subprocess.
 | `ports` | The traits the domain owns. Eighteen of them, each named for a need. |
 | `gitio` | `Repo` — the only implementation of the git ports. |
 | `store` | Filesystem adapters: `FsGroupingCache`, `FsReviewStore`, `OsConfigSource`. |
-| `llm` | `LlmBackend` and `CommandBackend`. Prompt in, text out. |
+| `llm` | The model port: `LlmBackend` and `LlmError`. Prompt in, text out. |
+| `llmio` | `CommandBackend`: an agent CLI on the path, one argv per agent (ADR 0033). |
 | `forge` | The forge consumer's domain: `Forge`, `Request`, `RemoteThread`, where a thread lands, what a publish sends (ADR 0029). |
 | `forgeio` | `GhForge` and `GlabForge`: `gh` and `glab` on the path. |
-| `subprocess` | One child process under a deadline and a cancel flag, shared by `llm` and `forgeio`. |
+| `subprocess` | One child process under a deadline and a cancel flag, shared by `llmio` and `forgeio`. |
 | `lang` | The `Language` trait and `LanguageRegistry`. Shape normalisation only — symbol extraction is `artefact::symbols` (ADR 0023). |
 | `pipeline` | `run_pipeline`, `run_grouped_pipeline`, `resolve_range`, `resolve_picked`. |
 | `grouping` | The grouping stage: prompt, parse, audit, gate, assembly, cache. |

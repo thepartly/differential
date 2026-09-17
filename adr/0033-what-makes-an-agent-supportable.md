@@ -130,7 +130,7 @@ an inference, and Pi's argv needed no fix.
 
 Every command line here is written from its agent's documentation. No test in this
 repository can check one, because the CLI on the other end is not installed here, and its
-flags change by version. CI cannot answer it either. The tests in `llm.rs` assert the string
+flags change by version. CI cannot answer it either. The tests in `llmio.rs` assert the string
 this crate builds — that a flag is present, that a boundary-removing flag never is, that no
 two agents share a cache identity — and every one of them would pass against an argv the
 real CLI rejects.
@@ -238,6 +238,6 @@ no output — which is why the probe judges on stdout and not on status.
   human ran, so nothing checks it automatically; a test pins both lists instead, which makes
   moving an agent between them a deliberate line in a diff a reviewer can ask about.
 - **Adding a sixth agent is still three edits and a compiler error.** A variant in
-  `config::Agent`, a constructor in `llm.rs`, an arm in `backend_for`. What the compiler
+  `config::Agent`, a constructor in `llmio.rs`, an arm in `backend_for`. What the compiler
   cannot ask for is the boundary, which is why it is written down here and in the module
   header rather than left to the next reader to infer from four examples.
