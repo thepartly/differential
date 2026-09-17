@@ -7216,8 +7216,8 @@ use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
 use differential_tui::app::{
     DEFAULT_PLAN_COLS, Hint, MIN_HALF, MIN_PANE, centered_x, clamp_cols, composer_area,
     composer_footer, divider, file_list_modal_area, findings_modal_area, findings_question,
-    footer_row, half_widths, hints_width, layout, pane_inner, publish_area, publish_footer,
-    search_modal_area,
+    footer_row, half_centre, half_widths, hints_width, layout, pane_inner, publish_area,
+    publish_footer, search_modal_area, split_point,
 };
 use ratatui::layout::Rect;
 
@@ -9586,4 +9586,37 @@ fn moving_the_middle_re_wraps_the_rows_it_narrows() {
         widened < tall,
         "a wider half wraps into fewer: {tall} -> {widened}"
     );
+}
+
+#[test]
+fn both_dividers_are_held_to_one_rule() {
+    // `clamp_cols` and `half_widths` are the same question with different
+    // spans and floors. The fallback is why it is one function: `clamp` panics
+    // when its low bound passes its high one, and a second copy is a second
+    // chance to leave that guard out.
+    assert_eq!(split_point(50, 100, 20), 50);
+    assert_eq!(split_point(5, 100, 20), 20);
+    assert_eq!(split_point(95, 100, 20), 80);
+    // Too narrow for two floors: half each, and no panic.
+    assert_eq!(split_point(5, 30, 20), 15);
+    assert_eq!(split_point(99, 30, 20), 15);
+    assert_eq!(split_point(0, 0, 20), 0);
+
+    // And the two callers are it, in their own units.
+    for width in [10u16, 30, 100, 200] {
+        for cols in [0u16, 20, 40, 300] {
+            assert_eq!(
+                clamp_cols(cols, width),
+                split_point(cols.into(), width.into(), MIN_PANE.into()) as u16
+            );
+        }
+    }
+    for width in [10usize, 17, 58, 200] {
+        for split in [-99i16, -4, 0, 4, 99] {
+            let (lw, rw) = half_widths(width, split);
+            let want = half_centre(width).saturating_add_signed(split as isize);
+            assert_eq!(lw, split_point(want, width - 1, MIN_HALF));
+            assert_eq!(lw + rw, width - 1, "the `│` keeps its own column");
+        }
+    }
 }

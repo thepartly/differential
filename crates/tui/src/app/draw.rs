@@ -2003,8 +2003,8 @@ pub(super) struct Paint<'a> {
     /// Which of `symbols` the open float is showing.
     pub lit: Option<usize>,
     /// Where the split view's middle sits, as a signed distance from the
-    /// centre of the pane. Zero is the middle, and the only value a unified
-    /// row cares about, because a unified row has no middle.
+    /// centre of the pane. Zero is the centre; a unified row ignores it,
+    /// having no middle.
     ///
     /// Here for the same reason `hscroll` is: it is a thing the reader has
     /// dragged, it changes what a row is drawn at without changing the row,
@@ -2223,6 +2223,16 @@ fn mark_symbols(
 /// that a half says which line it is and nothing about what is on it.
 pub const MIN_HALF: usize = 8;
 
+/// Where a split row's `│` sits when it has not been dragged.
+///
+/// The `│` takes a column of its own, so the two halves share what is left.
+/// One copy, because the drag records a distance from here and `half_widths`
+/// spends it from here: two would let a grab read one centre and the draw
+/// paint another.
+pub fn half_centre(width: usize) -> usize {
+    width.saturating_sub(1) / 2
+}
+
 /// The two column widths a split row lays out in, either side of the `│`.
 ///
 /// One copy, because the overflow a horizontal shift is bounded by has to be
@@ -2231,24 +2241,17 @@ pub const MIN_HALF: usize = 8;
 /// short of it. It is also what the hit test asks for the middle's column, so
 /// the line a drag grabs is the line the draw paints.
 ///
-/// `split` is the reader's drag, as a signed distance from the middle rather
+/// `split` is the reader's drag, as a signed distance from the centre rather
 /// than a width or a ratio. The middle moved because one side's lines were
 /// longer, which is a fact in columns: an absolute skew keeps that when the
 /// pane grows, where a ratio would spend the new room re-centring.
 ///
-/// A pane too narrow to hold two halves at `MIN_HALF` ignores the drag and
-/// splits down the middle — the same answer it gave before there was a drag.
+/// The floors and the too-narrow fallback are [`split_point`]'s, the same rule
+/// the divider between the panes is held to.
 pub fn half_widths(width: usize, split: i16) -> (usize, usize) {
     let inner = width.saturating_sub(1);
-    let middle = inner / 2;
-    let max = inner.saturating_sub(MIN_HALF);
-    let lw = if max < MIN_HALF {
-        middle
-    } else {
-        middle
-            .saturating_add_signed(split as isize)
-            .clamp(MIN_HALF, max)
-    };
+    let want = half_centre(width).saturating_add_signed(split as isize);
+    let lw = split_point(want, inner, MIN_HALF);
     (lw, inner - lw)
 }
 

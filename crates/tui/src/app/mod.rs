@@ -110,24 +110,34 @@ pub const DEFAULT_PLAN_COLS: u16 = 40;
 /// a pane that draws a frame around nothing.
 pub const MIN_PANE: u16 = 20;
 
-/// The divider, held inside the screen.
+/// A divider at `at`, held inside a `span` that keeps `floor` columns each
+/// side of it.
 ///
-/// The one rule about the width, and it lives here because `layout` is the one
-/// function `draw` and the hit test both call: a clamp applied anywhere else
-/// could disagree with the frame on screen.
+/// Both of this reviewer's dividers are this rule — the one between the panes
+/// and the split view's middle — with different spans and different floors. It
+/// is one function because of the fallback: a span too narrow for two floors
+/// **splits down the middle**, and `clamp` panics when its low bound passes its
+/// high one, so a second copy is a second chance to leave that guard out.
 ///
-/// A terminal too narrow to hold two panes at `MIN_PANE` gets **half each**,
-/// not the floor and a remainder. Handing the floor to the left pane would
-/// starve the diff — the pane the reader opened the tool for — and at twenty
-/// columns it would leave it nothing at all. Half is also what keeps this
-/// total: `u16::clamp` panics when its low bound passes its high one, and
-/// that terminal is the case that reaches it.
-pub fn clamp_cols(cols: u16, width: u16) -> u16 {
-    let max = width.saturating_sub(MIN_PANE);
-    if max < MIN_PANE {
-        return width / 2;
+/// Splitting rather than giving the floor to one side is the honest answer in
+/// both places. At the panes it stops the left list starving the diff — the
+/// pane the reader opened the tool for — and at the halves it is what the split
+/// view did before either could be dragged.
+pub fn split_point(at: usize, span: usize, floor: usize) -> usize {
+    let max = span.saturating_sub(floor);
+    if max < floor {
+        return span / 2;
     }
-    cols.clamp(MIN_PANE, max)
+    at.clamp(floor, max)
+}
+
+/// The divider between the panes, held inside the screen.
+///
+/// It lives here because `layout` is the one function `draw` and the hit test
+/// both call: a clamp applied anywhere else could disagree with the frame on
+/// screen. The model asks it too, on the way out of [`App::plan_cols`].
+pub fn clamp_cols(cols: u16, width: u16) -> u16 {
+    split_point(cols.into(), width.into(), MIN_PANE.into()) as u16
 }
 
 /// The one layout. `draw` places widgets with it and the event loop measures
@@ -733,7 +743,8 @@ mod text;
 pub use draw::{
     FRAME_ROWS, MIN_HALF, centered_x, composer_area, composer_footer, delete_comment_area,
     delete_comment_footer, file_list_modal_area, findings_modal_area, findings_question,
-    footer_row, half_widths, pane_inner, publish_area, publish_footer, search_modal_area,
+    footer_row, half_centre, half_widths, pane_inner, publish_area, publish_footer,
+    search_modal_area,
 };
 pub use help::{Act, Area, HelpSection};
 pub use search::{Occurrence, Reading, Search};

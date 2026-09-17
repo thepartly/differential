@@ -671,10 +671,11 @@ themselves as the "select text anyway" key while a program has the mouse, and ne
 on (Ghostty's `mouse-shift-capture`, off by default, is one). A click selects the row or
 entry under it; a click on what is already selected is `enter`; a click on a row the cursor cannot land on — the group header,
 a blank — leaves the cursor where it was. The two floating overviews are maps, and a click
-on one does nothing — **except on the divider's own column**, which each of them covers,
-being drawn at its pane's full width. The divider wins there: it runs the whole height of
-the screen, and one that went dead over a transient float would read as a divider that
-sometimes does not work.
+on one does nothing — **except on a divider's own column**. A float is drawn at its pane's
+full width, so the group map covers both the pane divider's right column and the split
+view's middle, and the file list covers the pane divider's left one. **A divider wins over
+any float across it**: it is a line down the whole pane, and one that went dead where a
+transient box happened to sit would read as a divider that sometimes does not work.
 
 **A press on a divider grabs it, and the drags that follow move it.** There are two: the one
 between the panes, and the split view's middle. The pane divider is two columns — the left

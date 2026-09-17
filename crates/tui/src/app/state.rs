@@ -10,7 +10,7 @@ use ratatui::text::Line;
 use crate::rows::{Row, RowKind, RowsContext};
 use crate::window::Side;
 
-use super::draw::{Paint, compose_row_lines, half_widths, overflow, pane_inner};
+use super::draw::{Paint, compose_row_lines, half_centre, half_widths, overflow, pane_inner};
 use super::*;
 
 /// The tree rows for `files`, with every directory named in `folded` folded
@@ -398,6 +398,18 @@ impl App {
         Some(inner.x + lw as u16)
     }
 
+    /// Put the pane divider under screen column `x`.
+    ///
+    /// `grab` is which of its two columns the press landed on, as a distance
+    /// from the left pane's width, so the column the reader took hold of is the
+    /// one that stays under the pointer. Read from the pointer each time rather
+    /// than accumulated, so a drag that runs into the clamp and comes back does
+    /// not drift.
+    pub(super) fn drag_panes_to(&mut self, x: u16, grab: i16) {
+        let cols = i32::from(x) - i32::from(self.panes().body.x) - i32::from(grab);
+        self.set_plan_cols(cols.clamp(0, u16::MAX.into()) as u16);
+    }
+
     /// Put the split view's middle under screen column `x`.
     ///
     /// Stored as a distance from the centre, so the two halves keep their skew
@@ -405,11 +417,11 @@ impl App {
     /// pointer dragged past either half's floor stops there.
     pub(super) fn drag_split_to(&mut self, x: u16) {
         let inner = pane_inner(self.panes().detail);
-        let middle = inner.width.saturating_sub(1) / 2;
-        self.split_offset = i32::from(x)
-            .saturating_sub(i32::from(inner.x))
-            .saturating_sub(i32::from(middle))
-            .clamp(i16::MIN.into(), i16::MAX.into()) as i16;
+        // Read from the same centre `half_widths` spends the offset from, or a
+        // grab and the draw would disagree about where nought is.
+        let centre = half_centre(inner.width.into());
+        let offset = i32::from(x) - i32::from(inner.x) - centre as i32;
+        self.split_offset = offset.clamp(i16::MIN.into(), i16::MAX.into()) as i16;
         // The middle changes how wide each half draws at, so it changes what
         // hangs off their right edges and how tall a wrapped row is. Both are
         // what `remeasure` re-derives.

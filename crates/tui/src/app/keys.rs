@@ -36,8 +36,12 @@ const SHIFT_STEP: isize = 8;
 /// drags it.
 const RESIZE_STEP: i16 = 4;
 
-/// Alt held, and ctrl not. See the resize keys for why this is not an exact
-/// match on the modifier set.
+/// Alt held, and ctrl not.
+///
+/// Deliberately not an exact match on the modifier set: `+` is shifted `=` on
+/// most keyboards, and a terminal with the keyboard enhancements on reports the
+/// shift as well — an exact match would make `alt-+` a dead key on exactly
+/// those terminals. Ctrl is excluded so a chord nobody aimed cannot land here.
 fn is_alt(m: KeyModifiers) -> bool {
     m.contains(KeyModifiers::ALT) && !m.contains(KeyModifiers::CONTROL)
 }
@@ -292,17 +296,22 @@ impl App {
                 }
             }
             Mode::Normal => {
-                // The divider, ahead of everything else in this pane. A press
-                // on it grabs it and the drags that follow move it; a press
-                // anywhere else lets it go. First because the two floats are
-                // drawn at their pane's full width, so each covers one of the
-                // divider's two columns and would swallow the grab.
+                // The two dividers, ahead of everything else in this pane. A
+                // press on one grabs it and the drags that follow move it; a
+                // press anywhere else lets go.
+                //
+                // Ahead of the float guards below because a float is drawn at
+                // its pane's full width, so each one lies across a divider's
+                // column and would swallow the grab. A divider wins: it is a
+                // line down the whole pane, and one that went dead where a
+                // transient box happened to sit would read as a divider that
+                // sometimes does not work.
+                //
+                // Each is grabbable only where its line IS drawn — the pane
+                // divider stops above the status row, the middle stays inside
+                // the diff pane's frame. A press off the end of a line is a
+                // press on nothing, whatever column it is in.
                 let (left, right) = divider(&panes);
-                // Each grab is allowed only where its line is actually drawn:
-                // the pane divider runs the height of the body and stops above
-                // the status row, and the split's middle runs inside the diff
-                // pane's frame. A press off the end of a line is a press on
-                // nothing, whatever column it is in.
                 if click {
                     self.divider_grab =
                         if (at.x == left || at.x == right) && panes.body.contains(at) {
@@ -322,18 +331,7 @@ impl App {
                     && drag
                 {
                     match grab {
-                        // The column the reader took hold of stays under the
-                        // pointer, which is what the offset records: the width
-                        // is the pointer's column from the body's left edge,
-                        // less the offset the grab was at. Read from the
-                        // pointer each time rather than accumulated, so a drag
-                        // that runs into the clamp and comes back does not
-                        // drift.
-                        Grab::Panes(off) => {
-                            let cols = (at.x as i32 - panes.body.x as i32 - off as i32)
-                                .clamp(0, u16::MAX as i32);
-                            self.set_plan_cols(cols as u16);
-                        }
+                        Grab::Panes(off) => self.drag_panes_to(at.x, off),
                         Grab::Split => self.drag_split_to(at.x),
                     }
                     return Vec::new();
@@ -871,12 +869,6 @@ impl App {
             // that does not act on the pane you are in: it always names the
             // DIFF pane, because making room for the diff is the thing the
             // reader wants and the left pane is what pays for it.
-            //
-            // Alt held, and ctrl not. Not an exact match on the modifiers:
-            // `+` is shifted `=` on most keyboards, and a terminal with the
-            // keyboard enhancements on reports the shift as well — an exact
-            // match would make `alt-+` a dead key on exactly those terminals.
-            // Ctrl is excluded so a chord nobody aimed cannot land here.
             (KeyCode::Char('=') | KeyCode::Char('+'), m) if is_alt(m) => {
                 self.resize_diff(RESIZE_STEP);
             }

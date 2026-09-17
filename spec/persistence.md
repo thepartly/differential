@@ -174,6 +174,12 @@ records a bare `false` or `true`, which deserialises to `Some(false)` or `Some(t
 every review already on disk keeps the layout it had, and only a review with no state file
 at all takes the configured default.
 
+**The two dividers are deliberately not here** — the one between the panes and the split
+view's middle ([tui.md](tui.md)). Where a divider sits is a reading position for this
+sitting, as the sideways shift is, so every review opens at the default. What belongs in
+this file is a choice the reader made about the review; where they pushed a line for one
+screenful is not one.
+
 ## Status
 
 Implemented in `engine::review_state` (primitives: store, types, re-anchoring) and
