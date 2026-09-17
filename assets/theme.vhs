@@ -27,7 +27,12 @@ Enter
 # Wait on what is on screen, never on a fixed delay: the pipeline is a cache
 # hit here but still enumerates, and a sleep long enough to be safe on a slow
 # machine is a sleep wasted on every other one.
-Wait+Screen@60s /reading plan/
+#
+# And wait on a word the REVIEWER draws, not one the splash shares. `reading
+# plan` is in the splash too — its grouping stage is called "labelling the
+# reading plan" — so that regex matched the first frame and the sleep below
+# was doing the waiting. `reviewed` is the plan pane's own footer hint.
+Wait+Screen@60s /reviewed/
 
 # A beat after the first paint. `Wait+Screen` returns as soon as the reviewer
 # has DRAWN, which is a moment before it is reading keys — a `tab` sent on the

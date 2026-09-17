@@ -1,9 +1,23 @@
 # The demo video linked from the README.
 #
+#   cargo build --release --bin dfr
+#   export PATH="$PWD/target/release:$PATH"
+#   dfr findings ecc9400..cfea95f
 #   cd assets && vhs record.vhs
 #
-# Run it FROM THIS DIRECTORY. `Output` and `Screenshot` below are relative
-# paths, and vhs resolves them against the process directory, not the tape's.
+# Run the last one FROM THE assets DIRECTORY. `Output` and `Screenshot` below
+# are relative paths, and vhs resolves them against the process directory, not
+# the tape's.
+#
+# The first two are not optional either. The tape records the `dfr` it finds on
+# PATH, and an installed one is whatever was last released — this video is a
+# feature demo, so it has to be this tree.
+#
+# The third warms the grouping cache, and it warms it BEFORE vhs starts. On a
+# miss that is a live agent call of a minute or more. Inside the tape it cannot
+# be waited on: `Wait+Screen` starts its clock when vhs types, not when the
+# shell finishes, so a cold cache expires the wait below rather than delaying
+# it. Outside, a forgotten warm is a loud vhs timeout instead of a wrong video.
 #
 # The range is fixed on purpose. This tape used to type a bare `dfr review`
 # and walk the commit picker, so every recording was a different diff and no
@@ -11,7 +25,7 @@
 # and its plan has all three tiers in it: eight focus groups, six skim, one
 # folded noise group. Every beat below has real material to land on.
 #
-# Needs `dfr` on PATH and `vim` for the last beat.
+# Needs `vim` for the last beat.
 
 Output demo.webm
 Set Shell zsh
@@ -26,16 +40,21 @@ Set Width 1600
 # `rm -rf .../reviews` that assets/themes.sh uses is safe only there, on a
 # throwaway fixture.
 #
+# Ask git where that directory is; do not spell `.git` out. `dfr` resolves it
+# with `rev-parse --git-common-dir` (crates/engine/src/gitio.rs), and in a
+# worktree `.git` is a FILE — the state lives in the bare parent. A hard-coded
+# `.git/differential` matches nothing there, deletes nothing, and the run
+# resumes wherever the last one stopped, silently. The `cd` above is what lets
+# the relative `.git` a plain clone answers with still resolve.
+#
 # The grouping cache is a SIBLING of reviews/ and is deliberately kept, so the
-# splash below is a cache hit rather than a live agent call. `dfr findings`
-# warms it if something has evicted it. Do not reach for `dfr clean`: it
-# deletes the cache and leaves the sessions, which is the wrong way round.
+# splash below is a cache hit rather than a live agent call. The `dfr findings`
+# in the header is what fills it. Do not reach for `dfr clean`: it deletes the
+# cache and leaves the sessions, which is the wrong way round.
 Hide
 Type "cd $(git rev-parse --show-toplevel)"
 Enter
-Type "grep -rl cfea95f .git/differential/reviews/*/identity.json 2>/dev/null | xargs -n1 dirname | xargs rm -rf"
-Enter
-Type "dfr findings ecc9400..cfea95f >/dev/null 2>&1"
+Type "grep -rl cfea95f $(git rev-parse --git-common-dir)/differential/reviews/*/identity.json 2>/dev/null | xargs -n1 dirname | xargs -r rm -rf"
 Enter
 Type "cd assets && clear"
 Enter
@@ -62,7 +81,14 @@ Enter
 # Wait on what is on screen, never on a fixed delay. The pipeline is a cache
 # hit here but still enumerates, and a sleep long enough to be safe on a slow
 # machine is a sleep wasted on every other one.
-Wait+Screen@60s /reading plan/
+#
+# Wait on a word the REVIEWER draws and the splash cannot. This used to read
+# `/reading plan/`, which the splash prints too: its grouping stage is called
+# "labelling the reading plan", and it says so both before that stage starts
+# and after it ticks (crates/tui/src/splash.rs). So the wait returned on the
+# first frame and the `Sleep 1s` below was carrying the whole tape into the
+# reviewer. `reviewed` is the plan pane's own footer hint (app/help.rs).
+Wait+Screen@60s /reviewed/
 
 # A beat after the first paint. `Wait+Screen` returns as soon as the reviewer
 # has DRAWN, which is a moment before it is reading keys — a key sent on the
@@ -101,6 +127,67 @@ Type "z"
 Sleep 600ms
 Type "f"
 Sleep 800ms
+
+# A word, found anywhere in the change. `/` is the one key that does not act on
+# the pane it is pressed in, so the plan pane is as good a place to press it as
+# the diff. What it reads is every changed file as it IS — unchanged lines
+# included, not the hunks.
+#
+# Arrows here, never `j`/`k`. Every printable key types into the query, so a
+# `j` would search for a `j` (crates/tui/src/app/search.rs).
+Type "/"
+Wait+Screen@10s /type to search every changed file/
+Sleep 700ms
+Type "alias_of"
+
+# Wait on the count rather than on a sleep. A query nothing holds draws no
+# count at all, so a fixture that has drifted stops the recording here instead
+# of filming an empty box.
+#
+# `alias_of` has four hits in this range: the trait method, its impl, the one
+# call, and a test. Which of them the list ranks first depends on where the
+# cursor already is, so the number below is the one thing in this tape read off
+# the screen rather than derived. Any of the four is a code line and lands the
+# next beat; confirm it once and the wait below keeps it honest after that.
+Wait+Screen@10s / found /
+Sleep 1.4s
+Down@200ms 2
+Sleep 1.2s
+
+# `enter` puts the cursor on the line and opens whatever was in the way — a
+# folded skim remainder, or a context gap the pane was not showing. It leaves
+# the focus in the DIFF pane, which is what lets the next beat be one key.
+Enter
+Sleep 1.4s
+
+# What declares the name under the cursor. Every reference the change can
+# resolve on this row is underlined already; `z` floats the declaration, with
+# its own lines and its own numbers, under a title of
+# `name · file:line · class · group`.
+#
+# This wait is the beat's guard, not its pacing. `z` means four things in the
+# diff pane and picks by what the cursor is on; a row with no symbol falls all
+# the way through to folding the plan's selected group (app/keys.rs). That is
+# invisible from here and would run every later beat on the wrong plan. No
+# float, no recording.
+#
+# The regex matches the float's TITLE and not a symbol: `z` steps a line's
+# names in column order, so which one wins is a fact about the line rather
+# than about this tape. `· <path>:<line>` is drawn nowhere else on this screen
+# — the search box has closed, and no finding is written yet.
+Type "z"
+Wait+Screen@10s /· .*\.rs:[0-9]+/
+Sleep 2s
+
+# `esc` closes it. So does moving the cursor, which is why the float is one
+# field and not a mode.
+Escape
+Sleep 600ms
+
+# Back to the plan pane: the peek left the focus in the diff, and the beat
+# below walks the PLAN.
+Tab
+Sleep 400ms
 
 # Back up the plan to the first group, then into the diff. Walk it with `k`
 # rather than `g`: `g` is the diff pane's top, and in the plan pane it leaves
