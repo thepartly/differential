@@ -25,6 +25,7 @@ use differential_engine::schema;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 
+use super::text_utils::split_pairs_at_ranges;
 use super::theme::Theme;
 // Re-exported: `SnippetLine` carries one in a public field, and the vendored
 // module it comes from is private.
@@ -32,7 +33,6 @@ pub use super::vendor::LineOrigin;
 use super::vendor::diff_algo::compute_side_by_side;
 use super::vendor::diff_types::{ChangeType, DiffLine, InlineSegment, expand_tabs};
 use super::vendor::syntax::HighlightedSpans;
-use super::vendor::text_utils::split_pairs_at_ranges;
 use super::window::{self, Expansion, Segment, Side};
 
 pub(crate) const TAB_WIDTH: usize = 4;

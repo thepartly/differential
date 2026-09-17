@@ -12,6 +12,7 @@ pub mod osc;
 pub mod picker;
 pub mod rows;
 pub mod splash;
+mod text_utils;
 pub mod theme;
 /// Vendored MIT code (tuicr, lumen). PRIVATE: nothing outside this crate uses
 /// it, and while it was public the compiler could never tell us which of it

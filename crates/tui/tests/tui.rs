@@ -5617,7 +5617,7 @@ fn w_wraps_a_long_line_and_leaves_the_row_count_alone() {
     let (_r, mut app) = app_with_a_long_line();
     let before = wrapped_pane(&mut app);
     assert!(
-        before.iter().any(|r| r.contains("...")),
+        before.iter().any(|r| r.contains('…')),
         "the line should be cut before w is pressed: {before:#?}"
     );
     let rows = app.rows.len();
@@ -9618,5 +9618,25 @@ fn both_dividers_are_held_to_one_rule() {
             assert_eq!(lw, split_point(want, width - 1, MIN_HALF));
             assert_eq!(lw + rw, width - 1, "the `│` keeps its own column");
         }
+    }
+}
+
+/// `cargo test -p differential-tui --test tui -- --ignored --nocapture render_dump_cut_row`
+#[ignore = "a dump for the author's eyes, not an assertion"]
+#[test]
+fn render_dump_cut_row() {
+    // Two lines wider than a split half: ASCII, and a run of wide characters
+    // so the cut can fall inside one.
+    let r = TestRepo::new();
+    r.write("src/wide.txt", b"let x = 0;\nlet y = 0;\n");
+    r.commit_all("base");
+    let ascii = format!("let x = 1; // {}end", "pad ".repeat(20));
+    let wide = "あいうえおかきくけこ".repeat(4);
+    r.write("src/wide.txt", format!("{ascii}\n{wide}\n").as_bytes());
+    r.commit_all("head");
+    let mut app = open_app_with(&r, &one_group_per_class(), ".dfr-cut-store");
+    app.set_area(Rect::new(0, 0, 72, 22));
+    for line in screen(&app, 72, 22) {
+        println!("{line}");
     }
 }

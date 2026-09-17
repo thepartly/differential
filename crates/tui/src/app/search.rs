@@ -28,7 +28,7 @@ use tui_input::backend::crossterm::to_input_request;
 use tui_input::{Input, InputRequest};
 
 use crate::rows::{RowKind, SnippetLine};
-use crate::vendor::text_utils::split_pairs_at_ranges;
+use crate::text_utils::split_pairs_at_ranges;
 
 use super::*;
 

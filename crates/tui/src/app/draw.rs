@@ -16,11 +16,11 @@ use unicode_width::UnicodeWidthStr;
 use differential_engine::plan::{self, LineCounts};
 
 use crate::rows::{Border, Fill, Gutter, Half, RowKind};
-use crate::theme::Theme;
-use crate::vendor::text_utils::{
+use crate::text_utils::{
     drop_columns, slice_pairs, split_pairs_at_ranges, take_columns, truncate_or_pad_spans,
     wrap_pairs,
 };
+use crate::theme::Theme;
 
 use super::text::{
     Hint, Ink, SEARCH_BOX_ROWS, basename, counts_columns, elide_head, file_list_rows,

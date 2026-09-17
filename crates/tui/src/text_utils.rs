@@ -1,82 +1,54 @@
-// Adapted from agavra/tuicr (0dacb6b), src/ui/text_utils.rs — the span
-// wrapping and search-highlight helpers removed (this crate never called
-// them), leaving the truncation/padding pair it does use.
-// MIT License — Copyright (c) 2025 tuicr contributors. See LICENSE-MIT.
-//
-// `wrap_pairs` and `slice_pairs` below are OURS, not vendored: soft wrap needs
-// them, and they live here because this is where a row's pairs are measured
-// and cut.
+//! Measuring and cutting a row's styled pairs: `(Style, String)` runs, as the
+//! highlighter hands them over and as a row is drawn.
+//!
+//! Word boundaries, display width and breaking an over-long token are
+//! `textwrap`'s and `unicode-width`'s job (design rule 5). What lives here is
+//! the part no crate can hold for us: cutting STYLED runs at the columns those
+//! answers fall on, so a break or a cut carries every style across untouched.
+//!
+//! This file began as tuicr's `text_utils.rs` (see CREDITS.md). Nothing of
+//! tuicr's is left in it: its one cutter reserved three columns for `...`
+//! while every other cut in the reviewer spends one on `…`, and rewriting it
+//! over `take_columns` made it ours.
 use ratatui::{style::Style, text::Span};
 use textwrap::WordSeparator;
 use textwrap::core::Word;
 use textwrap::wrap_algorithms::wrap_first_fit;
 use unicode_width::UnicodeWidthStr;
 
-/// Truncate or pad highlighted spans to a specific display width
-/// Uses unicode width to properly handle wide characters (CJK, emoji, etc.)
-/// Returns a vector of spans that fits exactly within the width
+/// The pairs cut or padded to exactly `width` columns, for a row whose
+/// content must end where the pane does.
+///
+/// A row wider than the pane keeps its first `width - 1` columns and ends in
+/// `…`; a narrower one is padded out in `base_style`, so a selection's
+/// background reaches the edge. One glyph and one column, the same as
+/// `elide_head` and `truncate_width` in `app/text.rs`. A wide character the
+/// cut falls inside becomes a space, so the row is exactly `width` wide
+/// either way.
 pub fn truncate_or_pad_spans(
     spans: &[(Style, String)],
     width: usize,
     base_style: Style,
 ) -> Vec<Span<'static>> {
-    // Count total display width
-    let total_width: usize = spans.iter().map(|(_, text)| text.width()).sum();
-
-    if total_width > width {
-        // Need to truncate
-        let mut result = Vec::new();
-        let mut remaining = width.saturating_sub(3); // Reserve space for "..."
-
-        for (style, text) in spans {
-            if remaining == 0 {
-                break;
-            }
-
-            let text_width = text.width();
-            if text_width <= remaining {
-                result.push(Span::styled(text.clone(), *style));
-                remaining -= text_width;
-            } else {
-                // Truncate this span character by character to fit remaining width
-                let mut truncated = String::new();
-                let mut current_width = 0;
-                for c in text.chars() {
-                    let char_width = unicode_width::UnicodeWidthChar::width(c).unwrap_or(0);
-                    if current_width + char_width > remaining {
-                        break;
-                    }
-                    truncated.push(c);
-                    current_width += char_width;
-                }
-                if !truncated.is_empty() {
-                    result.push(Span::styled(truncated, *style));
-                }
-                remaining = 0;
-            }
-        }
-
-        // Add ellipsis
-        result.push(Span::styled("...".to_string(), base_style));
-        result
-    } else if total_width < width {
-        // Need to pad
-        let mut result: Vec<Span> = spans
-            .iter()
-            .map(|(style, text)| Span::styled(text.clone(), *style))
+    let total: usize = spans.iter().map(|(_, text)| text.width()).sum();
+    if total > width {
+        let mut out: Vec<Span<'static>> = take_columns(spans, width.saturating_sub(1))
+            .into_iter()
+            .map(|(style, text)| Span::styled(text, style))
             .collect();
-
-        // Add padding
-        let padding = " ".repeat(width - total_width);
-        result.push(Span::styled(padding, base_style));
-        result
-    } else {
-        // Perfect fit
-        spans
-            .iter()
-            .map(|(style, text)| Span::styled(text.clone(), *style))
-            .collect()
+        if width > 0 {
+            out.push(Span::styled("…", base_style));
+        }
+        return out;
     }
+    let mut out: Vec<Span<'static>> = spans
+        .iter()
+        .map(|(style, text)| Span::styled(text.clone(), *style))
+        .collect();
+    if total < width {
+        out.push(Span::styled(" ".repeat(width - total), base_style));
+    }
+    out
 }
 
 /// Break styled pairs into the screen lines they occupy at `width`.
@@ -310,6 +282,33 @@ mod tests {
             total_chars, width,
             "padded spans should have exactly {width} chars, got {total_chars}"
         );
+    }
+
+    #[test]
+    fn a_cut_row_ends_in_one_ellipsis_at_exactly_the_width() {
+        let st = |n: u8| Style::default().fg(ratatui::style::Color::Indexed(n));
+        let pairs = vec![(st(1), "let ".to_string()), (st(2), "x = 1;".to_string())];
+        let out = truncate_or_pad_spans(&pairs, 6, Style::default());
+        let plain: String = out.iter().map(|s| s.content.as_ref()).collect();
+        assert_eq!(plain, "let x…");
+        assert_eq!(plain.width(), 6);
+        assert_eq!(out[0].style, st(1), "every style survives the cut");
+        assert_eq!(out[1].style, st(2));
+
+        // A wide character the cut falls inside becomes a space, so the row
+        // is still exactly as wide as asked, ellipsis included.
+        let pairs = vec![(st(1), "ok\u{3042}".to_string())];
+        let out = truncate_or_pad_spans(&pairs, 3, Style::default());
+        let plain: String = out.iter().map(|s| s.content.as_ref()).collect();
+        assert_eq!(plain, "ok…");
+        let out = truncate_or_pad_spans(&pairs, 2, Style::default());
+        let plain: String = out.iter().map(|s| s.content.as_ref()).collect();
+        assert_eq!(plain, "o…");
+        let pairs = vec![(st(1), "\u{3042}\u{3044}\u{3046}".to_string())];
+        let out = truncate_or_pad_spans(&pairs, 4, Style::default());
+        let plain: String = out.iter().map(|s| s.content.as_ref()).collect();
+        assert_eq!(plain, "\u{3042} …");
+        assert_eq!(plain.width(), 4);
     }
 
     fn text(line: &[(Style, String)]) -> String {

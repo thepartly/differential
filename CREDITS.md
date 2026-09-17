@@ -17,8 +17,9 @@ Commit `0dacb6b`. MIT License, Copyright (c) 2025 tuicr contributors.
   were removed. `highlight_ranges`, `Highlighted` and `LOOKBACK` are ours, not tuicr's.
 - [`crates/tui/src/vendor/terminal.rs`](crates/tui/src/vendor/terminal.rs) — the terminal
   lifecycle: enter, draw, restore, and a teardown that runs on `Drop`.
-- [`crates/tui/src/vendor/text_utils.rs`](crates/tui/src/vendor/text_utils.rs) — one span
-  truncation helper.
+
+`crates/tui/src/text_utils.rs` began as tuicr's span truncation helper and no longer holds
+any of its code; the row cutter was rewritten over this crate's own column slicing.
 
 The cached process-wide highlighter in `crates/tui/src/theme/mod.rs` follows tuicr's
 `OnceLock<Arc<..>>` pattern. The single row builder in `crates/tui/src/rows.rs` applies a

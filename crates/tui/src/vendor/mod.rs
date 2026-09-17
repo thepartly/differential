@@ -15,16 +15,16 @@
 //!
 //! Adapted from:
 //!
-//! - `agavra/tuicr` — syntax highlighting, terminal lifecycle, and one span
-//!   truncation helper. Its span-wrapping and search utilities were taken too
-//!   and are the bulk of what the trim removed.
+//! - `agavra/tuicr` — syntax highlighting and the terminal lifecycle. Its
+//!   span-wrapping, search and truncation utilities were taken too and are the
+//!   bulk of what the trim removed; the last of them, the row cutter, was
+//!   rewritten and now lives in `crate::text_utils` as ours.
 //! - `jnsahaj/lumen` — the blob-to-rows diff engine with word-level emphasis.
 
 pub mod diff_algo;
 pub mod diff_types;
 pub mod syntax;
 pub mod terminal;
-pub mod text_utils;
 
 /// Which side of a diff a rendered line belongs to (tuicr's `LineOrigin`,
 /// hosted here so the vendored syntax module stays self-contained).
