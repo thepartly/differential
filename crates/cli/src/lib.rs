@@ -13,6 +13,7 @@ use std::time::Duration;
 
 use anyhow::Context;
 use clap::{Args, Parser, Subcommand};
+use differential_engine::artefact::symbols::SymbolReaders;
 use differential_engine::config::{Agent, Config};
 use differential_engine::forge::{self, Forge, ForgeKind, Request};
 use differential_engine::forgeio::{GhForge, GlabForge};
@@ -237,60 +238,12 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         Command::Review { name, .. } | Command::Findings { name, .. } => name.clone(),
         _ => None,
     };
-
-    let repo = match open_repo(common.repo.as_deref()) {
-        Ok(r) => r,
-        Err(e) => return usage_error(&e),
-    };
-    let config = match Config::load(
-        &OsConfigSource,
-        repo.root(),
-        common.config.as_deref(),
-        common.user_config.as_deref(),
-    ) {
-        Ok(c) => c,
-        Err(e) => return usage_error(&e.to_string()),
-    };
-    // A request names both the range and the review (ADR 0029). The forge is
-    // asked once, here; everything after reads the answer. Which forge is the
-    // flag's to say, and a run-time answer, hence `dyn` (ADR 0020).
-    let forge: Option<Arc<dyn Forge>> = match (&common.pr, &common.mr) {
-        (Some(_), _) => Some(Arc::new(GhForge::new(repo.root()))),
-        (None, Some(_)) => Some(Arc::new(GlabForge::new(repo.root()))),
-        (None, None) => None,
-    };
-    let request = match (&forge, common.pr.as_ref().or(common.mr.as_ref())) {
-        (Some(forge), Some(id)) => match forge.request(id.as_deref()) {
-            Ok(req) => Some(req),
-            Err(e) => return usage_error(&e.to_string()),
-        },
-        _ => None,
-    };
     // Only `review` may omit the range (it opens the picker instead).
-    let resolved = if let Some(req) = &request {
-        match forge::source_for(&repo, req) {
-            Ok(s) => Some(s),
-            Err(e) => return usage_error(&e.to_string()),
-        }
-    } else if common.range.is_empty() {
-        if !matches!(cli.command, Command::Review { .. }) {
-            return usage_error(
-                "a revision range is required: <base>..<head>, <a>...<b>, or two revs",
-            );
-        }
-        None
-    } else {
-        let spec: Vec<&str> = common.range.iter().map(String::as_str).collect();
-        match resolve_range(&repo, &spec) {
-            Ok(t) => Some(t),
-            Err(e) => return usage_error(&e.to_string()),
-        }
+    let may_pick = matches!(cli.command, Command::Review { .. });
+    let resolved = match Resolved::of(common, may_pick, session_name) {
+        Ok(r) => r,
+        Err(msg) => return usage_error(&msg),
     };
-    let langs = LanguageRegistry::builtin();
-    // The readers ARE the mechanism, not an optional set: a build that wires
-    // none produces no dependency edges and so no foundation-first ordering.
-    // Each reader ranks itself, so this call site cannot get the order wrong.
-    let symbols = differential_symbols::readers();
 
     match cli.command {
         Command::Agent { .. } | Command::Agents { .. } | Command::Clean { .. } => {
@@ -298,189 +251,309 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         }
         Command::Stack {
             ref_name, no_cache, ..
-        } => {
-            let source = resolved.expect("range checked above");
-            let backend = backend_from(&config.grouping, repo.root(), None);
-            let out = run_stack_pipeline(
-                &repo,
-                &source,
-                &config,
-                &langs,
-                &symbols,
-                &GroupingOptions {
-                    backend: &backend,
-                    cache: &grouping_cache(&repo, no_cache)?,
-                    artefacts: &artefact_store(&repo, no_cache)?,
-                    fetch: &fetch_command(),
-                    progress: None,
-                },
-                &StackOptions {
-                    ref_name: ref_name.as_deref(),
-                },
-            )
-            .context("stack pipeline failed")?;
-
-            let Some(stack) = out.stack else {
-                eprintln!("error: invariants failed; nothing rendered");
-                print_range(&out.pipeline.base, &out.pipeline.head);
-                println!("{}", out.pipeline.report);
-                return Ok(ExitCode::from(1));
-            };
-            println!(
-                "{}  ({} commits, {} hunks, recount {})",
-                stack.ref_name,
-                stack.commits.len(),
-                stack.hunks_carried,
-                stack.recount
-            );
-            for c in &stack.commits {
-                println!(
-                    "  {}  {:4}h  {}",
-                    plan::short_oid(&c.sha),
-                    c.hunks,
-                    c.subject
-                );
-            }
-            println!(
-                "review with: git log --oneline {}..{}",
-                plan::short_oid(&source.base),
-                stack.ref_name
-            );
-            Ok(ExitCode::SUCCESS)
-        }
-        Command::Review { no_cache, .. } => {
-            // The renderer owns the screen (picker -> splash -> reviewer); the
-            // app layer owns what the pipeline is. Endpoints and review
-            // identity per the wiring table in adr/0017.
-            let pick = resolved.is_none();
-            let cache = grouping_cache(&repo, no_cache)?;
-            let artefacts = artefact_store(&repo, no_cache)?;
-            let fetch = fetch_command();
-            let worker_repo = repo.clone();
-            // Read before `config` moves into the pipeline closure: how much
-            // context to show is presentation, so it goes to the renderer
-            // rather than through the pipeline's result.
-            let opts = differential_tui::ReviewOptions {
-                context: config.review.context,
-                context_step: config.review.context_step,
-                split_diff: config.review.diff.is_split(),
-                theme: config.review.theme,
-                // As TYPED, so the footer can hand it straight back. Empty
-                // when the picker chose the source, which has no spelling.
-                range: match &request {
-                    Some(req) => Some(format!(
-                        "--{} {}",
-                        if req.kind == ForgeKind::Github {
-                            "pr"
-                        } else {
-                            "mr"
-                        },
-                        req.id
-                    )),
-                    None => (!common.range.is_empty()).then(|| common.range.join(" ")),
-                },
-            };
-            differential_tui::review(&repo, pick, opts, move |picked, tx, cancel| {
-                // Which resolver runs is dispatch; what each one decides is
-                // engine policy (ADR 0017).
-                let source = match (resolved, picked) {
-                    (Some(source), _) => source,
-                    (None, Some(p)) => resolve_picked(&worker_repo, p.base, p.include_worktree)?,
-                    (None, None) => anyhow::bail!("no review source picked"),
-                };
-                let report = move |p| {
-                    let _ = tx.send(p);
-                };
-                let out = differential_engine::run_grouped_pipeline(
-                    &worker_repo,
-                    &source,
-                    &config,
-                    &langs,
-                    &symbols,
-                    &GroupingOptions {
-                        // The cancel flag lives on the backend: the thing that
-                        // needs killing is the subprocess.
-                        backend: &backend_from(&config.grouping, worker_repo.root(), Some(cancel)),
-                        cache: &cache,
-                        artefacts: &artefacts,
-                        fetch: &fetch,
-                        progress: Some(&report),
-                    },
-                )
-                .context("grouped pipeline failed")?;
-                let identity =
-                    review_identity_of(&source, request.as_ref(), session_name, &out.base);
-                // The reviewer fetches and posts through this; composed here
-                // because which forge is a run-time answer (ADR 0020, 0029).
-                let forge = request.and_then(|req| {
-                    Some(differential_tui::ForgeLink {
-                        forge: forge?,
-                        request: req,
-                    })
-                });
-                Ok(differential_tui::Prepared {
-                    out,
-                    identity,
-                    forge,
-                })
-            })?;
-            Ok(ExitCode::SUCCESS)
-        }
+        } => run_stack(&resolved, ref_name.as_deref(), no_cache),
+        Command::Review { no_cache, .. } => run_review(resolved, no_cache),
         Command::Findings {
             summary,
             post,
             no_cache,
             ..
-        } => {
-            let source = resolved.expect("range checked above");
-            let out = grouped(&repo, &source, &config, &langs, &symbols, no_cache)?;
-            let doc = out
-                .document
-                .context("invariants failed; no plan available")?;
-            // The same resolution the reviewer's session makes, so `findings`
-            // reads the review they are looking at and not an empty namesake.
-            let identity = review_identity_of(&source, request.as_ref(), session_name, &out.base);
-            let id = review_identity::resolve(&FsReviewCatalogue::new(&repo)?, &repo, &identity)?;
-            let store = FsReviewStore::for_review(&repo, &id)?;
-            let session = differential_engine::ReviewSession::open(store, doc, out.view)?;
-            if post {
-                // Declared to clap as well; checked here because a panic is
-                // the wrong answer to a flag.
-                let (Some(req), Some(forge)) = (request.as_ref(), forge.as_deref()) else {
-                    return usage_error("--post publishes to a request; give --pr or --mr");
-                };
-                return publish(forge, req, session);
-            }
-            // Two projections of one store, both the engine's: JSON for a
-            // consumer, markdown for a person. The reviewer's `y` copies the
-            // second one, so the two cannot drift.
-            if summary {
-                print!("{}", session.findings_summary());
-            } else {
-                println!("{}", serde_json::to_string_pretty(session.findings())?);
-            }
-            Ok(ExitCode::SUCCESS)
-        }
-        Command::Check { json, .. } => {
-            let source = resolved.expect("range checked above");
-            let mut out = run_pipeline(&repo, &source, &config, &langs, &symbols)
-                .context("pipeline failed")?;
-            // Running invariants 3 and 4 is this command's entire job, so it
-            // always asks for them. They write to the odb; nothing else does.
-            differential_engine::verify(&repo, &mut out).context("verify failed")?;
-            if json {
-                println!("{}", serde_json::to_string_pretty(&out.report)?);
-            } else {
-                print_range(&out.base, &out.head);
-                println!("{}", out.report);
-            }
-            Ok(if out.report.all_ok() {
-                ExitCode::SUCCESS
-            } else {
-                ExitCode::from(1)
-            })
-        }
+        } => run_findings(&resolved, summary, post, no_cache),
+        Command::Check { json, .. } => run_check(&resolved, json),
     }
+}
+
+/// `Common`, resolved: the repository opened, the config read, the forge
+/// asked, the range resolved. What the four range commands start from.
+///
+/// Not the bundle design rule 2 refuses. That one hands DOMAIN code a git
+/// provider and a `Config` in one struct, which is how config gets a say in
+/// enumeration (ADR 0012). This never leaves the application layer: each
+/// command below unpacks it and hands the engine the same separate arguments
+/// it always took.
+struct Resolved {
+    repo: Repo,
+    config: Config,
+    langs: LanguageRegistry,
+    symbols: SymbolReaders,
+    /// The forge the request was named on, when one was. Which forge is the
+    /// flag's to say, and a run-time answer, hence `dyn` (ADR 0020, 0029).
+    forge: Option<Arc<dyn Forge>>,
+    request: Option<Request>,
+    /// `None` only for `review` without a range, which opens the picker.
+    source: Option<plan::ReviewSource>,
+    /// A name is the whole review identity when one is given (ADR 0027).
+    session_name: Option<String>,
+    /// The range as typed, for the reviewer's footer.
+    range: Vec<String>,
+}
+
+impl Resolved {
+    /// Every failure here is a usage error: the message comes back rather
+    /// than the error, because the caller has nothing to add before exit 2.
+    fn of(common: &Common, may_pick: bool, session_name: Option<String>) -> Result<Self, String> {
+        let repo = open_repo(common.repo.as_deref())?;
+        let config = Config::load(
+            &OsConfigSource,
+            repo.root(),
+            common.config.as_deref(),
+            common.user_config.as_deref(),
+        )
+        .map_err(|e| e.to_string())?;
+        // A request names both the range and the review (ADR 0029). The forge
+        // is asked once, here; everything after reads the answer.
+        let forge: Option<Arc<dyn Forge>> = match (&common.pr, &common.mr) {
+            (Some(_), _) => Some(Arc::new(GhForge::new(repo.root()))),
+            (None, Some(_)) => Some(Arc::new(GlabForge::new(repo.root()))),
+            (None, None) => None,
+        };
+        let request = match (&forge, common.pr.as_ref().or(common.mr.as_ref())) {
+            (Some(forge), Some(id)) => {
+                Some(forge.request(id.as_deref()).map_err(|e| e.to_string())?)
+            }
+            _ => None,
+        };
+        let source = if let Some(req) = &request {
+            Some(forge::source_for(&repo, req).map_err(|e| e.to_string())?)
+        } else if common.range.is_empty() {
+            if !may_pick {
+                return Err(
+                    "a revision range is required: <base>..<head>, <a>...<b>, or two revs".into(),
+                );
+            }
+            None
+        } else {
+            let spec: Vec<&str> = common.range.iter().map(String::as_str).collect();
+            Some(resolve_range(&repo, &spec).map_err(|e| e.to_string())?)
+        };
+        Ok(Self {
+            repo,
+            config,
+            langs: LanguageRegistry::builtin(),
+            // The readers ARE the mechanism, not an optional set: a build that
+            // wires none produces no dependency edges and so no
+            // foundation-first ordering. Each reader ranks itself, so this
+            // call site cannot get the order wrong.
+            symbols: differential_symbols::readers(),
+            forge,
+            request,
+            source,
+            session_name,
+            range: common.range.clone(),
+        })
+    }
+
+    /// The range, for the three commands that require one.
+    fn source(&self) -> &plan::ReviewSource {
+        self.source
+            .as_ref()
+            .expect("the range was checked in Resolved::of")
+    }
+}
+
+/// `dfr stack`: render the plan as a commit stack and say where it landed.
+fn run_stack(r: &Resolved, ref_name: Option<&str>, no_cache: bool) -> anyhow::Result<ExitCode> {
+    let source = r.source();
+    let backend = backend_from(&r.config.grouping, r.repo.root(), None);
+    let out = run_stack_pipeline(
+        &r.repo,
+        source,
+        &r.config,
+        &r.langs,
+        &r.symbols,
+        &GroupingOptions {
+            backend: &backend,
+            cache: &grouping_cache(&r.repo, no_cache)?,
+            artefacts: &artefact_store(&r.repo, no_cache)?,
+            fetch: &fetch_command(),
+            progress: None,
+        },
+        &StackOptions { ref_name },
+    )
+    .context("stack pipeline failed")?;
+
+    let Some(stack) = out.stack else {
+        eprintln!("error: invariants failed; nothing rendered");
+        print_range(&out.pipeline.base, &out.pipeline.head);
+        println!("{}", out.pipeline.report);
+        return Ok(ExitCode::from(1));
+    };
+    println!(
+        "{}  ({} commits, {} hunks, recount {})",
+        stack.ref_name,
+        stack.commits.len(),
+        stack.hunks_carried,
+        stack.recount
+    );
+    for c in &stack.commits {
+        println!(
+            "  {}  {:4}h  {}",
+            plan::short_oid(&c.sha),
+            c.hunks,
+            c.subject
+        );
+    }
+    println!(
+        "review with: git log --oneline {}..{}",
+        plan::short_oid(&source.base),
+        stack.ref_name
+    );
+    Ok(ExitCode::SUCCESS)
+}
+
+/// `dfr review`: the renderer owns the screen (picker -> splash -> reviewer);
+/// this layer owns what the pipeline is. Endpoints and review identity per
+/// the wiring table in adr/0017.
+///
+/// Takes `Resolved` by value: the config, languages and readers move into the
+/// pipeline closure, which runs on the renderer's worker thread.
+fn run_review(r: Resolved, no_cache: bool) -> anyhow::Result<ExitCode> {
+    let Resolved {
+        repo,
+        config,
+        langs,
+        symbols,
+        forge,
+        request,
+        source,
+        session_name,
+        range,
+    } = r;
+    let pick = source.is_none();
+    let cache = grouping_cache(&repo, no_cache)?;
+    let artefacts = artefact_store(&repo, no_cache)?;
+    let fetch = fetch_command();
+    let worker_repo = repo.clone();
+    // Read before `config` moves into the pipeline closure: how much context
+    // to show is presentation, so it goes to the renderer rather than through
+    // the pipeline's result.
+    let opts = differential_tui::ReviewOptions {
+        context: config.review.context,
+        context_step: config.review.context_step,
+        split_diff: config.review.diff.is_split(),
+        theme: config.review.theme,
+        // As TYPED, so the footer can hand it straight back. Empty when the
+        // picker chose the source, which has no spelling.
+        range: match &request {
+            Some(req) => Some(format!(
+                "--{} {}",
+                if req.kind == ForgeKind::Github {
+                    "pr"
+                } else {
+                    "mr"
+                },
+                req.id
+            )),
+            None => (!range.is_empty()).then(|| range.join(" ")),
+        },
+    };
+    differential_tui::review(&repo, pick, opts, move |picked, tx, cancel| {
+        // Which resolver runs is dispatch; what each one decides is engine
+        // policy (ADR 0017).
+        let source = match (source, picked) {
+            (Some(source), _) => source,
+            (None, Some(p)) => resolve_picked(&worker_repo, p.base, p.include_worktree)?,
+            (None, None) => anyhow::bail!("no review source picked"),
+        };
+        let report = move |p| {
+            let _ = tx.send(p);
+        };
+        let out = differential_engine::run_grouped_pipeline(
+            &worker_repo,
+            &source,
+            &config,
+            &langs,
+            &symbols,
+            &GroupingOptions {
+                // The cancel flag lives on the backend: the thing that needs
+                // killing is the subprocess.
+                backend: &backend_from(&config.grouping, worker_repo.root(), Some(cancel)),
+                cache: &cache,
+                artefacts: &artefacts,
+                fetch: &fetch,
+                progress: Some(&report),
+            },
+        )
+        .context("grouped pipeline failed")?;
+        let identity = review_identity_of(&source, request.as_ref(), session_name, &out.base);
+        // The reviewer fetches and posts through this; composed here because
+        // which forge is a run-time answer (ADR 0020, 0029).
+        let forge = request.and_then(|req| {
+            Some(differential_tui::ForgeLink {
+                forge: forge?,
+                request: req,
+            })
+        });
+        Ok(differential_tui::Prepared {
+            out,
+            identity,
+            forge,
+        })
+    })?;
+    Ok(ExitCode::SUCCESS)
+}
+
+/// `dfr findings`: the review's findings as JSON, as a summary, or posted to
+/// the request.
+fn run_findings(
+    r: &Resolved,
+    summary: bool,
+    post: bool,
+    no_cache: bool,
+) -> anyhow::Result<ExitCode> {
+    let source = r.source();
+    let out = grouped(&r.repo, source, &r.config, &r.langs, &r.symbols, no_cache)?;
+    let doc = out
+        .document
+        .context("invariants failed; no plan available")?;
+    // The same resolution the reviewer's session makes, so `findings` reads
+    // the review they are looking at and not an empty namesake.
+    let identity = review_identity_of(
+        source,
+        r.request.as_ref(),
+        r.session_name.clone(),
+        &out.base,
+    );
+    let id = review_identity::resolve(&FsReviewCatalogue::new(&r.repo)?, &r.repo, &identity)?;
+    let store = FsReviewStore::for_review(&r.repo, &id)?;
+    let session = differential_engine::ReviewSession::open(store, doc, out.view)?;
+    if post {
+        // Declared to clap as well; checked here because a panic is the wrong
+        // answer to a flag.
+        let (Some(req), Some(forge)) = (r.request.as_ref(), r.forge.as_deref()) else {
+            return usage_error("--post publishes to a request; give --pr or --mr");
+        };
+        return publish(forge, req, session);
+    }
+    // Two projections of one store, both the engine's: JSON for a consumer,
+    // markdown for a person. The reviewer's `y` copies the second one, so the
+    // two cannot drift.
+    if summary {
+        print!("{}", session.findings_summary());
+    } else {
+        println!("{}", serde_json::to_string_pretty(session.findings())?);
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+/// `dfr check`: run the pipeline and report the invariants.
+fn run_check(r: &Resolved, json: bool) -> anyhow::Result<ExitCode> {
+    let mut out = run_pipeline(&r.repo, r.source(), &r.config, &r.langs, &r.symbols)
+        .context("pipeline failed")?;
+    // Running invariants 3 and 4 is this command's entire job, so it always
+    // asks for them. They write to the odb; nothing else does.
+    differential_engine::verify(&r.repo, &mut out).context("verify failed")?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&out.report)?);
+    } else {
+        print_range(&out.base, &out.head);
+        println!("{}", out.report);
+    }
+    Ok(if out.report.all_ok() {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(1)
+    })
 }
 
 /// The repository a command runs against: the one named, or the one holding

@@ -5,13 +5,9 @@ use std::path::Path;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use differential_engine::ReviewSession;
-use differential_engine::config::Config;
 use differential_engine::gitio::Repo;
-use differential_engine::lang::LanguageRegistry;
-use differential_engine::pipeline::run_grouped_pipeline;
-use differential_engine::plan::ReviewSource;
 use differential_engine::ports::ReviewStore;
-use differential_engine::store::{FsArtefactStore, FsGroupingCache, FsReviewStore};
+use differential_engine::store::FsReviewStore;
 use differential_testutil::{FakeBackend, TestRepo, github_request, json_group, remote_comment};
 use differential_tui::app::{
     App, Effect, Focus, Mode, Reading, ReviewOptions, Search, ViewMode, Viewport,
@@ -68,21 +64,7 @@ fn open_app_with_opts(
     let repo = Repo::open(Path::new(&r.root)).unwrap();
     let base = r.git(&["rev-parse", "HEAD~1"]);
     let head = r.git(&["rev-parse", "HEAD"]);
-    let out = run_grouped_pipeline(
-        &repo,
-        &ReviewSource::range(base.clone(), head.clone(), head.clone()),
-        &Config::default(),
-        &LanguageRegistry::builtin(),
-        &differential_testutil::stub_readers(),
-        &differential_engine::grouping::GroupingOptions {
-            backend,
-            cache: &FsGroupingCache::disabled(),
-            artefacts: &FsArtefactStore::disabled(),
-            fetch: "dfr",
-            progress: None,
-        },
-    )
-    .unwrap();
+    let out = differential_testutil::grouped_output(r, &base, &head, backend, None);
     let factory = RowFactory::new(repo, out.base.clone(), out.head.clone());
     let session = ReviewSession::open(
         FsReviewStore::at(r.root.join(store)).unwrap(),
@@ -1596,21 +1578,7 @@ fn highlighting_is_windowed_not_whole_file() {
     let base = r.git(&["rev-parse", "HEAD~1"]);
     let head = r.git(&["rev-parse", "HEAD"]);
     let backend = skim_first_backend();
-    let out = run_grouped_pipeline(
-        &repo,
-        &ReviewSource::range(base.clone(), head.clone(), head.clone()),
-        &Config::default(),
-        &LanguageRegistry::builtin(),
-        &differential_testutil::stub_readers(),
-        &differential_engine::grouping::GroupingOptions {
-            backend: &backend,
-            cache: &FsGroupingCache::disabled(),
-            artefacts: &FsArtefactStore::disabled(),
-            fetch: "dfr",
-            progress: None,
-        },
-    )
-    .unwrap();
+    let out = differential_testutil::grouped_output(&r, &base, &head, &backend, None);
     let factory = RowFactory::new(repo, out.base.clone(), out.head.clone());
     let session = ReviewSession::open(
         FsReviewStore::at(r.root.join(".dfr-big-store")).unwrap(),

@@ -434,6 +434,27 @@ pub fn rename_and_rewrite_repo() -> (TestRepo, String, String) {
     (r, base, head)
 }
 
+/// A definition file and a consumer file with one real dependency between
+/// them: `b_user` references the type `a_core` introduces. Two classes and one
+/// edge the ordering stage must draw the right way round — which is why the
+/// grouping tests and the `dfr agent` tests each had a copy.
+pub fn def_use_repo() -> (TestRepo, String, String) {
+    let r = TestRepo::new();
+    r.write("src/a_core.txt", b"placeholder\n");
+    r.write("src/b_user.txt", b"placeholder\n");
+    let base = r.commit_all("base");
+    r.write(
+        "src/a_core.txt",
+        b"placeholder\npub struct WidgetCore { pub retries: u32 }\n",
+    );
+    r.write(
+        "src/b_user.txt",
+        b"placeholder\nlet core = WidgetCore { retries: 3 };\n",
+    );
+    let head = r.commit_all("head");
+    (r, base, head)
+}
+
 pub fn grouped(r: &TestRepo, base: &str, head: &str, backend: &dyn LlmBackend) -> PlanDocument {
     grouped_with_cache(r, base, head, backend, None)
 }
@@ -463,7 +484,11 @@ pub fn doc_and_view(r: &TestRepo, base: &str, head: &str) -> (PlanDocument, Diff
     (out.document.expect("grouped document"), out.view)
 }
 
-fn grouped_output(
+/// The whole pipeline output for a grouped range: the document AND the diff
+/// view, plus the endpoints a renderer's row factory wants. [`grouped`] keeps
+/// only the document; the TUI and golden tests need the rest, and each used
+/// to spell the fifteen-line call out again.
+pub fn grouped_output(
     r: &TestRepo,
     base: &str,
     head: &str,
