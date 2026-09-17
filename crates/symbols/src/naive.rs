@@ -4,10 +4,13 @@
 //! trait's default answer. A port must not ship an answer, so it is a named
 //! reader now, ranked below anything that actually parses.
 //!
-//! It reads only files whose extension names a language. A `Cargo.toml`, a
-//! `README.md` or a lockfile is claimed by nobody and contributes nothing: on
-//! the validation corpus, 32% of every dependency edge came from classes made
-//! entirely of such files, and every one of those edges was false.
+//! It reads only files whose extension the namespace table names
+//! (`namespace::is_code`) — the same table that gives every reader its
+//! namespace, so it stands under every file an AST reader claims. A
+//! `Cargo.toml`, a `README.md` or a lockfile is claimed by nobody and
+//! contributes nothing: on the validation corpus, 32% of every dependency edge
+//! came from classes made entirely of such files, and every one of those edges
+//! was false.
 
 use std::sync::LazyLock;
 
@@ -24,21 +27,17 @@ static DEF_RE: LazyLock<Regex> = LazyLock::new(|| {
 static REF_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?-u)[A-Za-z_][A-Za-z0-9_]{3,}").unwrap());
 
-/// Extensions this reader will attempt. A whitelist, never a blacklist: a file
-/// type nobody thought about gets silence, which is the safe answer.
-const CODE: &[&[u8]] = &[
-    b".rs", b".py", b".go", b".ts", b".tsx", b".js", b".jsx", b".mjs", b".cjs", b".java", b".kt",
-    b".kts", b".c", b".h", b".cc", b".cpp", b".cxx", b".hpp", b".hh", b".cs", b".rb", b".php",
-    b".swift", b".scala", b".sh", b".bash", b".zsh", b".pl", b".pm", b".lua", b".ex", b".exs",
-    b".erl", b".hs", b".ml", b".mli", b".dart", b".vue", b".svelte", b".sql", b".proto", b".zig",
-];
-
 pub struct NaiveSymbols;
 
 impl SymbolSource for NaiveSymbols {
     /// The floor. Anything that parses outranks it.
+    ///
+    /// The claim is the namespace table's, not a list of this reader's own.
+    /// It had one, and the list lagged the tuned reader by `.pyi`, `.mts` and
+    /// `.cts`: a file of those kinds whose parse failed fell past the floor to
+    /// no symbols at all, against what the fallback promises.
     fn priority(&self, path: &[u8]) -> Option<u8> {
-        CODE.iter().any(|e| path.ends_with(e)).then_some(1)
+        crate::namespace::is_code(path).then_some(1)
     }
 
     /// Split on `\n` only. A `\r` survives into the line, where the identifier
@@ -57,17 +56,20 @@ impl SymbolSource for NaiveSymbols {
         })
     }
 
-    /// `-v3`: every name now carries its columns, so this reader's answer
-    /// changed even though which symbols it finds did not.
+    /// `-v4`: the claim moved onto the namespace table, so this reader now
+    /// stands under `.pyi`, `.mts` and `.cts` too. No reachable input answers
+    /// differently — the tuned reader outranks it on all three and a parse
+    /// there does not fail today — but the contract below says bump anyway.
     ///
-    /// `-v2` was the namespace (ADR 0031). The reason to bump is the same
-    /// either way and does not depend on the change mattering to the graph:
-    /// the port's contract is that a reader which ANSWERS differently colds
-    /// the cache. This reader is the only one for Ruby, PHP, Swift, Elixir,
-    /// shell and the rest, and the AST readers' fallback when a parse fails,
-    /// so a forgotten bump here is a stale grouping nothing would catch.
+    /// `-v3` was the columns on every name; `-v2` the namespace (ADR 0031).
+    /// The reason to bump is the same every time and does not depend on the
+    /// change mattering to the graph: the port's contract is that a reader
+    /// which ANSWERS differently colds the cache. This reader is the only one
+    /// for Ruby, PHP, Swift, Elixir, shell and the rest, and the AST readers'
+    /// fallback when a parse fails, so a forgotten bump here is a stale
+    /// grouping nothing would catch.
     fn fingerprint(&self) -> String {
-        "naive-v3".to_string()
+        "naive-v4".to_string()
     }
 }
 
@@ -131,6 +133,9 @@ mod tests {
     fn it_reads_source_and_declines_data_and_prose() {
         assert_eq!(NaiveSymbols.priority(b"src/lib.rs"), Some(1));
         assert_eq!(NaiveSymbols.priority(b"queries/get.sql"), Some(1));
+        // Claimed by the tuned reader, and missing from the list this reader
+        // used to keep of its own.
+        assert_eq!(NaiveSymbols.priority(b"typings/api.pyi"), Some(1));
         // The four the corpus indicted, plus a file with no extension at all.
         assert_eq!(NaiveSymbols.priority(b"Cargo.toml"), None);
         assert_eq!(NaiveSymbols.priority(b"README.md"), None);
