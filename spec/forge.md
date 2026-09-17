@@ -46,13 +46,25 @@ a rebase onto a moved base reopens the same review, and it neither adopts nor is
 ## The trait
 
 ```rust
-pub trait Forge {
+pub trait Forge: Send + Sync {
+    fn kind(&self) -> ForgeKind;
+    fn whoami(&self) -> Result<String, ForgeError>;
     fn request(&self, id: Option<&str>) -> Result<Request, ForgeError>;
     fn threads(&self, req: &Request) -> Result<Vec<RemoteThread>, ForgeError>;
-    fn publish(&self, req: &Request, batch: &Batch) -> Result<Vec<Published>, ForgeError>;
+    fn publish(&self, req: &Request, batch: &Batch) -> Result<Sent, ForgeError>;
     fn set_resolved(&self, req: &Request, thread: &str, resolved: bool) -> Result<(), ForgeError>;
+    fn edit_comment(&self, req: &Request, thread: &str, comment: &str, body: &str)
+        -> Result<(), ForgeError>;
+    fn delete_comment(&self, req: &Request, thread: &str, comment: &str)
+        -> Result<(), ForgeError>;
 }
 ```
+
+`publish` answers `Sent`: the comments the forge took, each keyed back to its finding; the
+threads, when the adapter fetched them on the way; and the error that stopped it, when
+something had already gone up. `Err` means nothing left the machine. `kind` and `whoami`
+say which forge this is and who the tool is signed in as; `edit_comment` and
+`delete_comment` act on a comment this reader published.
 
 `Request` carries `forge`, `project`, `id`, `base_tip`, `head`, `base_ref` (the branch name,
 for the fetch hint) and `url`. The trait is domain and lives in `engine::forge`; the

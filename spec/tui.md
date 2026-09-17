@@ -14,8 +14,8 @@ is why a resize never rebuilds rows.
 room from one, which is what keeps the heights a function of the terminal alone.
 
 **The divider is the reader's, and it is the only thing they move.** The left pane opens at
-40 columns; `alt--` and `alt-=` move the divider four columns at a time, and a drag on it
-moves it to the pointer. Neither pane may fall below 20 columns, and a terminal too narrow
+40 columns; `alt--` and `alt-=` (or `alt-+`) move the divider four columns at a time, and a
+drag on it moves it to the pointer. Neither pane may fall below 20 columns, and a terminal too narrow
 to hold two of those gives each half — the diff pane is what the reader came for, and
 handing the floor to the left pane would starve it. Width is the whole of it: the heights
 stay a function of the terminal, and focus still moves nothing.
@@ -644,9 +644,9 @@ The full reference. `?` shows the subset that applies where the reader is standi
 | `z` | show what is being withheld, in the pane you are in — diff pane: on a `──` context boundary row, more of the file, or the hunk it names · on a resolved review thread, open or close it · **on a code row whose line uses a symbol the change declares, what declares it** (again for the next symbol on the line, once more to close; `esc` closes too) · elsewhere, the skim remainder or noise group · plan pane, file view: a directory |
 | `s` | toggle side-by-side / unified diff layout (persisted) |
 | `w` | soft wrap long lines (persisted) |
-| `alt--`/`alt-=` | move the divider four columns: narrow or widen the **diff** pane. From either pane — one of the two keys that do not act on the pane you are in. Neither pane goes below 20 columns, and the footer says which wall it is against. Transient: every review opens at 40, and the plan and the tree each keep their own |
+| `alt--`/`alt-=` | move the divider four columns: narrow or widen the **diff** pane; `alt-+` is `alt-=` for a keyboard that puts `+` on the same key. From either pane — one of the two keys that do not act on the pane you are in. Neither pane goes below 20 columns, and the footer says which wall it is against. Transient: every review opens at 40, and the plan and the tree each keep their own |
 | `h`/`l`, `0` | shift the diff pane eight columns sideways · back to the left edge. Diff pane only; refused while `w` is on |
-| `/` | **search — a word, anywhere in the changed files.** The one key that does not act on the pane you are in: it opens from either pane, over a selection, and out of the file list and the findings list. The files as they are NOW, so a removed line is not found. Literal and smart case; `ctrl-r` reads the query as a regular expression instead. `enter` jumps to the line, opening a fold or a context gap to reach it · `↑`/`↓` move the list, the only arrows that are not the query's · `←`/`→` and `home`/`end` move the caret · `ctrl-u`/`ctrl-w` clear the query or the word before the caret · every other printable key types · `esc` closes, keeping the query selected for the next `/` |
+| `/` | **search — a word, anywhere in the changed files.** The one key that does not act on the pane you are in: it opens from either pane, over a selection, and out of the file list and the findings list. The files as they are NOW, so a removed line is not found. Literal and smart case; `ctrl-r` reads the query as a regular expression instead. `enter` jumps to the line, opening a fold or a context gap to reach it · `↑`/`↓` move the list, the only arrows that are not the query's, and `ctrl-p`/`ctrl-n` do the same · `←`/`→` and `home`/`end` move the caret · `ctrl-u`/`ctrl-w` clear the query or the word before the caret · every other printable key types · `esc` closes, keeping the query selected for the next `/` |
 | `f` | files, in the pane you are in — plan pane: toggle reading plan ↔ file tree (persisted) · diff pane: the file-list modal (`enter` jumps to the file) |
 | `space` | mark reviewed — the whole selected group/file in the left pane, the **hunk** under the cursor in the diff pane |
 | `v` | start a line selection at the cursor · `j`/`k` extend it · `v` or `esc` drops it · `c` writes a finding over it |
@@ -661,7 +661,7 @@ The full reference. `?` shows the subset that applies where the reader is standi
 | `R` | fetch the request's review threads again |
 | `P` | publish the open findings to the request as one review — a float first says what goes and what stays and why; `y` sends, any other key keeps them local |
 | `?` | help — the keys of where the reader is standing, then the keys that work anywhere. Pressed in the file list or the findings list, it gives that list back |
-| `q`, `ctrl-c` | quit — state is saved on every change, quitting never loses anything. `ctrl-c` quits from every mode, the composer included, where it drops the draft in the box |
+| `q`, `ctrl-c` | quit — state is saved on every change, quitting never loses anything. In the file list or the findings list `q` closes the list instead, as `esc` does. `ctrl-c` quits from every mode, the composer included, where it drops the draft in the box |
 
 **The mouse acts on the pane under the pointer, and that pane takes focus.** The wheel is
 `j`/`k` there — one row per notch in the diff, one entry per notch in the plan — and the

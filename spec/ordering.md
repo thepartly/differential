@@ -31,7 +31,7 @@ Three readers ship. Which one answered is not a distinction this stage can see:
 | --- | --- | --- | --- |
 | tuned | Rust, TypeScript (+TSX), Python, Go, Kotlin | from the tree, per query | calls, types, JSX names, and names reached by path, per query |
 | field-rule | JavaScript, Java, C, C++, C# | from the tree | calls and types, from field names |
-| crude | any other source extension | declaration keywords | every identifier ≥ 4 chars |
+| crude | the other extensions the README lists — nothing else | declaration keywords | every identifier ≥ 4 chars |
 
 Which language sits in which row, and every extension:
 [`crates/symbols/README.md`](../crates/symbols/README.md).
@@ -83,9 +83,11 @@ entirely, because there a variant path is the commoner shape.
 Nothing here can manufacture the failure above: a file-local name is compared only against
 its own file's answers, so the worst a wrong one costs is an ordering inside one file.
 
-**Comments and strings contribute nothing**, which needs no query: every grammar names its
-comment and string nodes with those words. A token reaching a string through an
-interpolation is still code, so `"${resolve(id)}"` keeps its call.
+**Comments and strings contribute nothing** where there is a tree, which needs no query:
+every grammar names its comment and string nodes with those words. A token reaching a
+string through an interpolation is still code, so `"${resolve(id)}"` keeps its call. The
+crude reader has no tree and counts both — a keyword in a comment defines, a word in a
+string references — which the README's cost table says in its own row.
 
 Two categories contribute **no symbols at all** whatever the readers say: generated content
 (a lockfile would otherwise appear to define half the dependency tree) and gitlinks, whose

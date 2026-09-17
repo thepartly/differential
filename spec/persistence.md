@@ -107,6 +107,7 @@ Comment record:
 ```jsonc
 { "id": "...", "created": "...", "body": "...",
   "status": "open" | "resolved" | "orphaned",
+  "moved": false,
   "plan_hash": "<plan this was written against>",
   "anchor": { "file": "...", "side": "old" | "new",
               "line": 47, "end_line": 52,
@@ -116,6 +117,10 @@ Comment record:
   "reply_to": "<forge thread id>" | null,
   "upstream": { "thread": "...", "comment": "..." } | null }
 ```
+
+`moved` says a re-anchor reattached the comment by content match rather than by exact
+digest — the hunk it now sits on is not byte-identical to the one it was written on. It
+defaults to `false`, so a store written before it loads unchanged.
 
 `reply_to` and `upstream` belong to the forge consumer ([forge.md](forge.md)): a reply
 drafted under a fetched thread, and where a published finding landed. Both default to
