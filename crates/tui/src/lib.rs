@@ -35,7 +35,7 @@ use differential_engine::review_identity;
 use differential_engine::store::{FsReviewCatalogue, FsReviewStore};
 use differential_engine::{PipelineOutput, ReviewSession};
 
-use app::{App, Effect, Viewport};
+use app::{App, Effect};
 pub use app::{ForgeLink, ReviewOptions};
 use picker::PickedSource;
 use ratatui::layout::Rect;
@@ -216,8 +216,17 @@ fn open_app(
     Ok(app)
 }
 
-/// The mouse events the reviewer reads: the wheel, and a left press. Moves,
-/// drags and releases arrive too under capture and are dropped here.
+/// The mouse events this crate reads: the wheel, a left press, and a left
+/// drag. Moves and releases arrive too under capture and are dropped here.
+///
+/// The picker reads it as well and has no divider, so it sees a drag it does
+/// nothing with. That costs a repaint it would have made anyway.
+///
+/// A drag is read for one thing only — the divider follows a pointer that
+/// grabbed it — and the model ignores every drag that did not start there, so
+/// letting them through costs a repaint on a gesture nobody aimed and nothing
+/// else. A release is not needed: a drag arrives only while the button is
+/// down, and the next gesture announces itself with its own press.
 pub fn is_input(kind: MouseEventKind) -> bool {
     matches!(
         kind,
@@ -226,13 +235,14 @@ pub fn is_input(kind: MouseEventKind) -> bool {
             | MouseEventKind::ScrollLeft
             | MouseEventKind::ScrollRight
             | MouseEventKind::Down(MouseButton::Left)
+            | MouseEventKind::Drag(MouseButton::Left)
     )
 }
 
-/// The terminal's current size, as the model wants it.
-fn measure() -> anyhow::Result<Viewport> {
+/// The terminal's current size.
+fn measure() -> anyhow::Result<Rect> {
     let (w, h) = crossterm::terminal::size()?;
-    Ok(Viewport::measure(Rect::new(0, 0, w, h)))
+    Ok(Rect::new(0, 0, w, h))
 }
 
 /// The reviewer's event loop.
@@ -247,7 +257,7 @@ fn run_app(
     wrap: osc::Wrap,
 ) -> anyhow::Result<()> {
     let mut clipboard: Option<arboard::Clipboard> = arboard::Clipboard::new().ok();
-    app.set_viewport(measure()?);
+    app.set_area(measure()?);
     let mut dirty = true;
     loop {
         // A forge answer lands between keys, so it is looked for on every
@@ -275,7 +285,7 @@ fn run_app(
                 // — and in stream order, so keys before and after it each see
                 // the geometry that was true when they were pressed.
                 Event::Resize(w, h) => {
-                    app.set_viewport(Viewport::measure(Rect::new(0, 0, w, h)));
+                    app.set_area(Rect::new(0, 0, w, h));
                     dirty = true;
                 }
                 // Bracketed paste is enabled precisely so this arrives whole.

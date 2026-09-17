@@ -200,6 +200,7 @@ fn everywhere() -> Vec<Act> {
             "h/l  ·  0",
             "shift the diff sideways · back to the left edge",
         ),
+        Act::quiet("alt-=/alt--", "widen / narrow the diff pane"),
         Act::quiet("/", "find a word in any changed file"),
         Act::quiet("F", "every finding and thread, in one list"),
         Act::quiet("y", "copy the open findings"),

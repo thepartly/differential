@@ -4915,7 +4915,7 @@ fn a_narrow_footer_drops_the_keys_before_the_tallies() {
 fn a_click_on_a_footer_key_presses_it() {
     let (_r, mut app) = make_app();
     sized(&mut app);
-    let panes = layout(SCREEN);
+    let panes = layout(SCREEN, DEFAULT_PLAN_COLS);
     let (hints, x0) = app.status_hints(panes.status);
     let help = hints.last().expect("`? help` is always there");
     assert!(!help.presses.is_empty());
@@ -6307,7 +6307,7 @@ mod forge_threads {
         assert!(matches!(app.mode, Mode::Publish { .. }));
         // `publish_lines` with nothing excluded: a blank, the sentence, a
         // blank and the footer.
-        let area = publish_area(layout(SCREEN).body, 4);
+        let area = publish_area(layout(SCREEN, DEFAULT_PLAN_COLS).body, 4);
         let row = footer_row(area);
         // `publish_footer`: `y publishes`, then the clause about any other key.
         let hints = publish_footer();
@@ -7214,9 +7214,10 @@ mod forge_threads {
 
 use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
 use differential_tui::app::{
-    Hint, centered_x, composer_area, composer_footer, file_list_modal_area, findings_modal_area,
-    findings_question, footer_row, hints_width, layout, pane_inner, publish_area, publish_footer,
-    search_modal_area,
+    DEFAULT_PLAN_COLS, Hint, MIN_HALF, MIN_PANE, centered_x, clamp_cols, composer_area,
+    composer_footer, divider, file_list_modal_area, findings_modal_area, findings_question,
+    footer_row, half_centre, half_widths, hints_width, layout, pane_inner, publish_area,
+    publish_footer, search_modal_area, split_point,
 };
 use ratatui::layout::Rect;
 
@@ -7249,8 +7250,17 @@ fn click(x: u16, y: u16) -> MouseEvent {
     mouse(MouseEventKind::Down(MouseButton::Left), x, y)
 }
 
+fn drag(x: u16, y: u16) -> MouseEvent {
+    mouse(MouseEventKind::Drag(MouseButton::Left), x, y)
+}
+
 fn sized(app: &mut App) {
-    app.set_viewport(Viewport::measure(SCREEN));
+    app.set_area(SCREEN);
+}
+
+/// `alt-=` and `alt--`, the keys that move the divider.
+fn alt(c: char) -> KeyEvent {
+    KeyEvent::new(KeyCode::Char(c), KeyModifiers::ALT)
 }
 
 /// A cell inside a pane's content, a little way in from its top-left corner.
@@ -7282,7 +7292,7 @@ fn next_selectable_after(app: &App, from: usize) -> usize {
 fn a_wheel_notch_in_the_detail_pane_moves_one_row_and_focuses_it() {
     let (_r, mut app) = app_with_many_files();
     sized(&mut app);
-    let (x, y) = inside(layout(SCREEN).detail);
+    let (x, y) = inside(layout(SCREEN, DEFAULT_PLAN_COLS).detail);
     assert_eq!(app.focus, Focus::Groups);
     let before = app.cursor;
     let want = next_selectable_after(&app, before);
@@ -7310,7 +7320,7 @@ fn a_wheel_notch_in_the_detail_pane_moves_one_row_and_focuses_it() {
 fn a_wheel_notch_in_the_plan_pane_switches_entry_and_focuses_it() {
     let (_r, mut app) = make_app();
     sized(&mut app);
-    let (x, y) = inside(layout(SCREEN).plan);
+    let (x, y) = inside(layout(SCREEN, DEFAULT_PLAN_COLS).plan);
     app.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     assert_eq!(app.focus, Focus::Detail);
 
@@ -7327,7 +7337,7 @@ fn a_wheel_notch_in_the_plan_pane_switches_entry_and_focuses_it() {
 fn a_click_lands_on_the_row_under_the_pointer_counting_wrapped_lines() {
     let (_r, mut app) = app_with_a_long_line();
     sized(&mut app);
-    let detail = layout(SCREEN).detail;
+    let detail = layout(SCREEN, DEFAULT_PLAN_COLS).detail;
     app.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     app.handle_key(key('w'));
     assert!(app.wrap_on_for_test());
@@ -7370,7 +7380,7 @@ fn a_click_on_a_row_that_cannot_be_selected_leaves_the_cursor() {
     assert_eq!(app.scroll(), 0);
 
     // Content line 0 of the pane is row 0.
-    let (x, y) = on_line(layout(SCREEN).detail, 0);
+    let (x, y) = on_line(layout(SCREEN, DEFAULT_PLAN_COLS).detail, 0);
     app.handle_mouse(click(x, y));
 
     assert_eq!(app.cursor, before);
@@ -7385,7 +7395,7 @@ fn a_click_selects_a_plan_entry_and_a_second_click_enters_it() {
     // `plan_block_height`: a group's block is a title row and a counts row,
     // plus an `after:` row when it follows another group.
     let first_block = 2 + usize::from(!app.groups()[0].depends_on.is_empty());
-    let (x, y) = on_line(layout(SCREEN).plan, first_block as u16);
+    let (x, y) = on_line(layout(SCREEN, DEFAULT_PLAN_COLS).plan, first_block as u16);
 
     app.handle_mouse(click(x, y));
     assert_eq!(app.selected_group, 1);
@@ -7408,7 +7418,7 @@ fn the_file_list_modal_takes_a_click_and_closes_on_one_outside() {
     app.handle_key(key('f'));
     let (area, second_row) = match &app.mode {
         Mode::FileList { entries, .. } => (
-            file_list_modal_area(layout(SCREEN).body, entries),
+            file_list_modal_area(layout(SCREEN, DEFAULT_PLAN_COLS).body, entries),
             entries[1].row_idx,
         ),
         _ => panic!("f opens the file list"),
@@ -7441,7 +7451,7 @@ fn the_file_list_modal_takes_a_click_and_closes_on_one_outside() {
 fn help_ignores_the_wheel_and_closes_on_a_click() {
     let (_r, mut app) = make_app();
     sized(&mut app);
-    let (x, y) = inside(layout(SCREEN).body);
+    let (x, y) = inside(layout(SCREEN, DEFAULT_PLAN_COLS).body);
     app.handle_key(key('?'));
     assert!(matches!(app.mode, Mode::Help(_)));
 
@@ -7454,9 +7464,9 @@ fn help_ignores_the_wheel_and_closes_on_a_click() {
 
 #[test]
 fn the_viewport_records_the_screen_the_panes_are_laid_out_on() {
-    let v = Viewport::measure(SCREEN);
+    let v = Viewport::measure(SCREEN, DEFAULT_PLAN_COLS);
     assert_eq!(v.area, SCREEN);
-    let panes = layout(v.area);
+    let panes = layout(v.area, DEFAULT_PLAN_COLS);
     assert_eq!(panes.plan.x + panes.plan.width, panes.detail.x);
     assert_eq!(panes.status.y, SCREEN.height - 1);
 }
@@ -7471,7 +7481,9 @@ fn the_composer_footer_buttons_save_and_cancel() {
         app.handle_key(key(ch));
     }
     let area = match &app.mode {
-        Mode::Editing { editor, .. } => composer_area(layout(SCREEN).body, editor),
+        Mode::Editing { editor, .. } => {
+            composer_area(layout(SCREEN, DEFAULT_PLAN_COLS).body, editor)
+        }
         _ => panic!("c opens the composer"),
     };
     let row = footer_row(area);
@@ -7519,7 +7531,11 @@ fn the_findings_footer_buttons_jump_and_close() {
     app.handle_key(key('F'));
     assert!(matches!(app.mode, Mode::Findings { .. }));
     // One local note, no section rules, nothing on a request.
-    let row = footer_row(findings_modal_area(layout(SCREEN).body, 1, 0));
+    let row = footer_row(findings_modal_area(
+        layout(SCREEN, DEFAULT_PLAN_COLS).body,
+        1,
+        0,
+    ));
     // The table's rows for the findings list: enter jump, dd delete, D clear
     // local, P publish, esc close — with a separator hint between each.
     let keys = app.modal_footer();
@@ -7569,7 +7585,7 @@ fn the_findings_footer_buttons_jump_and_close() {
 fn the_floating_overviews_swallow_a_click_and_the_wheel() {
     let (_r, mut app) = make_app();
     sized(&mut app);
-    let panes = layout(SCREEN);
+    let panes = layout(SCREEN, DEFAULT_PLAN_COLS);
 
     // The plan has focus, so the group map floats at the foot of the diff.
     assert_eq!(app.focus, Focus::Groups);
@@ -7604,7 +7620,7 @@ fn the_floating_overviews_swallow_a_click_and_the_wheel() {
 fn the_horizontal_wheel_shifts_the_diff_pane_as_h_and_l_do() {
     let (_r, mut app) = app_with_a_long_line();
     sized(&mut app);
-    let (x, y) = inside(layout(SCREEN).detail);
+    let (x, y) = inside(layout(SCREEN, DEFAULT_PLAN_COLS).detail);
     let head = "Soft wrap exists because";
     let before = wrapped_pane(&mut app);
     assert!(before.iter().any(|r| r.contains(head)));
@@ -8028,7 +8044,7 @@ fn a_click_on_another_row_closes_the_float() {
 
     // A selectable row that is not the cursor's, and whose screen line the
     // float does not cover — the float swallows a click on itself by design.
-    let panes = layout(app.viewport().area);
+    let panes = app.panes();
     let float = app.peek_area(panes.detail).expect("the float has a place");
     let mut top = 0usize;
     let mut hit = None;
@@ -8060,7 +8076,7 @@ fn focus_leaving_the_diff_pane_closes_the_float() {
     app.handle_key(key('z'));
     assert!(app.peek.is_some());
 
-    let panes = layout(app.viewport().area);
+    let panes = app.panes();
     let (x, y) = inside(panes.plan);
     app.handle_mouse(click(x, y));
     assert_eq!(app.focus, Focus::Groups, "the click took focus");
@@ -8088,7 +8104,7 @@ fn the_float_never_covers_the_cursors_row() {
     let row = cursor_on_text(&mut app, "helper_one() + helper_two()");
     app.handle_key(key('z'));
 
-    let panes = differential_tui::app::layout(app.viewport().area);
+    let panes = app.panes();
     let area = app.peek_area(panes.detail).expect("the float has a home");
 
     // Where the cursor's row is drawn, in the same arithmetic the float used.
@@ -8113,8 +8129,8 @@ fn a_pane_too_short_for_the_float_shows_none_of_it() {
     app.handle_key(key('z'));
     // Five rows of terminal: a bordered pane with almost nothing in it. The
     // float yields entirely rather than land on the row it is about.
-    app.set_viewport(Viewport::measure(Rect::new(0, 0, 120, 5)));
-    let panes = differential_tui::app::layout(app.viewport().area);
+    app.set_area(Rect::new(0, 0, 120, 5));
+    let panes = app.panes();
     assert!(app.peek_area(panes.detail).is_none());
 }
 
@@ -8494,9 +8510,9 @@ fn the_search_opens_from_either_pane_and_from_either_list() {
 fn the_box_spans_both_panes() {
     let (_r, mut app) = make_app();
     sized(&mut app);
-    let body = layout(SCREEN).body;
+    let body = layout(SCREEN, DEFAULT_PLAN_COLS).body;
     let area = search_modal_area(body);
-    let plan = layout(SCREEN).plan;
+    let plan = layout(SCREEN, DEFAULT_PLAN_COLS).plan;
     assert!(area.x < plan.right(), "it starts over the plan pane");
     assert!(area.right() > plan.right(), "and ends over the diff pane");
 }
@@ -8506,7 +8522,7 @@ fn a_click_selects_an_occurrence_and_a_second_opens_it() {
     let (_r, mut app) = make_app();
     sized(&mut app);
     search_for(&mut app, "helper");
-    let area = search_modal_area(layout(SCREEN).body);
+    let area = search_modal_area(layout(SCREEN, DEFAULT_PLAN_COLS).body);
     // The list starts one row below the query row.
     let (x, y) = on_line(area, 2);
     app.handle_mouse(click(x, y));
@@ -8530,7 +8546,7 @@ fn the_wheel_steps_the_occurrence_list() {
     let (_r, mut app) = make_app();
     sized(&mut app);
     search_for(&mut app, "helper");
-    let area = search_modal_area(layout(SCREEN).body);
+    let area = search_modal_area(layout(SCREEN, DEFAULT_PLAN_COLS).body);
     let (x, y) = on_line(area, 2);
     app.handle_mouse(wheel_down(x, y));
     assert_eq!(search_selected(&app), 1);
@@ -8543,7 +8559,7 @@ fn the_footer_keys_are_buttons_here_too() {
     let (_r, mut app) = make_app();
     sized(&mut app);
     search_for(&mut app, "helper");
-    let area = search_modal_area(layout(SCREEN).body);
+    let area = search_modal_area(layout(SCREEN, DEFAULT_PLAN_COLS).body);
     let row = footer_row(area);
     let hints = app.modal_footer();
     // By its words, not by an index: this footer has grown a button once.
@@ -8566,7 +8582,7 @@ fn the_footer_names_ctrl_r_and_a_click_on_it_presses_it() {
     let (_r, mut app) = make_app();
     sized(&mut app);
     search_for(&mut app, "helper");
-    let area = search_modal_area(layout(SCREEN).body);
+    let area = search_modal_area(layout(SCREEN, DEFAULT_PLAN_COLS).body);
     let row = footer_row(area);
     let hints = app.modal_footer();
     // The label says what the key WILL do, which is the footer's own rule.
@@ -8592,7 +8608,7 @@ fn a_regexp_reading_wears_a_pill_and_a_literal_one_does_not() {
     // The QUERY row, not the whole screen: the footer says `ctrl-r regexp`
     // in either reading, because a label says what the key WILL do.
     let query_row = |app: &App| -> String {
-        let y = pane_inner(search_modal_area(layout(SCREEN).body)).y;
+        let y = pane_inner(search_modal_area(layout(SCREEN, DEFAULT_PLAN_COLS).body)).y;
         screen(app, 100, 40)[y as usize].clone()
     };
     assert!(
@@ -8687,7 +8703,7 @@ fn the_caret_lands_on_its_character_in_a_wide_query() {
     // which is at column 2 and char 1.
     app.handle_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
     app.handle_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
-    let area = search_modal_area(layout(SCREEN).body);
+    let area = search_modal_area(layout(SCREEN, DEFAULT_PLAN_COLS).body);
     let inner = pane_inner(area);
     let buf = buffer_of(&app);
     let reversed: String = (inner.x..inner.right())
@@ -8711,7 +8727,7 @@ fn the_query_row_carries_no_lead_character() {
     let (_r, mut app) = make_app();
     sized(&mut app);
     search_for(&mut app, "helper");
-    let y = pane_inner(search_modal_area(layout(SCREEN).body)).y;
+    let y = pane_inner(search_modal_area(layout(SCREEN, DEFAULT_PLAN_COLS).body)).y;
     let row = screen(&app, 100, 40)[y as usize].clone();
     assert!(row.contains("helper"), "the query is on its row: {row}");
     assert!(
@@ -8809,7 +8825,7 @@ fn the_search_box_keeps_the_themes_ground() {
     search_for(&mut app, "helper");
     let ground = Some(Theme::named(ThemeName::SolarizedLight).bg);
     let buf = buffer_of(&app);
-    let area = search_modal_area(layout(SCREEN).body);
+    let area = search_modal_area(layout(SCREEN, DEFAULT_PLAN_COLS).body);
     let stray: Vec<String> = (area.y..area.bottom())
         .flat_map(|y| (area.x..area.right()).map(move |x| (x, y)))
         .filter(|&(x, y)| buf[(x, y)].style().bg == Some(Color::Reset))
@@ -8891,5 +8907,716 @@ fn render_dump_search() {
     println!("\n=== enter — the context gap opened to reach line 3 ===");
     for row in screen(&app, 100, 40) {
         println!("{row}");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The divider between the left pane and the diff pane (#125).
+// ---------------------------------------------------------------------------
+
+#[test]
+fn the_clamp_keeps_both_panes_above_the_floor() {
+    // A width the reader could ask for, on a screen with room for it.
+    assert_eq!(clamp_cols(60, 100), 60);
+    // Neither end may squeeze a pane below the floor.
+    assert_eq!(clamp_cols(0, 100), MIN_PANE);
+    assert_eq!(clamp_cols(200, 100), 100 - MIN_PANE);
+    // A screen too narrow for two floors gets half each. Handing the floor to
+    // the left pane would starve the diff — at twenty columns it would leave
+    // it nothing at all. Half is also what keeps this total: `u16::clamp`
+    // panics when its low bound passes its high one, and this is the case
+    // that would.
+    assert_eq!(clamp_cols(40, 30), 15);
+    assert_eq!(clamp_cols(1, 30), 15);
+    assert_eq!(clamp_cols(40, 20), 10);
+    assert_eq!(clamp_cols(40, 10), 5);
+}
+
+#[test]
+fn the_divider_names_the_two_border_columns() {
+    let panes = layout(SCREEN, DEFAULT_PLAN_COLS);
+    let (left, right) = divider(&panes);
+    // The left pane's last column and the diff pane's first: adjacent, and
+    // the two the frames actually paint.
+    assert_eq!(left, panes.plan.x + panes.plan.width - 1);
+    assert_eq!(right, panes.detail.x);
+    assert_eq!(left + 1, right);
+}
+
+#[test]
+fn alt_equals_widens_the_diff_pane_and_alt_minus_narrows_it() {
+    let (_r, mut app) = make_app();
+    sized(&mut app);
+    let before = app.panes().detail.width;
+
+    app.handle_key(alt('='));
+    let wider = app.panes().detail.width;
+    assert!(
+        wider > before,
+        "alt-= should widen the diff pane: {before} -> {wider}"
+    );
+
+    app.handle_key(alt('-'));
+    assert_eq!(
+        app.panes().detail.width,
+        before,
+        "alt-- should undo what alt-= did"
+    );
+
+    // `+` is what most keyboards send for shifted `=`, and it is the same key.
+    app.handle_key(alt('+'));
+    assert_eq!(app.panes().detail.width, wider);
+}
+
+#[test]
+fn the_divider_moves_from_either_pane() {
+    // The one exception this key makes to "keys act on the pane you are in":
+    // it names the diff pane from either side.
+    let (_r, mut app) = make_app();
+    sized(&mut app);
+    let before = app.panes().detail.width;
+
+    app.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    assert_eq!(app.focus, Focus::Detail);
+    app.handle_key(alt('='));
+    let from_diff = app.panes().detail.width;
+    assert!(from_diff > before);
+
+    app.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    assert_eq!(app.focus, Focus::Groups);
+    app.handle_key(alt('='));
+    assert!(app.panes().detail.width > from_diff);
+}
+
+#[test]
+fn the_panes_stay_adjacent_after_a_resize() {
+    let (_r, mut app) = make_app();
+    sized(&mut app);
+    for _ in 0..4 {
+        app.handle_key(alt('='));
+    }
+    let panes = app.panes();
+    assert_eq!(panes.plan.x + panes.plan.width, panes.detail.x);
+    assert_eq!(panes.plan.width + panes.detail.width, SCREEN.width);
+}
+
+#[test]
+fn a_resize_remeasures_the_diff_pane() {
+    // The scroll budget counts screen lines at the pane's CONTENT width, so a
+    // divider that moved without re-measuring would leave every wrapped row's
+    // height stale.
+    let (_r, mut app) = make_app();
+    sized(&mut app);
+    let before = app.viewport().detail_cols;
+    app.handle_key(alt('='));
+    let after = app.viewport().detail_cols;
+    assert!(after > before, "{before} -> {after}");
+    assert_eq!(after, app.panes().detail.width as usize - 2);
+}
+
+#[test]
+fn the_divider_stops_at_the_edge_and_says_so() {
+    let (_r, mut app) = make_app();
+    sized(&mut app);
+    // Walk it out to the far edge. A press that changes nothing reads as a key
+    // that does not work, so the footer has to answer for the one that cannot.
+    for _ in 0..40 {
+        app.handle_key(alt('='));
+    }
+    let pinned = app.panes().plan.width;
+    assert_eq!(pinned, MIN_PANE);
+    app.handle_key(alt('='));
+    assert_eq!(app.panes().plan.width, pinned);
+    assert!(
+        app.status.contains("as wide as it goes"),
+        "status was {:?}",
+        app.status
+    );
+
+    for _ in 0..40 {
+        app.handle_key(alt('-'));
+    }
+    assert_eq!(app.panes().detail.width, MIN_PANE);
+    app.handle_key(alt('-'));
+    assert!(
+        app.status.contains("as narrow as it goes"),
+        "status was {:?}",
+        app.status
+    );
+}
+
+#[test]
+fn the_plan_and_the_tree_each_keep_their_own_divider() {
+    let (_r, mut app) = make_app();
+    sized(&mut app);
+    let plan_default = app.panes().plan.width;
+
+    // Widen the plan's own divider.
+    app.handle_key(alt('-'));
+    let plan_wide = app.panes().plan.width;
+    assert!(plan_wide > plan_default);
+
+    // `f` swaps the list in, and the divider with it — the tree has not been
+    // moved, so it is still where it started.
+    app.handle_key(key('f'));
+    assert_eq!(app.view_mode, ViewMode::Files);
+    assert_eq!(app.panes().plan.width, plan_default);
+
+    // Move the tree's, independently.
+    app.handle_key(alt('-'));
+    app.handle_key(alt('-'));
+    let tree_wide = app.panes().plan.width;
+    assert!(tree_wide > plan_wide);
+
+    // Back to the plan, and it kept its own.
+    app.handle_key(key('f'));
+    assert_eq!(app.panes().plan.width, plan_wide);
+    app.handle_key(key('f'));
+    assert_eq!(app.panes().plan.width, tree_wide);
+}
+
+#[test]
+fn a_press_on_the_divider_grabs_it_and_a_drag_moves_it() {
+    let (_r, mut app) = make_app();
+    sized(&mut app);
+    let row = app.panes().plan.y + 5;
+
+    // Both columns the divider paints on grab it, and THE COLUMN GRABBED is
+    // what ends up under the pointer. The two are one apart, so a drag that
+    // assumed the left one ran a column ahead of every grab on the right.
+    // Read afresh each time round, because the pass before moves them.
+    for right_hand in [false, true] {
+        for drop_at in [70, 30] {
+            let (left, right) = divider(&app.panes());
+            let grab = if right_hand { right } else { left };
+            app.handle_mouse(click(grab, row));
+            app.handle_mouse(drag(drop_at, row));
+
+            let (left, right) = divider(&app.panes());
+            let landed = if right_hand { right } else { left };
+            assert_eq!(
+                landed, drop_at,
+                "the column grabbed stays under the pointer (right_hand={right_hand})"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_press_on_the_divider_selects_no_row_and_takes_no_focus() {
+    let (_r, mut app) = make_app();
+    sized(&mut app);
+    app.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    assert_eq!(app.focus, Focus::Detail);
+    let cursor = app.cursor;
+    let (left, _) = divider(&app.panes());
+
+    app.handle_mouse(click(left, app.panes().plan.y + 5));
+    assert_eq!(
+        app.focus,
+        Focus::Detail,
+        "the grab is not a click on a pane"
+    );
+    assert_eq!(app.cursor, cursor);
+}
+
+#[test]
+fn a_drag_that_did_not_start_on_the_divider_moves_nothing() {
+    let (_r, mut app) = make_app();
+    sized(&mut app);
+    let before = app.panes().plan.width;
+    let (x, y) = inside(app.panes().detail);
+
+    // A press in a pane, then a drag across the divider's column: the reader
+    // is selecting, or their hand slipped. Neither is a resize.
+    app.handle_mouse(click(x, y));
+    app.handle_mouse(drag(70, y));
+    assert_eq!(app.panes().plan.width, before);
+
+    // A bare drag, with no press at all, likewise.
+    app.handle_mouse(drag(70, y));
+    assert_eq!(app.panes().plan.width, before);
+}
+
+#[test]
+fn the_drag_lets_go_on_the_next_press_elsewhere() {
+    let (_r, mut app) = make_app();
+    sized(&mut app);
+    let (left, _) = divider(&app.panes());
+    let row = app.panes().plan.y + 5;
+
+    app.handle_mouse(click(left, row));
+    app.handle_mouse(drag(60, row));
+    let held = app.panes().plan.width;
+    assert_eq!(held, 61);
+
+    // A press somewhere else ends the gesture, so the drags after it are the
+    // pane's business and not the divider's.
+    let (x, y) = inside(app.panes().detail);
+    app.handle_mouse(click(x, y));
+    app.handle_mouse(drag(30, y));
+    assert_eq!(app.panes().plan.width, held);
+}
+
+#[test]
+fn a_drag_off_the_screen_stops_at_the_last_width_that_fits() {
+    let (_r, mut app) = make_app();
+    sized(&mut app);
+    let (left, _) = divider(&app.panes());
+    let row = app.panes().plan.y + 5;
+    app.handle_mouse(click(left, row));
+
+    app.handle_mouse(drag(SCREEN.width + 50, row));
+    assert_eq!(app.panes().plan.width, SCREEN.width - MIN_PANE);
+    app.handle_mouse(drag(0, row));
+    assert_eq!(app.panes().plan.width, MIN_PANE);
+}
+
+#[test]
+fn a_terminal_that_shrinks_pulls_the_divider_back_in() {
+    // The width the reader asked for is kept; what the screen can show is
+    // clamped. So a narrow window does not lose the divider off its edge, and
+    // a window opened wide again puts it back where they left it.
+    let (_r, mut app) = make_app();
+    sized(&mut app);
+    for _ in 0..6 {
+        app.handle_key(alt('-'));
+    }
+    let wide = app.panes().plan.width;
+    assert_eq!(wide, DEFAULT_PLAN_COLS + 24);
+
+    app.set_area(Rect::new(0, 0, 50, 40));
+    assert_eq!(app.panes().plan.width, 50 - MIN_PANE);
+
+    app.set_area(SCREEN);
+    assert_eq!(app.panes().plan.width, wide);
+}
+
+#[test]
+fn the_divider_opens_at_the_default_every_sitting() {
+    // Nothing about the divider reaches the sidecar: where it sits is a
+    // reading position for this sitting, as the sideways shift is. So a fresh
+    // reviewer opens at the default, and both lists do.
+    let (_r, mut app) = make_app();
+    sized(&mut app);
+    assert_eq!(app.plan_cols(), DEFAULT_PLAN_COLS);
+    app.handle_key(key('f'));
+    assert_eq!(app.plan_cols(), DEFAULT_PLAN_COLS);
+}
+
+#[test]
+fn the_default_viewport_is_what_a_real_measurement_gives() {
+    // Forty tests set a synthetic `Viewport` and never measure. They are only
+    // honest while the two agree, and the day `DEFAULT_PLAN_COLS` moves is the
+    // day they quietly stop.
+    let d = Viewport::default();
+    assert_eq!(d, Viewport::measure(d.area, DEFAULT_PLAN_COLS));
+}
+
+#[test]
+fn a_terminal_too_narrow_for_two_floors_splits_it_in_half() {
+    let (_r, mut app) = make_app();
+    app.set_area(Rect::new(0, 0, 30, 20));
+    let panes = app.panes();
+    assert_eq!(panes.plan.width, 15);
+    assert_eq!(panes.detail.width, 15);
+    // And the diff pane still has something inside its frame. Giving the floor
+    // to the left pane instead would have left it three columns here, and
+    // nothing at all on a twenty-column screen.
+    assert!(app.viewport().detail_cols > 0);
+    assert!(!screen(&app, 30, 20).is_empty());
+}
+
+#[test]
+fn a_screen_too_narrow_to_move_the_divider_says_so() {
+    let (_r, mut app) = make_app();
+    app.set_area(Rect::new(0, 0, 30, 20));
+    app.handle_key(alt('='));
+    assert_eq!(app.panes().plan.width, 15);
+    assert!(
+        app.status.contains("too narrow"),
+        "status was {:?}",
+        app.status
+    );
+}
+
+#[test]
+fn a_shrunk_terminal_does_not_report_a_move_it_did_not_make() {
+    // The width is clamped on the way out of the model, so a number the reader
+    // chose on a wide screen cannot be read back as a divider the frame does
+    // not show. Without that, this press wrote the clamped width back over the
+    // stored one and reported a move that never happened.
+    let (_r, mut app) = make_app();
+    sized(&mut app);
+    for _ in 0..8 {
+        app.handle_key(alt('-'));
+    }
+    app.set_area(Rect::new(0, 0, 60, 40));
+    let pinned = app.panes().plan.width;
+    assert_eq!(pinned, 60 - MIN_PANE);
+
+    app.handle_key(alt('-'));
+    assert_eq!(app.panes().plan.width, pinned);
+    assert!(
+        app.status.contains("as narrow as it goes"),
+        "status was {:?}",
+        app.status
+    );
+}
+
+#[test]
+fn the_divider_is_where_the_draw_paints_it() {
+    // The rule the mouse work established: every click number comes from the
+    // component that draws it. So the columns `divider` names are the columns
+    // the frames actually carry.
+    let (_r, mut app) = make_app();
+    sized(&mut app);
+    for _ in 0..3 {
+        app.handle_key(alt('='));
+    }
+    let (left, right) = divider(&app.panes());
+    let rows = screen(&app, SCREEN.width, SCREEN.height);
+    // A row inside both frames, clear of their titles and their feet.
+    let row: Vec<char> = rows[5].chars().collect();
+    assert_eq!(row[left as usize], '│', "the left pane's right border");
+    assert_eq!(row[right as usize], '│', "the diff pane's left border");
+}
+
+#[test]
+fn f_in_the_diff_pane_leaves_the_divider_alone() {
+    // `f` acts on the pane it is pressed in: in the left pane it swaps the
+    // list, and the divider with it; in the diff pane it opens the file list,
+    // which is not a list swap and must move nothing.
+    let (_r, mut app) = make_app();
+    sized(&mut app);
+    app.handle_key(alt('-'));
+    let moved = app.panes().plan.width;
+
+    app.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    app.handle_key(key('f'));
+    assert!(matches!(app.mode, Mode::FileList { .. }));
+    assert_eq!(app.panes().plan.width, moved);
+    assert_eq!(app.view_mode, ViewMode::Groups);
+}
+
+#[test]
+fn a_wrapped_row_re_wraps_when_the_divider_moves() {
+    // With `w` on, a row's height is a function of the diff pane's content
+    // width, and the scroll budget counts screen lines. A divider that moved
+    // without re-measuring would leave every one of those heights stale.
+    let (_r, mut app) = app_with_a_long_line();
+    sized(&mut app);
+    app.handle_key(key('w'));
+    let wide = app.viewport().detail_cols;
+
+    app.handle_key(alt('-'));
+    let narrow = app.viewport().detail_cols;
+    assert_eq!(narrow, wide - 4);
+    assert_eq!(narrow, app.panes().detail.width as usize - 2);
+}
+
+#[test]
+fn the_help_modal_names_the_divider_keys() {
+    let (_r, mut app) = make_app();
+    sized(&mut app);
+    app.handle_key(key('?'));
+    let text = screen(&app, SCREEN.width, SCREEN.height).join("\n");
+    assert!(text.contains("alt-=/alt--"), "help was:\n{text}");
+    // The key column is padded to a fixed width, so a key too long for it runs
+    // straight into its own words.
+    assert!(
+        text.contains("alt-=/alt--  widen"),
+        "the key and its words must not run together:\n{text}"
+    );
+}
+
+/// `cargo test -p differential-tui --test tui -- --ignored --nocapture render_dump_split`
+#[ignore = "a dump for the author's eyes, not an assertion"]
+#[test]
+fn render_dump_split() {
+    let (_r, mut app) = make_app();
+    sized(&mut app);
+    let row = pane_inner(app.panes().detail).y + 4;
+    for drop_at in [0u16, 45, 85] {
+        if drop_at > 0 {
+            let grab = app.split_column().expect("split view");
+            app.handle_mouse(click(grab, row));
+            app.handle_mouse(drag(drop_at, row));
+        }
+        println!(
+            "\n== middle at column {:?} (offset {}) ==",
+            app.split_column(),
+            app.split_offset()
+        );
+        for line in screen(&app, SCREEN.width, 14) {
+            println!("{line}");
+        }
+    }
+}
+
+/// `cargo test -p differential-tui --test tui -- --ignored --nocapture render_dump_divider`
+#[ignore = "a dump for the author's eyes, not an assertion"]
+#[test]
+fn render_dump_divider() {
+    let (_r, mut app) = make_app();
+    sized(&mut app);
+    let steps: [(&str, i32); 3] = [
+        ("opens at 40", 0),
+        ("after three alt-=", 3),
+        ("after six alt--", -6),
+    ];
+    for (label, presses) in steps {
+        for _ in 0..presses.abs() {
+            app.handle_key(alt(if presses > 0 { '=' } else { '-' }));
+        }
+        println!(
+            "\n== {label} — left pane {} columns ==",
+            app.panes().plan.width
+        );
+        for line in screen(&app, SCREEN.width, SCREEN.height) {
+            println!("{line}");
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The split view's middle.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn the_middle_sits_at_the_centre_until_it_is_dragged() {
+    // Offset zero must give exactly the arithmetic the split view had before
+    // there was a drag, or every review opens looking different.
+    for width in [20usize, 41, 58, 99] {
+        let (lw, rw) = half_widths(width, 0);
+        assert_eq!(lw, (width - 1) / 2);
+        assert_eq!(lw + rw, width - 1, "the `│` takes the odd column");
+    }
+}
+
+#[test]
+fn the_middle_moves_by_its_offset_and_stops_at_each_floor() {
+    let (lw, _) = half_widths(58, 10);
+    assert_eq!(lw, 28 + 10);
+    let (lw, _) = half_widths(58, -10);
+    assert_eq!(lw, 28 - 10);
+
+    // Neither half may be dragged below its floor.
+    let (lw, rw) = half_widths(58, -100);
+    assert_eq!(lw, MIN_HALF);
+    assert_eq!(lw + rw, 57);
+    let (lw, rw) = half_widths(58, 100);
+    assert_eq!(rw, MIN_HALF);
+    assert_eq!(lw + rw, 57);
+}
+
+#[test]
+fn a_pane_too_narrow_for_two_halves_ignores_the_drag() {
+    // The same answer it gave before there was a drag, rather than a clamp
+    // that would panic with its low bound past its high one.
+    let narrow = 2 * MIN_HALF;
+    for offset in [-50, 0, 50] {
+        let (lw, rw) = half_widths(narrow, offset);
+        assert_eq!(lw, (narrow - 1) / 2);
+        assert_eq!(lw + rw, narrow - 1);
+    }
+}
+
+#[test]
+fn a_unified_diff_has_no_middle_to_grab() {
+    let (_r, mut app) = make_app();
+    sized(&mut app);
+    assert!(app.split_column().is_some());
+    app.handle_key(key('s'));
+    assert!(!app.wrap_on_for_test());
+    assert_eq!(app.split_column(), None, "unified is one column");
+    app.handle_key(key('s'));
+    assert!(app.split_column().is_some());
+}
+
+#[test]
+fn the_middle_is_where_the_draw_paints_it() {
+    let (_r, mut app) = make_app();
+    sized(&mut app);
+    let row = pane_inner(app.panes().detail).y + 4;
+    let grab = app.split_column().expect("split view");
+    app.handle_mouse(click(grab, row));
+    app.handle_mouse(drag(85, row));
+
+    let at = app.split_column().expect("split view");
+    let rows = screen(&app, SCREEN.width, SCREEN.height);
+    // The `old`/`new` header is the row that names both halves, so it is the
+    // one that must carry the middle between them.
+    let header = rows
+        .iter()
+        .find(|r| r.contains(" old ") && r.contains(" new "))
+        .expect("the split header row");
+    let chars: Vec<char> = header.chars().collect();
+    assert_eq!(chars[at as usize], '│', "header was {header:?}");
+}
+
+#[test]
+fn a_press_on_the_middle_grabs_it_and_a_drag_moves_it() {
+    let (_r, mut app) = make_app();
+    sized(&mut app);
+    let row = pane_inner(app.panes().detail).y + 4;
+
+    for drop_at in [85u16, 60, 70] {
+        let grab = app.split_column().expect("split view");
+        app.handle_mouse(click(grab, row));
+        app.handle_mouse(drag(drop_at, row));
+        assert_eq!(
+            app.split_column(),
+            Some(drop_at),
+            "the middle follows the pointer"
+        );
+    }
+}
+
+#[test]
+fn a_press_that_is_not_on_the_middle_does_not_grab_it() {
+    let (_r, mut app) = make_app();
+    sized(&mut app);
+    let row = pane_inner(app.panes().detail).y + 4;
+    let before = app.split_column();
+
+    // One column either side of it, and a press on a pane's own content.
+    for miss in [before.unwrap() - 1, before.unwrap() + 1] {
+        app.handle_mouse(click(miss, row));
+        app.handle_mouse(drag(85, row));
+        assert_eq!(app.split_column(), before);
+    }
+}
+
+#[test]
+fn the_middle_is_not_grabbable_off_the_end_of_its_line() {
+    // The status row is under the diff pane's frame, and the middle is not
+    // drawn there. A press on nothing grabs nothing, whatever column it is in.
+    let (_r, mut app) = make_app();
+    sized(&mut app);
+    let before = app.split_column();
+    let at = before.unwrap();
+    app.handle_mouse(click(at, app.panes().status.y));
+    app.handle_mouse(drag(85, app.panes().status.y));
+    assert_eq!(app.split_column(), before);
+}
+
+#[test]
+fn the_middle_keeps_its_skew_when_the_pane_divider_moves() {
+    // Stored as a distance from the centre, so widening the diff pane gives
+    // both halves the new room and leaves the skew the reader chose alone.
+    let (_r, mut app) = make_app();
+    sized(&mut app);
+    let row = pane_inner(app.panes().detail).y + 4;
+    let grab = app.split_column().expect("split view");
+    app.handle_mouse(click(grab, row));
+    app.handle_mouse(drag(80, row));
+    let offset = app.split_offset();
+    assert!(offset > 0);
+
+    app.handle_key(alt('='));
+    assert_eq!(app.split_offset(), offset, "the skew is kept");
+    let inner = pane_inner(app.panes().detail);
+    let (lw, _) = half_widths(inner.width as usize, offset);
+    assert_eq!(app.split_column(), Some(inner.x + lw as u16));
+}
+
+#[test]
+fn s_to_unified_and_back_keeps_the_middle() {
+    let (_r, mut app) = make_app();
+    sized(&mut app);
+    let row = pane_inner(app.panes().detail).y + 4;
+    let grab = app.split_column().expect("split view");
+    app.handle_mouse(click(grab, row));
+    app.handle_mouse(drag(80, row));
+    let at = app.split_column();
+
+    app.handle_key(key('s'));
+    app.handle_key(key('s'));
+    assert_eq!(app.split_column(), at);
+}
+
+#[test]
+fn the_middle_opens_at_the_centre_every_sitting() {
+    // Nothing about it reaches the sidecar, as nothing about the pane divider
+    // does: where the middle sits is a reading position for this sitting.
+    let (_r, mut app) = make_app();
+    sized(&mut app);
+    assert_eq!(app.split_offset(), 0);
+}
+
+#[test]
+fn moving_the_middle_re_wraps_the_rows_it_narrows() {
+    // A row's height is a function of the columns its halves draw at, and the
+    // scroll budget counts screen lines. A middle that moved without
+    // re-measuring would leave every one of those heights stale.
+    let (_r, mut app) = app_with_a_long_line();
+    sized(&mut app);
+    // The fixture opens unified; the middle only exists in the split view.
+    app.handle_key(key('s'));
+    app.handle_key(key('w'));
+    // A DIFF row, because a banner is built to the pane and has no halves.
+    let row = (0..app.rows.len())
+        .filter(|&i| matches!(app.rows[i].kind, RowKind::Diff(_)))
+        .max_by_key(|&i| app.row_height(i))
+        .expect("a diff row");
+    let tall = app.row_height(row);
+    assert!(tall > 1, "the fixture must have a diff row that wraps");
+
+    let y = pane_inner(app.panes().detail).y + 4;
+    let move_middle_to = |app: &mut App, x: u16| {
+        let grab = app.split_column().expect("split view");
+        app.handle_mouse(click(grab, y));
+        app.handle_mouse(drag(x, y));
+    };
+
+    // The long line is on the NEW side. Dragging the middle right narrows that
+    // half, so the row takes more screen lines.
+    move_middle_to(&mut app, 85);
+    let narrowed = app.row_height(row);
+    assert!(
+        narrowed > tall,
+        "a narrower half wraps into more lines: {tall} -> {narrowed}"
+    );
+
+    // And left again gives the room back.
+    move_middle_to(&mut app, 50);
+    let widened = app.row_height(row);
+    assert!(
+        widened < tall,
+        "a wider half wraps into fewer: {tall} -> {widened}"
+    );
+}
+
+#[test]
+fn both_dividers_are_held_to_one_rule() {
+    // `clamp_cols` and `half_widths` are the same question with different
+    // spans and floors. The fallback is why it is one function: `clamp` panics
+    // when its low bound passes its high one, and a second copy is a second
+    // chance to leave that guard out.
+    assert_eq!(split_point(50, 100, 20), 50);
+    assert_eq!(split_point(5, 100, 20), 20);
+    assert_eq!(split_point(95, 100, 20), 80);
+    // Too narrow for two floors: half each, and no panic.
+    assert_eq!(split_point(5, 30, 20), 15);
+    assert_eq!(split_point(99, 30, 20), 15);
+    assert_eq!(split_point(0, 0, 20), 0);
+
+    // And the two callers are it, in their own units.
+    for width in [10u16, 30, 100, 200] {
+        for cols in [0u16, 20, 40, 300] {
+            assert_eq!(
+                clamp_cols(cols, width),
+                split_point(cols.into(), width.into(), MIN_PANE.into()) as u16
+            );
+        }
+    }
+    for width in [10usize, 17, 58, 200] {
+        for split in [-99i16, -4, 0, 4, 99] {
+            let (lw, rw) = half_widths(width, split);
+            let want = half_centre(width).saturating_add_signed(split as isize);
+            assert_eq!(lw, split_point(want, width - 1, MIN_HALF));
+            assert_eq!(lw + rw, width - 1, "the `│` keeps its own column");
+        }
     }
 }

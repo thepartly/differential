@@ -10,7 +10,7 @@ use ratatui::text::Line;
 use crate::rows::{Row, RowKind, RowsContext};
 use crate::window::Side;
 
-use super::draw::{Paint, compose_row_lines, overflow};
+use super::draw::{Paint, compose_row_lines, half_centre, half_widths, overflow, pane_inner};
 use super::*;
 
 /// The tree rows for `files`, with every directory named in `folded` folded
@@ -329,6 +329,146 @@ impl App {
         self.clamp_hscroll();
     }
 
+    /// Measure `area` against the divider in force and fold the answer in.
+    ///
+    /// The one way geometry enters the model. Moving the divider goes through
+    /// it as a terminal resize does, because the two change the same numbers:
+    /// a narrower diff pane wraps its rows at a narrower width, and the scroll
+    /// budget that counts screen lines has to be re-clamped either way.
+    pub fn set_area(&mut self, area: Rect) {
+        self.set_viewport(Viewport::measure(area, self.plan_cols()));
+    }
+
+    /// Re-measure on the screen already recorded. What moving the divider and
+    /// switching the left pane's list both end with.
+    pub(super) fn remeasure(&mut self) {
+        self.set_area(self.viewport.area);
+    }
+
+    /// The divider in force: the left pane's width, for the list it is
+    /// showing, as the screen can actually show it.
+    ///
+    /// Clamped on the way OUT, so the model and the frame can never disagree
+    /// about where the divider is. Without that, a width the reader chose on a
+    /// wide terminal survived a shrink as a number nothing on screen matched,
+    /// and a resize key read the stored number, moved it, wrote back the same
+    /// clamped width and reported a move that never happened. The stored
+    /// number is left alone: a terminal that widens again puts the divider
+    /// back where they left it.
+    pub fn plan_cols(&self) -> u16 {
+        let cols = match self.view_mode {
+            ViewMode::Groups => self.plan_cols,
+            ViewMode::Files => self.tree_cols,
+        };
+        clamp_cols(cols, self.viewport.area.width)
+    }
+
+    /// The same number, to write. `f` swaps which one the reader is moving.
+    fn plan_cols_mut(&mut self) -> &mut u16 {
+        match self.view_mode {
+            ViewMode::Groups => &mut self.plan_cols,
+            ViewMode::Files => &mut self.tree_cols,
+        }
+    }
+
+    /// The panes as they are on screen now.
+    ///
+    /// `layout` against the measured screen and the divider in force — what
+    /// the hit test asks, so a click lands in the pane the reader can see.
+    pub fn panes(&self) -> Panes {
+        layout(self.viewport.area, self.plan_cols())
+    }
+
+    /// Where the split view's middle sits, as a distance from the centre.
+    pub fn split_offset(&self) -> i16 {
+        self.split_offset
+    }
+
+    /// The screen column the split view's middle is painted on, or `None` when
+    /// there is no middle to grab: a unified diff has one column.
+    ///
+    /// Asks `half_widths`, which is what draws the middle, so the line under
+    /// the pointer is the line on the screen.
+    pub fn split_column(&self) -> Option<u16> {
+        if !self.split_diff() {
+            return None;
+        }
+        let inner = pane_inner(self.panes().detail);
+        let (lw, _) = half_widths(inner.width as usize, self.split_offset);
+        Some(inner.x + lw as u16)
+    }
+
+    /// Put the pane divider under screen column `x`.
+    ///
+    /// `grab` is which of its two columns the press landed on, as a distance
+    /// from the left pane's width, so the column the reader took hold of is the
+    /// one that stays under the pointer. Read from the pointer each time rather
+    /// than accumulated, so a drag that runs into the clamp and comes back does
+    /// not drift.
+    pub(super) fn drag_panes_to(&mut self, x: u16, grab: i16) {
+        let cols = i32::from(x) - i32::from(self.panes().body.x) - i32::from(grab);
+        self.set_plan_cols(cols.clamp(0, u16::MAX.into()) as u16);
+    }
+
+    /// Put the split view's middle under screen column `x`.
+    ///
+    /// Stored as a distance from the centre, so the two halves keep their skew
+    /// when the pane divider or the terminal moves. `half_widths` clamps, so a
+    /// pointer dragged past either half's floor stops there.
+    pub(super) fn drag_split_to(&mut self, x: u16) {
+        let inner = pane_inner(self.panes().detail);
+        // Read from the same centre `half_widths` spends the offset from, or a
+        // grab and the draw would disagree about where nought is.
+        let centre = half_centre(inner.width.into());
+        let offset = i32::from(x) - i32::from(inner.x) - centre as i32;
+        self.split_offset = offset.clamp(i16::MIN.into(), i16::MAX.into()) as i16;
+        // The middle changes how wide each half draws at, so it changes what
+        // hangs off their right edges and how tall a wrapped row is. Both are
+        // what `remeasure` re-derives.
+        self.remeasure();
+    }
+
+    /// Put the divider at `cols`, and say so when it will not go.
+    ///
+    /// Returns whether it moved. A press that changes nothing reads as a key
+    /// that does not work, which is why the callers that are keys speak up.
+    pub(super) fn set_plan_cols(&mut self, cols: u16) -> bool {
+        let want = clamp_cols(cols, self.viewport.area.width);
+        if want == self.plan_cols() {
+            return false;
+        }
+        *self.plan_cols_mut() = want;
+        self.remeasure();
+        true
+    }
+
+    /// `alt-=` and `alt--`: widen or narrow the DIFF pane by `by` columns.
+    ///
+    /// The diff pane, whichever pane has focus. Every other key acts on the
+    /// pane you are in; this one and `/` do not, because the diff is the pane
+    /// the reader asked to make room for.
+    pub(super) fn resize_diff(&mut self, by: i16) {
+        let cols = self.plan_cols().saturating_add_signed(-by);
+        if self.set_plan_cols(cols) {
+            return;
+        }
+        // A press that changes nothing reads as a key that does not work, so
+        // the footer says which wall it is against and names the way back —
+        // except on a screen too narrow to move the divider at all, where
+        // naming the other key would be a lie.
+        let width = self.viewport.area.width;
+        self.status = if width < 2 * MIN_PANE {
+            format!(
+                "the terminal is too narrow to move the divider — it needs {} columns",
+                2 * MIN_PANE
+            )
+        } else if by > 0 {
+            format!("the diff pane is as wide as it goes · the left pane keeps {MIN_PANE} columns")
+        } else {
+            "the diff pane is as narrow as it goes · alt-= widens it".to_string()
+        };
+    }
+
     /// Diff-pane scroll offset. Decided in update, never at draw time — which
     /// is why the field itself is private.
     /// The pane heights currently in force.
@@ -510,6 +650,10 @@ impl App {
         };
         self.cursor = 0;
         self.scroll = 0;
+        // The divider is per list, so switching lists moves it — and the diff
+        // pane's width with it. Re-measure before the rows are built, or they
+        // wrap at the width the pane had a moment ago.
+        self.remeasure();
         self.follow_plan_scroll();
         self.rebuild_rows();
         self.status = if on { "file view" } else { "reading plan view" }.into();
@@ -850,7 +994,7 @@ impl App {
         self.rows
             .iter()
             .filter(|r| matches!(r.kind, RowKind::Diff(_)))
-            .map(|r| overflow(&r.content, self.viewport.detail_cols))
+            .map(|r| overflow(&r.content, self.viewport.detail_cols, self.split_offset))
             .max()
             .unwrap_or(0)
     }
@@ -863,6 +1007,13 @@ impl App {
     /// places that change it, rather than measured on every frame: the scan is
     /// O(rows) and drawing is not the place for one.
     pub(super) fn clamp_hscroll(&mut self) {
+        // A pane at its left edge is already in range, and `max_hscroll` walks
+        // every row to measure the widest overflow. That cost was accepted on
+        // a keypress; a divider dragged across forty columns pays it forty
+        // times, and the answer is zero every one of them.
+        if self.hscroll == 0 {
+            return;
+        }
         self.hscroll = self.hscroll.min(self.max_hscroll());
     }
 
@@ -901,7 +1052,7 @@ impl App {
                 &self.theme,
                 &r.content,
                 self.viewport.detail_cols,
-                Paint::plain(self.wraps(r)),
+                Paint::plain(self.wraps(r), self.split_offset),
             )
             .len()
         })

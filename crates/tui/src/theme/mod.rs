@@ -447,7 +447,7 @@ impl Theme {
 
     /// One-letter tier for the plan pane's narrow column.
     ///
-    /// The pane is 40 columns wide and the tier shares a line with counts, so
+    /// The pane is narrow and the tier shares a line with counts, so
     /// this is the TUI's own vocabulary — the wire token lives in
     /// `plan::effort_name` and the row header spells it out in full.
     pub const fn effort_glyph(effort: differential_engine::schema::Effort) -> &'static str {

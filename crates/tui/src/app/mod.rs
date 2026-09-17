@@ -92,7 +92,7 @@ impl Default for ReviewOptions {
 /// three-row window cannot produce nonsense.
 const MIN_VIEWPORT: usize = 8;
 
-/// The reviewer's panes: a fixed-width plan pane, the detail, a status row.
+/// The reviewer's panes: the left pane, the detail, a status row.
 pub struct Panes {
     pub body: Rect,
     pub plan: Rect,
@@ -100,20 +100,66 @@ pub struct Panes {
     pub status: Rect,
 }
 
+/// The left pane's width before the reader moves the divider.
+pub const DEFAULT_PLAN_COLS: u16 = 40;
+
+/// The narrowest either pane may be squeezed to.
+///
+/// A pane spends two columns on its border, and the diff pane halves what is
+/// left again in the split view, so a floor of a handful of columns would buy
+/// a pane that draws a frame around nothing.
+pub const MIN_PANE: u16 = 20;
+
+/// A divider at `at`, held inside a `span` that keeps `floor` columns each
+/// side of it.
+///
+/// Both of this reviewer's dividers are this rule — the one between the panes
+/// and the split view's middle — with different spans and different floors. It
+/// is one function because of the fallback: a span too narrow for two floors
+/// **splits down the middle**, and `clamp` panics when its low bound passes its
+/// high one, so a second copy is a second chance to leave that guard out.
+///
+/// Splitting rather than giving the floor to one side is the honest answer in
+/// both places. At the panes it stops the left list starving the diff — the
+/// pane the reader opened the tool for — and at the halves it is what the split
+/// view did before either could be dragged.
+pub fn split_point(at: usize, span: usize, floor: usize) -> usize {
+    let max = span.saturating_sub(floor);
+    if max < floor {
+        return span / 2;
+    }
+    at.clamp(floor, max)
+}
+
+/// The divider between the panes, held inside the screen.
+///
+/// It lives here because `layout` is the one function `draw` and the hit test
+/// both call: a clamp applied anywhere else could disagree with the frame on
+/// screen. The model asks it too, on the way out of [`App::plan_cols`].
+pub fn clamp_cols(cols: u16, width: u16) -> u16 {
+    split_point(cols.into(), width.into(), MIN_PANE.into()) as u16
+}
+
 /// The one layout. `draw` places widgets with it and the event loop measures
 /// with it, so the two can never disagree about how tall the detail pane is.
 ///
-/// Focus does NOT enter into it. The overviews each focus brings up float over
+/// `plan_cols` is the reader's divider, and the ONLY thing they move. Focus
+/// still does not enter into it: the overviews each focus brings up float over
 /// a pane rather than splitting one, which is what lets the pane heights stay a
-/// function of the terminal alone — and lets a key never change them.
-pub fn layout(area: Rect) -> Panes {
+/// function of the terminal alone — and lets a key never change them. The width
+/// arrives as an argument rather than being read from the model, so this stays
+/// the single place the number turns into a rectangle.
+pub fn layout(area: Rect, plan_cols: u16) -> Panes {
     let outer = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(0), Constraint::Length(1)])
         .split(area);
     let panes = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Length(40), Constraint::Min(0)])
+        .constraints([
+            Constraint::Length(clamp_cols(plan_cols, area.width)),
+            Constraint::Min(0),
+        ])
         .split(outer[0]);
     Panes {
         body: outer[0],
@@ -121,6 +167,31 @@ pub fn layout(area: Rect) -> Panes {
         detail: panes[1],
         status: outer[1],
     }
+}
+
+/// What a drag has hold of.
+///
+/// One field and not two flags: the pointer has hold of one thing at a time,
+/// and two options would spell a state that cannot happen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Grab {
+    /// The divider between the panes, carrying which of its two columns the
+    /// press landed on as a distance from the left pane's width. A drag that
+    /// assumed the first column would run one ahead of a pointer that grabbed
+    /// the second, for the whole gesture.
+    Panes(i16),
+    /// The split view's middle. One column, so there is no offset to carry.
+    Split,
+}
+
+/// The two columns the divider paints on: the left pane's right border and the
+/// detail pane's left.
+///
+/// Shared with the hit test, so a drag grabs the columns the draw will paint
+/// rather than a number that was true of them once.
+pub fn divider(panes: &Panes) -> (u16, u16) {
+    let right = panes.plan.x + panes.plan.width;
+    (right.saturating_sub(1), right)
 }
 
 /// Measured terminal geometry, pushed into the model BEFORE any key is
@@ -144,14 +215,14 @@ pub struct Viewport {
     /// have already subtracted their borders from.
     pub body_rows: usize,
     /// The whole screen the panes were laid out on. A mouse event names a
-    /// cell, and which pane that cell is in is `layout(area)` — the same call
-    /// `draw` makes, so a hit test and a frame cannot disagree.
+    /// cell, and which pane that cell is in is [`App::panes`] — the same
+    /// `layout` call `draw` makes, so a hit test and a frame cannot disagree.
     pub area: Rect,
 }
 
 impl Viewport {
-    pub fn measure(area: Rect) -> Self {
-        let panes = layout(area);
+    pub fn measure(area: Rect, plan_cols: u16) -> Self {
+        let panes = layout(area, plan_cols);
         Viewport {
             // Every pane is bordered.
             detail_rows: panes.detail.height.saturating_sub(2) as usize,
@@ -494,6 +565,25 @@ pub struct App {
     listed_files: Vec<usize>,
     /// Measured geometry. An input to update, never a draw-time output.
     viewport: Viewport,
+    /// The divider, with the reading plan in the left pane.
+    ///
+    /// Two numbers and not one because `f` swaps two different lists into that
+    /// pane: a group block is a paragraph that wants room, and a tree row is a
+    /// path that wants more of it. One width made `f` a choice between the two
+    /// readings. Neither reaches the sidecar — where the divider sits is a
+    /// reading position for this sitting, as the sideways shift is.
+    plan_cols: u16,
+    /// The divider, with the file tree in the left pane.
+    tree_cols: u16,
+    /// Where the split view's middle sits, as a signed distance from the
+    /// centre of the diff pane.
+    ///
+    /// Zero opens every review, and a unified diff ignores it. Transient, as
+    /// the pane divider is: where the reader put the middle is a reading
+    /// position for this sitting.
+    split_offset: i16,
+    /// What the pointer took hold of, while the button is still down.
+    divider_grab: Option<Grab>,
     pending_d: bool,
     /// The forge this review is of, when it is of a request (ADR 0029).
     forge: Option<forge::ForgeLink>,
@@ -572,6 +662,10 @@ impl App {
             map_rows: Vec::new(),
             listed_files: Vec::new(),
             viewport: Viewport::default(),
+            plan_cols: DEFAULT_PLAN_COLS,
+            tree_cols: DEFAULT_PLAN_COLS,
+            split_offset: 0,
+            divider_grab: None,
             pending_d: false,
             forge: None,
             inflight: None,
@@ -647,9 +741,10 @@ mod text;
 // Exposed so a test can aim a click at the box the draw will place, rather
 // than at a number that was true of the box once.
 pub use draw::{
-    FRAME_ROWS, centered_x, composer_area, composer_footer, delete_comment_area,
+    FRAME_ROWS, MIN_HALF, centered_x, composer_area, composer_footer, delete_comment_area,
     delete_comment_footer, file_list_modal_area, findings_modal_area, findings_question,
-    footer_row, pane_inner, publish_area, publish_footer, search_modal_area,
+    footer_row, half_centre, half_widths, pane_inner, publish_area, publish_footer,
+    search_modal_area,
 };
 pub use help::{Act, Area, HelpSection};
 pub use search::{Occurrence, Reading, Search};

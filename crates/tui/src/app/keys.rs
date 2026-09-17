@@ -27,6 +27,25 @@ use super::*;
 /// was following.
 const SHIFT_STEP: isize = 8;
 
+/// Columns one press of `alt--`/`alt-=` moves the divider.
+///
+/// Half of `SHIFT_STEP`, and for the opposite reason. The shift moves CONTENT
+/// past a cursor that has to keep up, so it moves far enough to be worth the
+/// press. The divider is chrome: eight columns of it crosses a fifth of a
+/// hundred-column screen in one tap, and the reader who wants a move that big
+/// drags it.
+const RESIZE_STEP: i16 = 4;
+
+/// Alt held, and ctrl not.
+///
+/// Deliberately not an exact match on the modifier set: `+` is shifted `=` on
+/// most keyboards, and a terminal with the keyboard enhancements on reports the
+/// shift as well — an exact match would make `alt-+` a dead key on exactly
+/// those terminals. Ctrl is excluded so a chord nobody aimed cannot land here.
+fn is_alt(m: KeyModifiers) -> bool {
+    m.contains(KeyModifiers::ALT) && !m.contains(KeyModifiers::CONTROL)
+}
+
 /// A bare `y`, and nothing else, answers a question here. Some terminals
 /// report ctrl-y as `Char('y')` with a modifier, and the irreversible actions
 /// in this reviewer must not answer to a chord nobody aimed.
@@ -157,6 +176,14 @@ impl App {
             (kind, _) => kind,
         };
         let click = matches!(kind, MouseEventKind::Down(MouseButton::Left));
+        let drag = matches!(kind, MouseEventKind::Drag(MouseButton::Left));
+        // A drag with nothing grabbed is not this reviewer's. Dropped before
+        // the status is cleared below: a reader who clicks a footer button and
+        // then jiggles the mouse with the button still down would otherwise
+        // lose the message that click just produced.
+        if drag && self.divider_grab.is_none() {
+            return Vec::new();
+        }
         let step: isize = match kind {
             MouseEventKind::ScrollDown => 1,
             MouseEventKind::ScrollUp => -1,
@@ -165,7 +192,7 @@ impl App {
         // A key clears the footer, and so does a notch or a click: the message
         // answers "what did that just do", and this is the next thing done.
         self.status.clear();
-        let panes = layout(self.viewport.area);
+        let panes = self.panes();
         // A modal's footer names its keys, and each is a button: a click on
         // one presses it. Looked for first, and over the model read-only, so
         // the presses are in hand before any arm below borrows it to change.
@@ -269,6 +296,46 @@ impl App {
                 }
             }
             Mode::Normal => {
+                // The two dividers, ahead of everything else in this pane. A
+                // press on one grabs it and the drags that follow move it; a
+                // press anywhere else lets go.
+                //
+                // Ahead of the float guards below because a float is drawn at
+                // its pane's full width, so each one lies across a divider's
+                // column and would swallow the grab. A divider wins: it is a
+                // line down the whole pane, and one that went dead where a
+                // transient box happened to sit would read as a divider that
+                // sometimes does not work.
+                //
+                // Each is grabbable only where its line IS drawn — the pane
+                // divider stops above the status row, the middle stays inside
+                // the diff pane's frame. A press off the end of a line is a
+                // press on nothing, whatever column it is in.
+                let (left, right) = divider(&panes);
+                if click {
+                    self.divider_grab =
+                        if (at.x == left || at.x == right) && panes.body.contains(at) {
+                            Some(Grab::Panes(at.x as i16 - self.plan_cols() as i16))
+                        } else if self.split_column() == Some(at.x)
+                            && pane_inner(panes.detail).contains(at)
+                        {
+                            Some(Grab::Split)
+                        } else {
+                            None
+                        };
+                    if self.divider_grab.is_some() {
+                        return Vec::new();
+                    }
+                }
+                if let Some(grab) = self.divider_grab
+                    && drag
+                {
+                    match grab {
+                        Grab::Panes(off) => self.drag_panes_to(at.x, off),
+                        Grab::Split => self.drag_split_to(at.x),
+                    }
+                    return Vec::new();
+                }
                 // The symbol float is a map too, and unlike the other two it
                 // appears in every view — so its guard is not inside the
                 // `Groups` check below.
@@ -428,6 +495,10 @@ impl App {
         // HERE, before any handler runs: 35 places write this field and one
         // used to clear it, which made every one-off message permanent.
         self.status.clear();
+        // A key is a hand off the mouse. Dropping the grab here means a modal
+        // opened mid-gesture cannot leave one held over a screen where the
+        // divider is no longer the thing under the pointer.
+        self.divider_grab = None;
         // `?` opens help from every place whose keys help can answer for,
         // and the mode it was pressed in comes back when help closes. It is
         // NOT a key in the composer, where it is a character, nor in a
@@ -793,6 +864,16 @@ impl App {
             }
             (KeyCode::Char('0'), KeyModifiers::NONE) if self.focus == Focus::Detail => {
                 self.shift_pane(None);
+            }
+            // The divider, as zellij moves it. The second key in this reviewer
+            // that does not act on the pane you are in: it always names the
+            // DIFF pane, because making room for the diff is the thing the
+            // reader wants and the left pane is what pays for it.
+            (KeyCode::Char('=') | KeyCode::Char('+'), m) if is_alt(m) => {
+                self.resize_diff(RESIZE_STEP);
+            }
+            (KeyCode::Char('-'), m) if is_alt(m) => {
+                self.resize_diff(-RESIZE_STEP);
             }
             // One key for files, acting on the pane it is pressed in. In the
             // left pane that is which list of files you are reading — the
