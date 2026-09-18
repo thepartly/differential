@@ -1344,6 +1344,9 @@ impl App {
             .collect()
     }
 
+    /// The computation behind `derived.map_rows`. Called only from
+    /// `rebuild_overviews`, because it reads nothing a frame can change.
+    ///
     /// The group map's rows: the document's tree with everything the selected
     /// group does not touch folded away.
     ///
@@ -1356,8 +1359,6 @@ impl App {
     /// `z` never touches. The file view's `tree` would arrive here already
     /// folded, and a directory the reader had put away would hide the group's
     /// own files from the one view whose job is to show them.
-    /// The computation behind the `map_rows` field. Called only from
-    /// `rebuild_overviews`, because it reads nothing a frame can change.
     pub(super) fn compute_map_rows(&self) -> Vec<MapRow> {
         let tree = &self.derived.map_tree;
         let mine = &self.derived.map_files;

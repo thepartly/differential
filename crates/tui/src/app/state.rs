@@ -458,8 +458,6 @@ impl App {
         };
     }
 
-    /// Diff-pane scroll offset. Decided in update, never at draw time — which
-    /// is why the field itself is private.
     /// The pane heights currently in force.
     ///
     /// Exposed so a test can assert the guarantee the geometry rework rests on
@@ -468,6 +466,8 @@ impl App {
         self.geometry.viewport
     }
 
+    /// The diff pane's scroll offset. Decided in update, never at draw time —
+    /// which is why `Scroll` itself is private to the app.
     pub fn scroll(&self) -> usize {
         self.scroll.detail
     }
