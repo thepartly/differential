@@ -22,14 +22,11 @@
 
 use std::collections::BTreeSet;
 
-use differential_engine::config::Config;
-use differential_engine::grouping::GroupingOptions;
-use differential_engine::lang::LanguageRegistry;
-use differential_engine::pipeline::run_grouped_pipeline;
-use differential_engine::plan::ReviewSource;
-use differential_engine::store::{FsArtefactStore, FsGroupingCache, FsReviewStore};
+use differential_engine::store::FsReviewStore;
 use differential_engine::{ReviewSession, review_state};
-use differential_testutil::{FakeBackend, grouped_with_cache, json_group, two_class_repo};
+use differential_testutil::{
+    FakeBackend, grouped_output, grouped_with_cache, json_group, two_class_repo,
+};
 
 fn one_group_backend(name: &str) -> FakeBackend {
     FakeBackend::new(name, |ids| {
@@ -157,21 +154,7 @@ fn a_second_run_hits_the_cache_and_does_not_call_the_model() {
 fn review_sidecar_layout_is_frozen() {
     let (r, base, head) = two_class_repo();
     let backend = one_group_backend("fake");
-    let out = run_grouped_pipeline(
-        &r.repo(),
-        &ReviewSource::range(base.clone(), head.clone(), head.clone()),
-        &Config::default(),
-        &LanguageRegistry::builtin(),
-        &differential_testutil::stub_readers(),
-        &GroupingOptions {
-            backend: &backend,
-            cache: &FsGroupingCache::disabled(),
-            artefacts: &FsArtefactStore::disabled(),
-            fetch: "dfr",
-            progress: None,
-        },
-    )
-    .unwrap();
+    let out = grouped_output(&r, &base, &head, &backend, None);
 
     let dir = tempfile::TempDir::new().unwrap();
     let root = dir.path().join("review");

@@ -8,25 +8,13 @@
 
 use std::process::Command;
 
-use differential_testutil::TestRepo;
+use differential_testutil::{TestRepo, def_use_repo};
 use tempfile::TempDir;
 
 /// A two-class change with one real dependency: `b_user` references the type
 /// `a_core` introduces.
 fn document() -> (TestRepo, TempDir, std::path::PathBuf) {
-    let r = TestRepo::new();
-    r.write("src/a_core.txt", b"placeholder\n");
-    r.write("src/b_user.txt", b"placeholder\n");
-    let base = r.commit_all("base");
-    r.write(
-        "src/a_core.txt",
-        b"placeholder\npub struct WidgetCore { pub retries: u32 }\n",
-    );
-    r.write(
-        "src/b_user.txt",
-        b"placeholder\nlet core = WidgetCore { retries: 3 };\n",
-    );
-    let head = r.commit_all("head");
+    let (r, base, head) = def_use_repo();
     let (dir, path) = write_doc(&r, &base, &head);
     (r, dir, path)
 }

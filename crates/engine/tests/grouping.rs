@@ -4,7 +4,7 @@ use differential_engine::plan::ReviewSource;
 use differential_engine::schema::{Effort, PlanDocument, ReadAction};
 use differential_engine::store::FsGroupingCache;
 use differential_testutil::{
-    FakeBackend, TestRepo, grouped, grouped_with_cache, ids_in_prompt, json_group,
+    FakeBackend, TestRepo, def_use_repo, grouped, grouped_with_cache, ids_in_prompt, json_group,
     one_line_change_repo, rename_and_rewrite_repo, tiny_skim_backend, two_class_repo,
     verbatim_move_repo,
 };
@@ -362,25 +362,8 @@ fn skim_group_without_remainder_has_no_skip_step() {
 
 // ---------------------------------------------------------------- ordering
 
-/// Definition file + consumer file, model puts the consumer group FIRST;
-/// ordering must put the foundation first with real edges and roles.
-fn def_use_repo() -> (TestRepo, String, String) {
-    let r = TestRepo::new();
-    r.write("src/a_core.txt", b"placeholder\n");
-    r.write("src/b_user.txt", b"placeholder\n");
-    let base = r.commit_all("base");
-    r.write(
-        "src/a_core.txt",
-        b"placeholder\npub struct WidgetCore { pub retries: u32 }\n",
-    );
-    r.write(
-        "src/b_user.txt",
-        b"placeholder\nlet core = WidgetCore { retries: 3 };\n",
-    );
-    let head = r.commit_all("head");
-    (r, base, head)
-}
-
+/// The model puts the consumer group FIRST; ordering must put the foundation
+/// first with real edges and roles.
 #[test]
 fn foundation_is_ordered_before_its_consumer() {
     let (r, base, head) = def_use_repo();
