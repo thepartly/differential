@@ -271,6 +271,10 @@ pub enum Mode {
         /// sends the text there first.
         own: Option<differential_engine::forge::OwnComment>,
         editor: Box<TextArea<'static>>,
+        /// The box on screen, measured when the text or the screen changes
+        /// (`size_composer`). Held here because `draw` only reads, and the
+        /// text area's own measure of its wrapped rows is a write.
+        area: Rect,
     },
     /// The keys of where the reader pressed `?`, carrying the mode they
     /// pressed it in: help opened over a modal has to give that modal back,

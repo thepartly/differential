@@ -64,9 +64,11 @@ impl App {
 
         match &self.mode {
             Mode::Editing {
-                editor: textarea, ..
+                editor: textarea,
+                area,
+                ..
             } => {
-                let area = composer_area(panes.body, textarea);
+                let area = *area;
                 clear_to_ground(frame, &self.theme, area);
                 frame.render_widget(&**textarea, area);
                 // The keys go INSIDE the box, on its last row, where a footer
@@ -2596,8 +2598,7 @@ pub(super) fn pane(theme: &Theme, title: String, focused: bool) -> Block<'static
 }
 
 /// Rows `lines` take when word-wrapped inside `inner` columns, one at least
-/// per line. The same wrap the paragraphs draw with, so a box sized by it
-/// holds its text.
+/// per line. Sizes the notice, which a `Paragraph` draws.
 fn wrapped_rows<'a>(lines: impl Iterator<Item = &'a str>, inner: usize) -> usize {
     let inner = inner.max(1);
     lines.map(|l| textwrap::wrap(l, inner).len().max(1)).sum()
@@ -2608,18 +2609,18 @@ fn wrapped_rows<'a>(lines: impl Iterator<Item = &'a str>, inner: usize) -> usize
 /// the body, beyond which the text area scrolls. A float over the diff, not a
 /// strip pinned to the bottom: a finding is about the lines you can still see
 /// around it. Shared with the hit test.
-pub fn composer_area(body: Rect, textarea: &TextArea<'_>) -> Rect {
+///
+/// `&mut`, because the text area's measure caches. It is asked rather than
+/// re-derived: the rows are as the widget itself wraps them, its frame, its
+/// padding and the column it keeps for the caret included. A second wrap
+/// here used to guess one column wider, so a line exactly as wide as the
+/// text was one row to the box and two to the widget, and the spare row
+/// went missing.
+pub fn composer_area(body: Rect, textarea: &mut TextArea<'_>) -> Rect {
     let width = body.width * 3 / 5;
-    // Rows as wrapped, not lines as typed; the text area scrolls beyond the
-    // body anyway.
-    let rows = wrapped_rows(
-        textarea.lines().iter().map(String::as_str),
-        usize::from(width.saturating_sub(FRAME_ROWS)),
-    );
+    let rows = textarea.measure(width).content_rows;
     // The frame, the footer and the spare row: that is the four.
-    let wanted = u16::try_from(rows)
-        .unwrap_or(u16::MAX)
-        .saturating_add(FRAME_ROWS + 2);
+    let wanted = rows.saturating_add(FRAME_ROWS + 2);
     let height = wanted.clamp(10, body.height.max(10));
     centered_rect(body, width, height)
 }

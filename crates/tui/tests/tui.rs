@@ -7214,10 +7214,10 @@ mod forge_threads {
 
 use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
 use differential_tui::app::{
-    DEFAULT_PLAN_COLS, Hint, MIN_HALF, MIN_PANE, centered_x, clamp_cols, composer_area,
-    composer_footer, divider, file_list_modal_area, findings_modal_area, findings_question,
-    footer_row, half_centre, half_widths, hints_width, layout, pane_inner, publish_area,
-    publish_footer, search_modal_area, split_point,
+    DEFAULT_PLAN_COLS, Hint, MIN_HALF, MIN_PANE, centered_x, clamp_cols, composer_footer, divider,
+    file_list_modal_area, findings_modal_area, findings_question, footer_row, half_centre,
+    half_widths, hints_width, layout, pane_inner, publish_area, publish_footer, search_modal_area,
+    split_point,
 };
 use ratatui::layout::Rect;
 
@@ -7481,9 +7481,7 @@ fn the_composer_footer_buttons_save_and_cancel() {
         app.handle_key(key(ch));
     }
     let area = match &app.mode {
-        Mode::Editing { editor, .. } => {
-            composer_area(layout(SCREEN, DEFAULT_PLAN_COLS).body, editor)
-        }
+        Mode::Editing { area, .. } => *area,
         _ => panic!("c opens the composer"),
     };
     let row = footer_row(area);
@@ -9618,5 +9616,69 @@ fn both_dividers_are_held_to_one_rule() {
             assert_eq!(lw, split_point(want, width - 1, MIN_HALF));
             assert_eq!(lw + rw, width - 1, "the `│` keeps its own column");
         }
+    }
+}
+
+/// The composer's box is as tall as the text area will wrap its lines, not as
+/// tall as a second wrap guessed: the widget keeps a column for the caret, so
+/// a line exactly as wide as the text is two rows to it. Before this the box
+/// was sized one row short and the spare row above the footer went missing.
+#[test]
+fn the_composer_is_sized_by_the_wrap_it_draws_with() {
+    let (_r, mut app) = make_app();
+    app.set_area(Rect::new(0, 0, 80, 24));
+    app.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    app.handle_key(key('c'));
+    let body = app.panes().body;
+    let width = body.width * 3 / 5;
+    let full = "x".repeat(usize::from(width - 2));
+    app.handle_paste(&format!("one\ntwo\nthree\nfour\nfive\nsix\n{full}"));
+    let Mode::Editing { editor, area, .. } = &mut app.mode else {
+        panic!("the composer is open");
+    };
+    let rows = editor.measure(width).content_rows;
+    assert_eq!(rows, 8, "the full line is two rows to the widget");
+    // The frame, the footer and the spare row: that is the four.
+    assert_eq!(area.height, rows + 4);
+
+    // The body bounds it: sixty more lines and the box is the body.
+    let many: String = (0..60).map(|_| "more\n").collect();
+    app.handle_paste(&many);
+    let Mode::Editing { area, .. } = &app.mode else {
+        panic!("the composer is open");
+    };
+    assert_eq!(area.height, body.height);
+
+    // A screen that shrinks re-measures it too.
+    app.set_area(Rect::new(0, 0, 80, 16));
+    let body = app.panes().body;
+    let Mode::Editing { area, .. } = &app.mode else {
+        panic!("the composer is open");
+    };
+    assert_eq!(area.height, body.height);
+}
+
+/// One frame of the composer holding a line exactly as wide as the box's
+/// text, so the author can see whether the box is sized by the wrap it
+/// draws with. Run with:
+///
+///   cargo test -p differential-tui --test tui -- --ignored --nocapture render_dump_composer_full_line
+#[test]
+#[ignore]
+fn render_dump_composer_full_line() {
+    let (_r, mut app) = make_app();
+    app.set_area(Rect::new(0, 0, 80, 24));
+    app.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    app.handle_key(key('c'));
+    // The box is three fifths of the body wide; its text sits inside a
+    // one-cell frame. Six short lines lift the box off its ten-row floor,
+    // then one line fills the text width exactly.
+    let width = app.panes().body.width * 3 / 5;
+    let inner = usize::from(width - 2);
+    let full: String = "x".repeat(inner);
+    let text = format!("one\ntwo\nthree\nfour\nfive\nsix\n{full}");
+    app.handle_paste(&text);
+    for row in screen(&app, 80, 24) {
+        println!("{row}");
     }
 }

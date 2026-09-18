@@ -82,6 +82,15 @@ impl App {
         );
         Box::new(ta)
     }
+
+    /// Measure the composer's box again: after the text changes and after the
+    /// screen does. Nothing to do in any other mode.
+    pub(super) fn size_composer(&mut self) {
+        let body = self.panes().body;
+        if let Mode::Editing { editor, area, .. } = &mut self.mode {
+            *area = composer_area(body, editor);
+        }
+    }
 }
 
 impl App {
@@ -98,6 +107,7 @@ impl App {
         match &mut self.mode {
             Mode::Editing { editor, .. } => {
                 editor.insert_str(text);
+                self.size_composer();
             }
             Mode::Search(_) => self.search_paste(text),
             _ => {}
@@ -440,9 +450,8 @@ impl App {
                 .map(|h| h.presses.clone());
         }
         match &self.mode {
-            Mode::Editing { editor, .. } => {
-                let row = footer_row(composer_area(panes.body, editor));
-                footer_presses(&composer_footer(), row, true, at)
+            Mode::Editing { area, .. } => {
+                footer_presses(&composer_footer(), footer_row(*area), true, at)
             }
             // The `y` the footer shows is a `y` when clicked, and the clause
             // about every other key is one of those.
@@ -578,7 +587,13 @@ impl App {
                 }
                 Vec::new()
             }
-            Mode::Editing { .. } => self.composer_key(key),
+            Mode::Editing { .. } => {
+                let effects = self.composer_key(key);
+                // A character typed can wrap a line onto another row, or
+                // take one back.
+                self.size_composer();
+                effects
+            }
             // Every printable key types, which is why this arm takes the
             // whole event and why `?` is a character here and not help.
             Mode::Search(_) => {
@@ -725,6 +740,7 @@ impl App {
             reply_to,
             own,
             editor: textarea,
+            area: _,
         } = &mut self.mode
         else {
             return Vec::new();
@@ -1029,7 +1045,9 @@ impl App {
                 reply_to: None,
                 own: Some(own),
                 editor: ta,
+                area: Rect::default(),
             };
+            self.size_composer();
         } else if self.thread_at_cursor().is_some() {
             self.status = NOT_YOURS.into();
         } else if let Some(h) = self.current_hunk() {
@@ -1075,7 +1093,9 @@ impl App {
                 reply_to: None,
                 own: None,
                 editor: ta,
+                area: Rect::default(),
             };
+            self.size_composer();
         } else {
             self.status = "move onto a hunk first".into();
         }
@@ -1101,7 +1121,9 @@ impl App {
                 reply_to: Some(id),
                 own: None,
                 editor: ta,
+                area: Rect::default(),
             };
+            self.size_composer();
         } else {
             self.status = "r replies to a review thread".into();
         }

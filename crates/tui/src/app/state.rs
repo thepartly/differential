@@ -326,6 +326,8 @@ impl App {
     /// budget that counts screen lines has to be re-clamped either way.
     pub fn set_area(&mut self, area: Rect) {
         self.set_viewport(Viewport::measure(area, self.plan_cols()));
+        // The composer floats over the body, so its box follows the body.
+        self.size_composer();
     }
 
     /// Re-measure on the screen already recorded. What moving the divider and
