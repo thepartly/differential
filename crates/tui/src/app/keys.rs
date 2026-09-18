@@ -184,7 +184,7 @@ impl App {
         // the status is cleared below: a reader who clicks a footer button and
         // then jiggles the mouse with the button still down would otherwise
         // lose the message that click just produced.
-        if drag && self.divider_grab.is_none() {
+        if drag && self.geometry.divider_grab.is_none() {
             return Vec::new();
         }
         let step: isize = match kind {
@@ -245,7 +245,7 @@ impl App {
                         self.select_entry(idx);
                     } else if click
                         && let Some(line) = content_line(panes.plan, at)
-                        && let Some(idx) = self.plan_entry_at_line(self.group_scroll + line)
+                        && let Some(idx) = self.plan_entry_at_line(self.scroll.plan + line)
                     {
                         if idx == self.selected_entry() {
                             self.enter_plan_entry();
@@ -294,7 +294,7 @@ impl App {
             return;
         };
         if step != 0 {
-            let rows = file_list_rows(entries.len(), self.viewport.body_rows);
+            let rows = file_list_rows(entries.len(), self.geometry.viewport.body_rows);
             step_list(selected, scroll, entries.len(), rows, step > 0);
             return;
         }
@@ -340,7 +340,7 @@ impl App {
             return;
         }
         if step != 0 {
-            let rows = findings_rows(entries.len(), rules.len(), self.viewport.body_rows);
+            let rows = findings_rows(entries.len(), rules.len(), self.geometry.viewport.body_rows);
             step_list(selected, scroll, entries.len(), rows, step > 0);
             return;
         }
@@ -381,18 +381,20 @@ impl App {
     fn grab_divider(&mut self, panes: &Panes, at: Position, click: bool, drag: bool) -> bool {
         let (left, right) = divider(panes);
         if click {
-            self.divider_grab = if (at.x == left || at.x == right) && panes.body.contains(at) {
+            self.geometry.divider_grab = if (at.x == left || at.x == right)
+                && panes.body.contains(at)
+            {
                 Some(Grab::Panes(at.x as i16 - self.plan_cols() as i16))
             } else if self.split_column() == Some(at.x) && pane_inner(panes.detail).contains(at) {
                 Some(Grab::Split)
             } else {
                 None
             };
-            if self.divider_grab.is_some() {
+            if self.geometry.divider_grab.is_some() {
                 return true;
             }
         }
-        if let Some(grab) = self.divider_grab
+        if let Some(grab) = self.geometry.divider_grab
             && drag
         {
             match grab {
@@ -528,7 +530,7 @@ impl App {
         // A key is a hand off the mouse. Dropping the grab here means a modal
         // opened mid-gesture cannot leave one held over a screen where the
         // divider is no longer the thing under the pointer.
-        self.divider_grab = None;
+        self.geometry.divider_grab = None;
         // `?` opens help from every place whose keys help can answer for,
         // and the mode it was pressed in comes back when help closes. It is
         // NOT a key in the composer, where it is a character, nor in a
@@ -598,7 +600,7 @@ impl App {
         else {
             return Vec::new();
         };
-        let rows = file_list_rows(entries.len(), self.viewport.body_rows);
+        let rows = file_list_rows(entries.len(), self.geometry.viewport.body_rows);
         match key.code {
             KeyCode::Char('j') | KeyCode::Down => {
                 step_list(selected, scroll, entries.len(), rows, true);
@@ -645,7 +647,7 @@ impl App {
             return Vec::new();
         }
         let rules = section_rules(entries).len();
-        let rows = findings_rows(entries.len(), rules, self.viewport.body_rows);
+        let rows = findings_rows(entries.len(), rules, self.geometry.viewport.body_rows);
         let mut copy = false;
         match (key.code, key.modifiers) {
             (KeyCode::Char('j'), _) | (KeyCode::Down, _) => {

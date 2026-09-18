@@ -189,6 +189,27 @@ pub(super) fn matcher(query: &str, reading: Reading) -> Option<Regex> {
 /// reads or does: scanning wants the document and the blob cache, and jumping
 /// wants the rows, so both live on [`App`] and take this as an argument. That
 /// is why nothing here needs a repository and every method on it is pure.
+/// What `/` was last asked for, and which hit it was left on.
+///
+/// Kept so that finding the NEXT occurrence is `/` and an arrow rather than
+/// the word typed again. A reading aid for this sitting, like the folds and
+/// the context the reader opens; nothing here reaches the sidecar store.
+pub struct Last {
+    pub query: String,
+    pub reading: Reading,
+    pub hit: usize,
+}
+
+impl Default for Last {
+    fn default() -> Self {
+        Self {
+            query: String::new(),
+            reading: Reading::Literal,
+            hit: 0,
+        }
+    }
+}
+
 pub struct Search {
     /// The query and its caret.
     ///
@@ -372,7 +393,7 @@ impl App {
     /// Rows the occurrence list is drawn in — the number it scrolls against
     /// too, from one function, for the reason `text::findings_rows` gives.
     pub(super) fn search_list_rows(&self) -> usize {
-        text::search_list_rows(self.viewport.body_rows)
+        text::search_list_rows(self.geometry.viewport.body_rows)
     }
 
     /// Open the search, on the query the reader last used.
@@ -382,10 +403,13 @@ impl App {
     /// word to get it is the tool asking them to repeat themselves.
     pub(super) fn open_search(&mut self) {
         self.visual = None;
-        self.mode = Mode::Search(Search::new(self.last_query.clone(), self.last_reading));
+        self.mode = Mode::Search(Search::new(
+            self.last_search.query.clone(),
+            self.last_search.reading,
+        ));
         self.rescan();
         // The hit comes back too, which `rescan` has just reset to the first.
-        let (hit, rows) = (self.last_hit, self.search_list_rows());
+        let (hit, rows) = (self.last_search.hit, self.search_list_rows());
         if let Some(s) = self.search_mut() {
             s.select(hit.min(s.entries.len().saturating_sub(1)), rows);
         }
@@ -398,9 +422,9 @@ impl App {
             .search()
             .map(|s| (s.query().to_string(), s.reading, s.selected))
         {
-            self.last_query = query;
-            self.last_reading = reading;
-            self.last_hit = hit;
+            self.last_search.query = query;
+            self.last_search.reading = reading;
+            self.last_search.hit = hit;
         }
         self.mode = Mode::Normal;
     }
@@ -447,7 +471,7 @@ impl App {
             return Vec::new();
         };
         let (path, line) = (occ.path.clone(), occ.line);
-        let rows = text::search_preview_rows(self.viewport.body_rows);
+        let rows = text::search_preview_rows(self.geometry.viewport.body_rows);
         // The hit sits in the middle of what is shown, so the reader sees what
         // leads to it as well as what follows.
         let first = line.saturating_sub(rows as u32 / 2).max(1);
@@ -605,6 +629,7 @@ impl App {
             // projection's entry by comparing paths was a scan per file, and
             // a scan per file over the file list is the whole corpus squared.
             let hunks: Vec<Hunk> = self
+                .derived
                 .file_index
                 .get(f.path.as_str())
                 .and_then(|i| plan.files.get(*i))
@@ -759,7 +784,7 @@ impl App {
                 format!("{path}:{line} is {away} lines from the nearest hunk · z opens more");
             return;
         }
-        let e = self.expanded.entry(hunk).or_default();
+        let e = self.opened.context.entry(hunk).or_default();
         if down {
             e.down = e.down.max(away as usize);
         } else {

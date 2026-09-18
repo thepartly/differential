@@ -8087,13 +8087,13 @@ fn focus_leaving_the_diff_pane_closes_the_float() {
 fn z_on_a_row_with_no_symbol_still_folds_the_group() {
     let (_r, mut app) = app_with_symbols();
     // A row the index cannot resolve: the file header is not a diff line.
-    let before = app.folds_open.clone();
+    let before = app.opened.folds.clone();
     app.focus = Focus::Detail;
     put_cursor_on(&mut app, |k| matches!(k, RowKind::HunkHeader { .. }));
     app.handle_key(key('z'));
     assert!(app.peek.is_none(), "nothing to peek at on a hunk header");
     assert_ne!(
-        app.folds_open, before,
+        app.opened.folds, before,
         "z kept the meaning it already had on this row"
     );
 }

@@ -42,7 +42,7 @@ impl App {
         let Some((path, line)) = self.new_side_of(self.cursor) else {
             return Vec::new();
         };
-        let Some(fi) = self.file_index.get(&path).copied() else {
+        let Some(fi) = self.derived.file_index.get(&path).copied() else {
             return Vec::new();
         };
         let mut found: Vec<&schema::SymbolUse> = index
@@ -196,7 +196,7 @@ impl App {
         let Some((path, line)) = self.new_side_of(row) else {
             return Vec::new();
         };
-        let Some(fi) = self.file_index.get(&path).copied() else {
+        let Some(fi) = self.derived.file_index.get(&path).copied() else {
             return Vec::new();
         };
         let mut found: Vec<&schema::SymbolUse> = index
