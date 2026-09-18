@@ -138,20 +138,21 @@ Sleep 800ms
 Type "/"
 Wait+Screen@10s /type to search every changed file/
 Sleep 700ms
-Type "alias_of"
+Type "TreeReport"
 
 # Wait on the count rather than on a sleep. A query nothing holds draws no
 # count at all, so a fixture that has drifted stops the recording here instead
 # of filming an empty box.
 #
-# `alias_of` has five hits here, and the second one is chosen, not counted to.
-# It is `catalogue.alias_of(&id)` — a CALL, where the peek below has something
-# to resolve and a group to name. The trait method and its impl are
-# declarations, and the row in the test file resolves nothing at all: `z` there
-# opens no float, which is the case the wait below exists to catch.
+# A TYPE, and the row is chosen rather than counted to. `TreeReport` has nine
+# hits here — a struct the change adds, and every place that names it. The
+# third is `pub tree: Option<TreeReport>`, one token of interest on the line,
+# so the peek below has exactly one thing to resolve and the float is the
+# struct itself. A row that resolves nothing opens no float at all, which is
+# the case the wait after `z` exists to catch.
 Wait+Screen@10s / found /
 Sleep 1.4s
-Down@200ms 1
+Down@200ms 2
 Sleep 1.2s
 
 # `enter` puts the cursor on the line and opens whatever was in the way — a
@@ -227,7 +228,17 @@ Sleep 1.4s
 Type "z"
 Sleep 1.4s
 
-# A finding on one line.
+# A finding on one line, and `n` is how the cursor gets to one. It jumps to the
+# next hunk in this view and lands on its HEADER, skipping any hunk crossed in
+# from another group. Walking down from the boundary row instead lands wherever
+# the expansion happened to reach — which is how an earlier take filed both of
+# its findings against a doc comment and a `use` line.
+#
+# Six rows past the header clears the hunk's leading context and reaches the
+# change. The count is read off the screen, not derived: a hunk's context is
+# three lines by default, and the boundary rows above it are selectable too.
+Type "n"
+Sleep 700ms
 Down@80ms 6
 Sleep 300ms
 Type "c"
@@ -236,13 +247,15 @@ Type "explain this"
 Enter
 Sleep 900ms
 
-# A finding over a range. `v` starts the selection, `j`/`k` extend it, `c`
-# writes over it. The trailing `\` is the continuation marker: it makes the
-# `enter` after it a newline instead of a save.
-Down@60ms 14
+# A finding over a range, on the next hunk along. `v` starts the selection,
+# `j`/`k` extend it, `c` writes over it. The trailing `\` is the continuation
+# marker: it makes the `enter` after it a newline instead of a save.
+Type "n"
+Sleep 700ms
+Down@80ms 4
 Sleep 400ms
 Type "v"
-Down@170ms 7
+Down@170ms 5
 Sleep 500ms
 Type "c"
 Sleep 700ms
