@@ -30,16 +30,24 @@ fn default_effort() -> String {
     "focus".to_string()
 }
 
+/// The span the grouping parser reads: the first `{` to the last `}`,
+/// inclusive, whatever prose or fence surrounds it. `None` when the text has
+/// no such pair.
+///
+/// Public because `dfr agents --probe` judges an agent's reply by exactly
+/// this rule. A probe that read more leniently would pass an agent the
+/// pipeline then rejects, minutes in.
+pub fn json_object(text: &str) -> Option<&str> {
+    let start = text.find('{')?;
+    let end = text.rfind('}')?;
+    (end >= start).then(|| &text[start..=end])
+}
+
 pub fn parse_response(text: &str) -> Result<RawGroups, EngineError> {
-    let start = text.find('{');
-    let end = text.rfind('}');
-    let (Some(start), Some(end)) = (start, end) else {
+    let Some(span) = json_object(text) else {
         return Err(err("no JSON object in response", text));
     };
-    if end < start {
-        return Err(err("no JSON object in response", text));
-    }
-    serde_json::from_str(&text[start..=end]).map_err(|e| err(&e.to_string(), text))
+    serde_json::from_str(span).map_err(|e| err(&e.to_string(), text))
 }
 
 fn err(msg: &str, text: &str) -> EngineError {
@@ -77,6 +85,17 @@ mod tests {
         )
         .unwrap();
         assert!(r.groups.is_empty());
+    }
+
+    #[test]
+    fn the_object_span_is_inclusive_and_ignores_what_surrounds_it() {
+        assert_eq!(json_object("```json\n{\"a\": 1}\n```"), Some("{\"a\": 1}"));
+        assert_eq!(
+            json_object("x {\"a\": {\"b\": 2}} y"),
+            Some("{\"a\": {\"b\": 2}}")
+        );
+        assert_eq!(json_object("no braces"), None);
+        assert_eq!(json_object("} before {"), None);
     }
 
     #[test]

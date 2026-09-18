@@ -22,6 +22,7 @@ use crate::schema;
 
 use crate::EngineError;
 
+pub use parse::json_object;
 pub use payload::PROMPT_VERSION;
 
 pub struct GroupingOptions<'a, C: GroupingCache, A: ArtefactStore> {

@@ -211,48 +211,42 @@ impl App {
                 self.notice("the thread was not resolved", &e);
             }
             Answer::Published(sent, Ok(outcome)) => {
-                // What the publish's answer named, then what the refetched
-                // threads carry by marker: a finding is published when either
-                // says so, and the count is read from THIS batch's findings
-                // afterwards rather than from the answer alone. A refetch that
-                // failed is said; the comments are on the request regardless.
-                let marked = self.session.mark_published(&outcome.published);
-                let refetch = match outcome.threads {
-                    Ok(threads) => self.session.set_threads(threads).map(|_| None),
-                    Err(e) => Ok(Some(e)),
-                };
-                let landed = sent
-                    .iter()
-                    .filter(|id| {
-                        self.session
-                            .findings()
-                            .iter()
-                            .any(|f| &f.id == *id && f.upstream.is_some())
-                    })
-                    .count();
+                // Recorded by the session in the one order both renderers
+                // use: the answer, the refetched threads by marker, then a
+                // count of THIS batch. A refetch that failed is said; the
+                // comments are on the request regardless.
+                let recorded =
+                    self.session
+                        .record_publish(&sent, &outcome.published, outcome.threads);
                 let total = sent.len();
-                self.status = match (marked, refetch) {
-                    (Err(e), _) | (_, Err(e)) => format!("save failed: {e:#}"),
+                self.status = match recorded {
+                    Err(e) => format!("save failed: {e:#}"),
                     // The forge took part of the batch and then stopped. What
                     // it took is recorded; the rest is still the reader's, and
                     // the next P sends only that.
-                    _ if outcome.failed.is_some() => {
+                    Ok(r) if outcome.failed.is_some() => {
                         self.notice(
                             "the forge stopped part-way",
                             outcome.failed.as_ref().expect("guarded"),
                         );
                         format!(
-                            "published {landed} of {total} · the forge stopped part-way · R to check, P to send the rest"
+                            "published {} of {total} · the forge stopped part-way · R to check, P to send the rest",
+                            r.landed
                         )
                     }
-                    (_, Ok(Some(e))) => format!(
-                        "published {landed} of {total} · the threads could not be fetched back ({e}) · R to retry"
-                    ),
-                    _ if landed < total => format!(
-                        "published {landed} of {total} · {} not confirmed by the forge, R to check, P to retry",
-                        total - landed
-                    ),
-                    _ => format!("published {landed} comment{}", plural(landed)),
+                    Ok(r) => {
+                        let landed = r.landed;
+                        match r.refetch_failed {
+                            Some(e) => format!(
+                                "published {landed} of {total} · the threads could not be fetched back ({e}) · R to retry"
+                            ),
+                            None if landed < total => format!(
+                                "published {landed} of {total} · {} not confirmed by the forge, R to check, P to retry",
+                                total - landed
+                            ),
+                            None => format!("published {landed} comment{}", plural(landed)),
+                        }
+                    }
                 };
                 self.rebuild_rows();
             }
@@ -312,13 +306,7 @@ impl App {
             return;
         };
         let head = self.session.doc().source.head.clone();
-        let sent: Vec<String> = plan
-            .batch
-            .comments
-            .iter()
-            .map(|c| c.finding.clone())
-            .chain(plan.batch.replies.iter().map(|r| r.finding.clone()))
-            .collect();
+        let sent = plan.batch.finding_ids();
         let n = sent.len();
         let rx = spawn(move || forge::publish(forge.as_ref(), &req, &head, &plan.batch));
         self.inflight = Some(Inflight::Publish { sent, rx });

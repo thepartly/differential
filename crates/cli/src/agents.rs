@@ -30,6 +30,7 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use differential_engine::config::{Agent, ReadOnly};
+use differential_engine::grouping::json_object;
 use differential_engine::llm::{CommandBackend, LlmBackend};
 use differential_engine::schema::{
     Audit, ClassEntry, Disposition, FileEntry, ForgePosition, Generator, HunkEntry, PlanDocument,
@@ -334,10 +335,10 @@ fn judge(
         detail: "the agent ran".to_string(),
     }];
 
-    // The reply is parsed exactly as a grouping reply is: first `{` to last
-    // `}`. That is deliberate. A probe that parsed more leniently than the
-    // pipeline would pass an agent the pipeline then rejects.
-    let json = extract_json(text);
+    // The reply is read through the grouping parser's own span, so the probe
+    // cannot be more lenient than the pipeline: an agent this passes, the
+    // pipeline accepts.
+    let json = json_object(text);
     let parsed: Option<serde_json::Value> = json.and_then(|s| serde_json::from_str(s).ok());
 
     let got_nonce = parsed
@@ -422,13 +423,6 @@ fn judge(
     });
 
     checks
-}
-
-/// First `{` to last `}`, the same span the grouping parser takes.
-fn extract_json(text: &str) -> Option<&str> {
-    let start = text.find('{')?;
-    let end = text.rfind('}')?;
-    (end >= start).then(|| &text[start..=end])
 }
 
 /// A one-class, one-hunk document for the probe to fetch.
