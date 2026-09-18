@@ -19,7 +19,7 @@ use differential_engine::forgeio::{GhForge, GlabForge};
 use differential_engine::gitio::Repo;
 use differential_engine::grouping::GroupingOptions;
 use differential_engine::lang::LanguageRegistry;
-use differential_engine::llm::CommandBackend;
+use differential_engine::llmio::CommandBackend;
 use differential_engine::pipeline::resolve_picked;
 use differential_engine::plan;
 use differential_engine::ports::ReviewIdentity;

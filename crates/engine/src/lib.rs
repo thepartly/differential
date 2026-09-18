@@ -17,6 +17,7 @@ pub mod grouping;
 pub mod invariants;
 pub mod lang;
 pub mod llm;
+pub mod llmio;
 pub mod model;
 pub mod ordering;
 pub mod parse;

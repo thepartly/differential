@@ -31,7 +31,8 @@ use std::time::{Duration, Instant};
 
 use differential_engine::config::{Agent, ReadOnly};
 use differential_engine::grouping::json_object;
-use differential_engine::llm::{CommandBackend, LlmBackend};
+use differential_engine::llm::LlmBackend;
+use differential_engine::llmio::CommandBackend;
 use differential_engine::schema::{
     Audit, ClassEntry, Disposition, FileEntry, ForgePosition, Generator, HunkEntry, PlanDocument,
     SCHEMA_VERSION, Source, SourceKind, Stats,
