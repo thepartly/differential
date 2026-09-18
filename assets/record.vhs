@@ -4,6 +4,7 @@
 #   export PATH="$PWD/target/release:$PATH"
 #   dfr findings ecc9400..cfea95f
 #   cd assets && vhs record.vhs
+#   cd assets && vhs shot.vhs      # the README image, separately
 #
 # Run the last one FROM THE assets DIRECTORY. `Output` and `Screenshot` below
 # are relative paths, and vhs resolves them against the process directory, not
@@ -19,13 +20,19 @@
 # shell finishes, so a cold cache expires the wait below rather than delaying
 # it. Outside, a forgotten warm is a loud vhs timeout instead of a wrong video.
 #
+# The README image is `assets/shot.vhs`, not this tape. This one runs inside
+# zellij so it can caption itself, and the image should not advertise a
+# multiplexer `dfr` does not need. Either order; both reset the session first.
+#
 # The range is fixed on purpose. This tape used to type a bare `dfr review`
 # and walk the commit picker, so every recording was a different diff and no
 # two runs could be compared. `ecc9400..cfea95f` is 11 commits and 79 files,
 # and its plan has all three tiers in it: eight focus groups, six skim, one
 # folded noise group. Every beat below has real material to land on.
 #
-# Needs `vim` for the last beat.
+# Needs `vim` for the last beat, and `zellij` for the captions — the reviewer
+# runs inside one. `assets/demo.kdl` is its whole configuration, and the note
+# at the top of that file says why a caption has to be a keystroke.
 
 Output demo.webm
 Set Shell zsh
@@ -58,12 +65,36 @@ Type "grep -rl cfea95f $(git rev-parse --git-common-dir)/differential/reviews/*/
 Enter
 Type "cd assets && clear"
 Enter
+
+# The reviewer runs inside zellij so the tape can caption itself: `ctrl-q` is
+# bound to rename-pane, and the words after it land in the tab bar instead of
+# in the reviewer. See assets/demo.kdl.
+#
+# Named, so the bar reads `Zellij (differential)` rather than two random words
+# that change every run.
+# Delete the session before starting it. A named session that already exists
+# is an error, not a fresh one, so without this the tape records a shell that
+# refused to start anything.
+Type "zellij delete-session differential --force 2>/dev/null"
+Enter
+Type "zellij --config demo.kdl -s differential"
+Enter
+Wait+Screen@20s /Zellij \(differential\)/
+Sleep 800ms
+Type "clear"
+Enter
 Show
 
 Sleep 1.2s
 
 # The picker: `dfr review` with no range offers the last 30 commits as a base.
 # Walk it, then leave. `q` cancels the whole command.
+Ctrl+q
+Sleep 150ms
+Type@4ms "dfr review  ·  no range, so it offers a base to pick"
+Enter
+Sleep 300ms
+
 Type "dfr review"
 Enter
 Wait+Screen@30s /q cancel/
@@ -75,6 +106,12 @@ Type "q"
 Sleep 800ms
 
 # Now the real thing, on the fixed range.
+Ctrl+q
+Sleep 150ms
+Type@4ms "or name the range yourself"
+Enter
+Sleep 300ms
+
 Type "dfr review ecc9400..cfea95f"
 Enter
 
@@ -101,12 +138,24 @@ Sleep 1s
 # line in the detail header. So the beat is a cursor move and a pause. Six
 # down from the top is g4, "The diff pane soft-wraps", which follows four
 # other groups — the widest fan in this document.
+Ctrl+q
+Sleep 150ms
+Type@4ms "the reading plan  ·  what to read first, and what each group follows"
+Enter
+Sleep 300ms
+
 Down@200ms 6
 Sleep 1.7s
 
 # Eight further down is g14, the noise group, which the plan opens folded.
 # `z` means "show me what this pane is withholding", and in the plan pane
 # that is the folded group.
+Ctrl+q
+Sleep 150ms
+Type@4ms "z  ·  unfold what the plan is withholding"
+Enter
+Sleep 300ms
+
 Down@140ms 8
 Sleep 600ms
 Type "z"
@@ -117,6 +166,12 @@ Sleep 600ms
 # The file tree. `f` in the LEFT pane swaps the reading plan for the tree;
 # `f` in the diff pane is a different key entirely, and opens a file list.
 # `z` folds the directory under the cursor.
+Ctrl+q
+Sleep 150ms
+Type@4ms "f  ·  every file in the change, as a tree"
+Enter
+Sleep 300ms
+
 Type "f"
 Sleep 900ms
 Down@140ms 5
@@ -135,6 +190,12 @@ Sleep 800ms
 #
 # Arrows here, never `j`/`k`. Every printable key types into the query, so a
 # `j` would search for a `j` (crates/tui/src/app/search.rs).
+Ctrl+q
+Sleep 150ms
+Type@4ms "/  ·  a word, found anywhere in the change"
+Enter
+Sleep 300ms
+
 Type "/"
 Wait+Screen@10s /type to search every changed file/
 Sleep 700ms
@@ -179,6 +240,12 @@ Sleep 1.4s
 # a fact about the line rather than about this tape. `· <path>:<line>` is drawn
 # nowhere else on this screen — the search box has closed, and no finding is
 # written yet.
+Ctrl+q
+Sleep 150ms
+Type@4ms "z  ·  what declares the name under the cursor"
+Enter
+Sleep 300ms
+
 Type "z"
 Wait+Screen@10s /· .*\.rs:[0-9]+/
 Sleep 2s
@@ -201,6 +268,12 @@ Sleep 400ms
 #
 # `enter` rather than `tab` to cross into the diff: it says move to the diff
 # rather than toggle, so it cannot land back on the plan.
+Ctrl+q
+Sleep 150ms
+Type@4ms "back to the top of the plan, and into the diff"
+Enter
+Sleep 300ms
+
 Up@90ms 16
 Sleep 800ms
 Enter
@@ -209,6 +282,12 @@ Down@70ms 12
 Sleep 500ms
 
 # Split and unified. Split is what a review opens in.
+Ctrl+q
+Sleep 150ms
+Type@4ms "s  ·  side by side, or unified"
+Enter
+Sleep 300ms
+
 Type "s"
 Sleep 1.5s
 Type "s"
@@ -218,6 +297,12 @@ Sleep 1.2s
 # and `enter` jumps to that file's first context boundary — the row that says
 # how many lines are hidden and what `z` will show. So `z` lands every time,
 # with no counting. Two presses: 50 lines, then the last 18.
+Ctrl+q
+Sleep 150ms
+Type@4ms "z  ·  pull in the context a hunk does not carry"
+Enter
+Sleep 300ms
+
 Type "f"
 Sleep 700ms
 Down@140ms 4
@@ -237,6 +322,12 @@ Sleep 1.4s
 # Six rows past the header clears the hunk's leading context and reaches the
 # change. The count is read off the screen, not derived: a hunk's context is
 # three lines by default, and the boundary rows above it are selectable too.
+Ctrl+q
+Sleep 150ms
+Type@4ms "n jumps to the next hunk  ·  c writes a finding on the line"
+Enter
+Sleep 300ms
+
 Type "n"
 Sleep 700ms
 Down@80ms 6
@@ -250,6 +341,12 @@ Sleep 900ms
 # A finding over a range, on the next hunk along. `v` starts the selection,
 # `j`/`k` extend it, `c` writes over it. The trailing `\` is the continuation
 # marker: it makes the `enter` after it a newline instead of a save.
+Ctrl+q
+Sleep 150ms
+Type@4ms "v selects  ·  c writes one finding over the whole range"
+Enter
+Sleep 300ms
+
 Type "n"
 Sleep 700ms
 Down@80ms 4
@@ -264,10 +361,15 @@ Enter
 Type "and multiple lines comments"
 Enter
 Sleep 800ms
-Screenshot screenshot.png
 Sleep 1.2s
 
 # Mark a group reviewed, then move on.
+Ctrl+q
+Sleep 150ms
+Type@4ms "space  ·  mark the whole group reviewed"
+Enter
+Sleep 300ms
+
 Tab
 Sleep 500ms
 Type " "
@@ -286,6 +388,12 @@ Sleep 1.2s
 
 # Every finding in one list, wherever it lives. `enter` jumps to one — across
 # files, across groups, opening a folded remainder if it has to.
+Ctrl+q
+Sleep 150ms
+Type@4ms "F  ·  every finding, wherever in the branch it lives"
+Enter
+Sleep 300ms
+
 Type "F"
 Sleep 1.2s
 Down@200ms 1
@@ -295,6 +403,12 @@ Sleep 1.8s
 
 # Copy the findings. One key, and it copies the whole open-findings summary as
 # markdown — file, lines and note per bullet.
+Ctrl+q
+Sleep 150ms
+Type@4ms "y  ·  copy them all as markdown"
+Enter
+Sleep 300ms
+
 Type "y"
 Sleep 1.3s
 
@@ -313,6 +427,12 @@ Sleep 700ms
 # first line starts with `- `, and in normal mode vim reads `- c r a` as
 # commands and swallows them — an earlier take pasted a first line missing
 # its first five characters.
+Ctrl+q
+Sleep 150ms
+Type@4ms "and paste them to your agent"
+Enter
+Sleep 300ms
+
 Type "vim"
 Enter
 Sleep 700ms
