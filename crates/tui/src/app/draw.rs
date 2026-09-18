@@ -622,13 +622,13 @@ impl App {
                 // it. The marks are one set, read once, instead of a map
                 // lookup and a set lookup per hunk of every group per frame.
                 let span = self.edge_span();
-                let reviewed = &self.reviewed;
+                let reviewed = &self.derived.reviewed;
                 (0..self.groups().len())
                     .map(|i| self.group_lines(i, i == selected, inner_w, span, reviewed))
                     .collect()
             }
             ViewMode::Files => {
-                let reviewed = &self.reviewed;
+                let reviewed = &self.derived.reviewed;
                 let guides = tree_guides(&self.tree);
                 (0..self.tree.len())
                     .map(|i| self.tree_lines(i, i == selected, reviewed, &guides[i]))
@@ -655,7 +655,7 @@ impl App {
         let items: Vec<Line> = blocks
             .into_iter()
             .flatten()
-            .skip(self.group_scroll)
+            .skip(self.scroll.plan)
             .take(inner_h)
             .collect();
 
@@ -953,7 +953,7 @@ impl App {
     /// plan pane, or nowhere when there are no files. Shared with the hit
     /// test, so a click on the float is known to be one.
     pub fn file_list_area(&self, plan: Rect) -> Option<Rect> {
-        let files_len = self.listed_files.len();
+        let files_len = self.derived.listed_files.len();
         if files_len == 0 {
             return None;
         }
@@ -977,9 +977,9 @@ impl App {
     }
 
     pub(super) fn draw_file_list_in(&self, frame: &mut Frame, area: Rect) {
-        let reviewed = &self.reviewed;
+        let reviewed = &self.derived.reviewed;
         let here = self.file_at_cursor();
-        let files = &self.listed_files;
+        let files = &self.derived.listed_files;
         let inner_w = area.width.saturating_sub(2) as usize;
         // Keep the current file in view; the list can outrun its pane.
         let h = area.height.saturating_sub(2) as usize;
@@ -1064,7 +1064,7 @@ impl App {
         if cap < 3 {
             return None;
         }
-        let h = (self.map_rows.len() as u16 + 2).max(3).min(cap);
+        let h = (self.derived.map_rows.len() as u16 + 2).max(3).min(cap);
         Some(Rect {
             x: detail.x,
             y: detail.y + detail.height.saturating_sub(h),
@@ -1094,7 +1094,7 @@ impl App {
         // of the pane. Walked from `scroll` over the same heights the scroll
         // budget uses, so the float lands where the row actually is.
         let mut top = 0usize;
-        for i in self.scroll..peek.row {
+        for i in self.scroll.detail..peek.row {
             top += self.row_height(i);
             if top >= inner_h {
                 return None;
@@ -1226,7 +1226,7 @@ impl App {
         // an ancestor pass over every row above each live file, and a scan
         // forward per folded directory. It depends on `tree` and `map_files`
         // and nothing else, both of which `rebuild_overviews` already owns.
-        let rows = &self.map_rows;
+        let rows = &self.derived.map_rows;
         clear_to_ground(frame, &self.theme, area);
         let inner_h = area.height.saturating_sub(2) as usize;
         let dim = Style::default().fg(self.theme.gutter_fg);
@@ -1306,7 +1306,7 @@ impl App {
             Some(g) => format!(
                 " files in {} · {} of {} ",
                 g.id,
-                self.map_files.len(),
+                self.derived.map_files.len(),
                 self.files().len()
             ),
             None => " files ".to_string(),
@@ -1344,6 +1344,9 @@ impl App {
             .collect()
     }
 
+    /// The computation behind `derived.map_rows`. Called only from
+    /// `rebuild_overviews`, because it reads nothing a frame can change.
+    ///
     /// The group map's rows: the document's tree with everything the selected
     /// group does not touch folded away.
     ///
@@ -1352,15 +1355,13 @@ impl App {
     /// map is asked — what does this group span — with the rest of the tree
     /// present as context rather than as rows.
     ///
-    /// Reads `self.map_tree`: the document's whole tree, which the reader's
+    /// Reads `self.derived.map_tree`: the document's whole tree, which the reader's
     /// `z` never touches. The file view's `tree` would arrive here already
     /// folded, and a directory the reader had put away would hide the group's
     /// own files from the one view whose job is to show them.
-    /// The computation behind the `map_rows` field. Called only from
-    /// `rebuild_overviews`, because it reads nothing a frame can change.
     pub(super) fn compute_map_rows(&self) -> Vec<MapRow> {
-        let tree = &self.map_tree;
-        let mine = &self.map_files;
+        let tree = &self.derived.map_tree;
+        let mine = &self.derived.map_files;
         let plan = self.session.plan();
         let n = tree.len();
 
@@ -1598,7 +1599,7 @@ impl App {
         let mut placed: Vec<(usize, u16, usize)> = Vec::new();
         let mut lines: Vec<Line> = Vec::new();
         let mut y = 0usize;
-        for i in self.scroll..self.rows.len() {
+        for i in self.scroll.detail..self.rows.len() {
             if y >= inner_h {
                 break;
             }
@@ -1668,8 +1669,8 @@ impl App {
         // only while the filename would otherwise be off-screen, which is
         // exactly when a long file stops saying which file it is.
         if let Some(header) = self
-            .file_header_above(self.scroll)
-            .filter(|&h| h < self.scroll)
+            .file_header_above(self.scroll.detail)
+            .filter(|&h| h < self.scroll.detail)
             && let Some(first) = lines.first_mut()
         {
             // Its first line only: the pin costs the reader one row by
@@ -1879,10 +1880,13 @@ impl App {
         // shifted right and then moved to a short file sees an empty pane and
         // nothing that says why — and the way back is a key they would have to
         // go and look for.
-        if self.hscroll > 0 {
+        if self.scroll.sideways > 0 {
             left.extend(
                 pill(
-                    vec![(self.theme.header_fg, format!("+{} cols", self.hscroll))],
+                    vec![(
+                        self.theme.header_fg,
+                        format!("+{} cols", self.scroll.sideways),
+                    )],
                     fill,
                 )
                 .into_iter()

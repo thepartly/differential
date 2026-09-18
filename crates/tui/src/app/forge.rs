@@ -397,10 +397,10 @@ impl App {
         else {
             return;
         };
-        if self.expanded_threads.remove(&thread) {
+        if self.opened.threads.remove(&thread) {
             self.status = "thread collapsed".into();
         } else {
-            self.expanded_threads.insert(thread);
+            self.opened.threads.insert(thread);
             self.status = "thread expanded".into();
         }
         self.rebuild_rows();

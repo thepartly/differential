@@ -7,7 +7,7 @@
 use differential_engine::plan::{self, Fold};
 use ratatui::text::Line;
 
-use crate::rows::{Row, RowKind, RowsContext};
+use crate::rows::{Row, RowKind};
 use crate::window::Side;
 
 use super::draw::{Paint, compose_row_lines, half_centre, half_widths, overflow, pane_inner};
@@ -79,7 +79,7 @@ impl App {
         // allocated a prefix, scanned every file and sorted the result — so a
         // repaint cost O(rows x files log files) to redraw a tree that had
         // not changed.
-        self.tree_files = (0..self.tree.len()).map(|r| self.files_under(r)).collect();
+        self.derived.tree_files = (0..self.tree.len()).map(|r| self.files_under(r)).collect();
     }
 
     /// The group map's copy of the tree, with nothing folded.
@@ -87,7 +87,7 @@ impl App {
     /// Built once, from `new`: it is a pure function of the file list, and the
     /// document does not change while a session is open.
     pub(super) fn build_map_tree(&mut self) {
-        self.map_tree = build_tree(self.files(), &HashSet::new());
+        self.derived.map_tree = build_tree(self.files(), &HashSet::new());
     }
 
     /// File indices covered by a tree row: one file, or every file under a
@@ -96,7 +96,11 @@ impl App {
     /// Reads the answer `rebuild_tree` computed. Panicking on an unknown row
     /// is not possible: the vector is rebuilt with the tree, in the same call.
     pub(super) fn files_of_tree_row(&self, row: usize) -> Vec<usize> {
-        self.tree_files.get(row).cloned().unwrap_or_default()
+        self.derived
+            .tree_files
+            .get(row)
+            .cloned()
+            .unwrap_or_default()
     }
 
     /// The computation behind `tree_files`. Called only from `rebuild_tree`.
@@ -186,7 +190,7 @@ impl App {
         // One read of the marks, kept for the frame to use too. Drawing asked
         // for its own copy three more times, and each one walked every hunk
         // digest in the document to build a set it then threw away.
-        self.reviewed = self.session.reviewed_hunks();
+        self.derived.reviewed = self.session.reviewed_hunks();
         // The three degenerate cases `break` rather than `return`, so the
         // overviews at the tail are rebuilt from whatever rows this call
         // produced — including none. They used to return, which left three
@@ -211,27 +215,19 @@ impl App {
                     // exemplar and members. The projection carries both now.
                     let view =
                         &self.session.plan().groups[self.selected_group.min(groups.len() - 1)];
-                    // Spelled out, not built by a method, and it has to be: a
-                    // method borrows the whole of `self`, and the row builders
-                    // below need `&mut self.factory` while this holds the rest.
-                    // Only a literal gives the compiler the field-level borrows.
+                    // Field by field, so `&mut self.factory` stays free below;
+                    // `Opened::rows_context` says why.
                     let ctx = GroupContext {
-                        core: RowsContext {
-                            theme: &self.theme,
-                            doc: self.session.doc(),
-                            plan: self.session.plan(),
-                            findings: self.session.findings(),
-                            threads: self.session.threads(),
-                            reviewed: &self.reviewed,
-                            mode: self.diff_mode(),
-                            show_group_labels: false,
-                            context: self.opts.context,
-                            context_step: self.opts.context_step,
-                            expansion: &self.expanded,
-                            expanded_threads: &self.expanded_threads,
-                        },
+                        core: self.opened.rows_context(
+                            &self.theme,
+                            &self.opts,
+                            &self.session,
+                            &self.derived.reviewed,
+                            self.diff_mode(),
+                            false,
+                        ),
                         view,
-                        fold: if self.folds_open.contains(&view.id) {
+                        fold: if self.opened.folds.contains(&view.id) {
                             Fold::Unfolded
                         } else {
                             Fold::Folded
@@ -246,21 +242,14 @@ impl App {
                     }
                     let row = self.selected_file.min(self.tree.len() - 1);
                     let targets = self.files_of_tree_row(row);
-                    // A literal for the same reason as the group arm above.
-                    let ctx = RowsContext {
-                        theme: &self.theme,
-                        doc: self.session.doc(),
-                        plan: self.session.plan(),
-                        findings: self.session.findings(),
-                        threads: self.session.threads(),
-                        reviewed: &self.reviewed,
-                        mode: self.diff_mode(),
-                        show_group_labels: true,
-                        context: self.opts.context,
-                        context_step: self.opts.context_step,
-                        expansion: &self.expanded,
-                        expanded_threads: &self.expanded_threads,
-                    };
+                    let ctx = self.opened.rows_context(
+                        &self.theme,
+                        &self.opts,
+                        &self.session,
+                        &self.derived.reviewed,
+                        self.diff_mode(),
+                        true,
+                    );
                     self.rows = match targets.as_slice() {
                         // A single file keeps its dedicated builder (it renders a
                         // placeholder for zero-hunk binary/submodule changes).
@@ -323,7 +312,7 @@ impl App {
     /// A resize is an event like any other: both scroll offsets are re-clamped
     /// here, in update, rather than discovered while rendering.
     pub fn set_viewport(&mut self, viewport: Viewport) {
-        self.viewport = viewport;
+        self.geometry.viewport = viewport;
         self.follow_cursor();
         self.follow_plan_scroll();
         self.clamp_hscroll();
@@ -342,7 +331,7 @@ impl App {
     /// Re-measure on the screen already recorded. What moving the divider and
     /// switching the left pane's list both end with.
     pub(super) fn remeasure(&mut self) {
-        self.set_area(self.viewport.area);
+        self.set_area(self.geometry.viewport.area);
     }
 
     /// The divider in force: the left pane's width, for the list it is
@@ -357,17 +346,17 @@ impl App {
     /// back where they left it.
     pub fn plan_cols(&self) -> u16 {
         let cols = match self.view_mode {
-            ViewMode::Groups => self.plan_cols,
-            ViewMode::Files => self.tree_cols,
+            ViewMode::Groups => self.geometry.plan_cols,
+            ViewMode::Files => self.geometry.tree_cols,
         };
-        clamp_cols(cols, self.viewport.area.width)
+        clamp_cols(cols, self.geometry.viewport.area.width)
     }
 
     /// The same number, to write. `f` swaps which one the reader is moving.
     fn plan_cols_mut(&mut self) -> &mut u16 {
         match self.view_mode {
-            ViewMode::Groups => &mut self.plan_cols,
-            ViewMode::Files => &mut self.tree_cols,
+            ViewMode::Groups => &mut self.geometry.plan_cols,
+            ViewMode::Files => &mut self.geometry.tree_cols,
         }
     }
 
@@ -376,12 +365,12 @@ impl App {
     /// `layout` against the measured screen and the divider in force — what
     /// the hit test asks, so a click lands in the pane the reader can see.
     pub fn panes(&self) -> Panes {
-        layout(self.viewport.area, self.plan_cols())
+        layout(self.geometry.viewport.area, self.plan_cols())
     }
 
     /// Where the split view's middle sits, as a distance from the centre.
     pub fn split_offset(&self) -> i16 {
-        self.split_offset
+        self.geometry.split_offset
     }
 
     /// The screen column the split view's middle is painted on, or `None` when
@@ -394,7 +383,7 @@ impl App {
             return None;
         }
         let inner = pane_inner(self.panes().detail);
-        let (lw, _) = half_widths(inner.width as usize, self.split_offset);
+        let (lw, _) = half_widths(inner.width as usize, self.geometry.split_offset);
         Some(inner.x + lw as u16)
     }
 
@@ -421,7 +410,7 @@ impl App {
         // grab and the draw would disagree about where nought is.
         let centre = half_centre(inner.width.into());
         let offset = i32::from(x) - i32::from(inner.x) - centre as i32;
-        self.split_offset = offset.clamp(i16::MIN.into(), i16::MAX.into()) as i16;
+        self.geometry.split_offset = offset.clamp(i16::MIN.into(), i16::MAX.into()) as i16;
         // The middle changes how wide each half draws at, so it changes what
         // hangs off their right edges and how tall a wrapped row is. Both are
         // what `remeasure` re-derives.
@@ -433,7 +422,7 @@ impl App {
     /// Returns whether it moved. A press that changes nothing reads as a key
     /// that does not work, which is why the callers that are keys speak up.
     pub(super) fn set_plan_cols(&mut self, cols: u16) -> bool {
-        let want = clamp_cols(cols, self.viewport.area.width);
+        let want = clamp_cols(cols, self.geometry.viewport.area.width);
         if want == self.plan_cols() {
             return false;
         }
@@ -456,7 +445,7 @@ impl App {
         // the footer says which wall it is against and names the way back —
         // except on a screen too narrow to move the divider at all, where
         // naming the other key would be a lie.
-        let width = self.viewport.area.width;
+        let width = self.geometry.viewport.area.width;
         self.status = if width < 2 * MIN_PANE {
             format!(
                 "the terminal is too narrow to move the divider — it needs {} columns",
@@ -469,18 +458,18 @@ impl App {
         };
     }
 
-    /// Diff-pane scroll offset. Decided in update, never at draw time — which
-    /// is why the field itself is private.
     /// The pane heights currently in force.
     ///
     /// Exposed so a test can assert the guarantee the geometry rework rests on
     /// — that they are re-derived when focus changes, not left stale.
     pub fn viewport(&self) -> Viewport {
-        self.viewport
+        self.geometry.viewport
     }
 
+    /// The diff pane's scroll offset. Decided in update, never at draw time —
+    /// which is why `Scroll` itself is private to the app.
     pub fn scroll(&self) -> usize {
-        self.scroll
+        self.scroll.detail
     }
 
     /// Rows one left-pane entry occupies.
@@ -502,22 +491,22 @@ impl App {
 
     /// Keep the whole selected plan block in view. Lifted out of `draw_groups`.
     pub(super) fn follow_plan_scroll(&mut self) {
-        let h = self.viewport.plan_rows.max(MIN_VIEWPORT);
+        let h = self.geometry.viewport.plan_rows.max(MIN_VIEWPORT);
         let selected = self.selected_entry();
         let start_row: usize = (0..selected).map(|i| self.plan_block_height(i)).sum();
         let end_row = start_row + self.plan_block_height(selected);
-        if start_row < self.group_scroll {
-            self.group_scroll = start_row;
-        } else if end_row > self.group_scroll + h {
-            self.group_scroll = end_row.saturating_sub(h);
+        if start_row < self.scroll.plan {
+            self.scroll.plan = start_row;
+        } else if end_row > self.scroll.plan + h {
+            self.scroll.plan = end_row.saturating_sub(h);
         }
     }
 
     pub(super) fn follow_cursor(&mut self) {
-        if self.cursor < self.scroll + SCROLL_MARGIN {
-            self.scroll = self.cursor.saturating_sub(SCROLL_MARGIN);
+        if self.cursor < self.scroll.detail + SCROLL_MARGIN {
+            self.scroll.detail = self.cursor.saturating_sub(SCROLL_MARGIN);
         } else {
-            self.scroll = self.scroll.max(self.highest_scroll());
+            self.scroll.detail = self.scroll.detail.max(self.highest_scroll());
         }
         // The rows above the first selectable one are the group header —
         // label, description, dependencies — and the cursor can never enter
@@ -527,7 +516,7 @@ impl App {
             .next_selectable(0, 1)
             .is_none_or(|first| self.cursor <= first)
         {
-            self.scroll = 0;
+            self.scroll.detail = 0;
         }
     }
 
@@ -539,7 +528,7 @@ impl App {
     /// row that must stay visible, the first row the budget cannot afford is
     /// where the view has to start.
     pub(super) fn highest_scroll(&self) -> usize {
-        let h = self.viewport.detail_rows.max(MIN_VIEWPORT);
+        let h = self.geometry.viewport.detail_rows.max(MIN_VIEWPORT);
         let last = (self.cursor + SCROLL_MARGIN).min(self.rows.len().saturating_sub(1));
         let mut used = 0;
         let mut top = last;
@@ -561,7 +550,7 @@ impl App {
     /// click names a line, and a wrapped row is several of them.
     pub(super) fn row_at_line(&self, line: usize) -> Option<usize> {
         let mut used = 0;
-        for i in self.scroll..self.rows.len() {
+        for i in self.scroll.detail..self.rows.len() {
             used += self.row_height(i);
             if line < used {
                 return Some(i);
@@ -593,7 +582,7 @@ impl App {
     /// Half a pane of screen LINES. Counting rows would jump a screenful of
     /// wrapped prose in one press.
     pub(super) fn half_page(&self, from: usize, dir: isize) -> usize {
-        let budget = self.viewport.detail_rows.max(MIN_VIEWPORT) / 2;
+        let budget = self.geometry.viewport.detail_rows.max(MIN_VIEWPORT) / 2;
         let mut used = 0;
         let mut i = from;
         while used < budget {
@@ -624,7 +613,7 @@ impl App {
             }
         }
         self.cursor = 0;
-        self.scroll = 0;
+        self.scroll.detail = 0;
         self.follow_plan_scroll();
         self.rebuild_rows();
     }
@@ -649,7 +638,7 @@ impl App {
             ViewMode::Groups
         };
         self.cursor = 0;
-        self.scroll = 0;
+        self.scroll.detail = 0;
         // The divider is per list, so switching lists moves it — and the diff
         // pane's width with it. Re-measure before the rows are built, or they
         // wrap at the width the pane had a moment ago.
@@ -677,7 +666,7 @@ impl App {
                 // file. Reading a group that owns two of a file's ten hunks,
                 // the file's own totals describe the eight that are not here.
                 let view = self.session.plan();
-                let hunks = match (self.view_mode, self.file_index.get(path.as_str())) {
+                let hunks = match (self.view_mode, self.derived.file_index.get(path.as_str())) {
                     (_, None) => Vec::new(),
                     (ViewMode::Groups, Some(&i)) => view.hunks_in(self.selected_group, i),
                     // The file view shows the file whole, so the whole file is
@@ -816,7 +805,7 @@ impl App {
             return;
         };
         let step = self.opts.context_step;
-        let e = self.expanded.entry(hunk).or_default();
+        let e = self.opened.expansion.entry(hunk).or_default();
         match (side, crossing) {
             (Side::Up, false) => e.up += step,
             (Side::Down, false) => e.down += step,
@@ -872,7 +861,7 @@ impl App {
         let mut out: Vec<usize> = Vec::new();
         for row in &self.rows {
             if let RowKind::FileHeader(path) = &row.kind
-                && let Some(&i) = self.file_index.get(path.as_str())
+                && let Some(&i) = self.derived.file_index.get(path.as_str())
                 && seen.insert(i)
             {
                 out.push(i);
@@ -885,11 +874,11 @@ impl App {
     /// that is what they describe — and never from `draw`, which runs on every
     /// keypress.
     pub(super) fn rebuild_overviews(&mut self) {
-        self.listed_files = self.file_list();
-        self.map_files = self.files_of_selected_group();
+        self.derived.listed_files = self.file_list();
+        self.derived.map_files = self.files_of_selected_group();
         // Third of the three, and the one that was left in `draw`. It reads
         // the two above and the tree, so this is the moment it can change.
-        self.map_rows = self.compute_map_rows();
+        self.derived.map_rows = self.compute_map_rows();
     }
 
     /// The row index of the file header the cursor is under.
@@ -913,7 +902,7 @@ impl App {
         let RowKind::FileHeader(path) = &self.rows[row].kind else {
             return None;
         };
-        self.file_index.get(path.as_str()).copied()
+        self.derived.file_index.get(path.as_str()).copied()
     }
 
     pub(super) fn current_hunk(&self) -> Option<usize> {
@@ -976,7 +965,7 @@ impl App {
     /// edge to reach.
     pub(super) fn shift(&self, row: &Row) -> usize {
         match row.kind {
-            RowKind::Diff(_) if !self.wraps(row) => self.hscroll,
+            RowKind::Diff(_) if !self.wraps(row) => self.scroll.sideways,
             _ => 0,
         }
     }
@@ -994,7 +983,13 @@ impl App {
         self.rows
             .iter()
             .filter(|r| matches!(r.kind, RowKind::Diff(_)))
-            .map(|r| overflow(&r.content, self.viewport.detail_cols, self.split_offset))
+            .map(|r| {
+                overflow(
+                    &r.content,
+                    self.geometry.viewport.detail_cols,
+                    self.geometry.split_offset,
+                )
+            })
             .max()
             .unwrap_or(0)
     }
@@ -1011,10 +1006,10 @@ impl App {
         // every row to measure the widest overflow. That cost was accepted on
         // a keypress; a divider dragged across forty columns pays it forty
         // times, and the answer is zero every one of them.
-        if self.hscroll == 0 {
+        if self.scroll.sideways == 0 {
             return;
         }
-        self.hscroll = self.hscroll.min(self.max_hscroll());
+        self.scroll.sideways = self.scroll.sideways.min(self.max_hscroll());
     }
 
     /// Shift the diff pane sideways by `by` columns, or home it when `by` is
@@ -1029,9 +1024,9 @@ impl App {
             self.status = "soft wrap is on · w turns it off".into();
             return;
         }
-        self.hscroll = match by {
+        self.scroll.sideways = match by {
             None => 0,
-            Some(by) => (self.hscroll as isize + by).max(0) as usize,
+            Some(by) => (self.scroll.sideways as isize + by).max(0) as usize,
         }
         .min(self.max_hscroll());
     }
@@ -1051,8 +1046,8 @@ impl App {
             compose_row_lines(
                 &self.theme,
                 &r.content,
-                self.viewport.detail_cols,
-                Paint::plain(self.wraps(r), self.split_offset),
+                self.geometry.viewport.detail_cols,
+                Paint::plain(self.wraps(r), self.geometry.split_offset),
             )
             .len()
         })
@@ -1072,7 +1067,7 @@ impl App {
         // wrapped row — so the pane came home and the footer went on claiming a
         // shift that was not happening.
         if on {
-            self.hscroll = 0;
+            self.scroll.sideways = 0;
         }
         self.follow_cursor();
     }
@@ -1105,8 +1100,8 @@ impl App {
             return;
         };
         let gid = g.id.clone();
-        if !self.folds_open.insert(gid.clone()) {
-            self.folds_open.remove(&gid);
+        if !self.opened.folds.insert(gid.clone()) {
+            self.opened.folds.remove(&gid);
         }
         self.rebuild_rows();
     }
