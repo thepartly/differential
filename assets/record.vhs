@@ -148,22 +148,6 @@ Sleep 500ms
 Down@200ms 6
 Sleep 1.7s
 
-# Eight further down is g14, the noise group, which the plan opens folded.
-# `z` means "show me what this pane is withholding", and in the plan pane
-# that is the folded group.
-Ctrl+q
-Sleep 150ms
-Type@4ms "z  ·  unfold what the plan is withholding"
-Enter
-Sleep 500ms
-
-Down@140ms 8
-Sleep 600ms
-Type "z"
-Sleep 1.3s
-Type "z"
-Sleep 600ms
-
 # The file tree. `f` in the LEFT pane swaps the reading plan for the tree;
 # `f` in the diff pane is a different key entirely, and opens a file list.
 # `z` folds the directory under the cursor.
@@ -294,31 +278,28 @@ Sleep 1.5s
 Type "s"
 Sleep 1.2s
 
-# What the diff is withholding. `f` here is the diff pane's key: a file list,
-# and `enter` jumps to that file's first context boundary — the row that says
-# how many lines are hidden and what `z` will show. So `z` lands every time,
-# with no counting. Two presses: 50 lines, then the last 18.
+# `f` here is the diff pane's key, and a different one from `f` in the plan
+# pane: it lists the files this group touches, and `enter` jumps to one. The
+# beats below are written against that file, so this is navigation as much as
+# it is a feature of its own.
 Ctrl+q
 Sleep 150ms
-Type@4ms "z  ·  pull in the context a hunk does not carry"
+Type@4ms "f  ·  jump to any file this group touches"
 Enter
 Sleep 500ms
 
 Type "f"
-Sleep 700ms
-Down@140ms 4
-Enter
 Sleep 900ms
-Type "z"
-Sleep 1.4s
-Type "z"
-Sleep 1.4s
+Down@140ms 4
+Sleep 400ms
+Enter
+Sleep 1.2s
 
 # A finding on one line, and `n` is how the cursor gets to one. It jumps to the
 # next hunk in this view and lands on its HEADER, skipping any hunk crossed in
-# from another group. Walking down from the boundary row instead lands wherever
-# the expansion happened to reach — which is how an earlier take filed both of
-# its findings against a doc comment and a `use` line.
+# from another group. Walking down from where `enter` left the cursor instead
+# lands on whatever context the file opens with — which is how an earlier take
+# filed both of its findings against a doc comment and a `use` line.
 #
 # Six rows past the header clears the hunk's leading context and reaches the
 # change. The count is read off the screen, not derived: a hunk's context is
