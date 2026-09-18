@@ -297,6 +297,44 @@ fn the_tuned_reader_outranks_the_field_reader_and_they_never_overlap() {
     );
 }
 
+/// The floor is the AST readers' fallback when a parse fails, so it has to
+/// claim everything they claim. It kept a list of its own and the list lagged:
+/// `.pyi`, `.mts` and `.cts` were the tuned reader's and nobody else's, so a
+/// failed parse there would have yielded no symbols rather than crude ones.
+#[test]
+fn the_floor_stands_under_every_file_the_ast_readers_claim() {
+    let tuned = AstSymbols::new();
+    let fields = AstTier2Symbols::new();
+    for path in [
+        b"a.rs".as_slice(),
+        b"a.pyi",
+        b"a.mts",
+        b"a.cts",
+        b"a.tsx",
+        b"a.kts",
+        b"a.js",
+        b"a.java",
+        b"a.h",
+        b"a.hh",
+        b"a.cs",
+    ] {
+        let name = String::from_utf8_lossy(path);
+        let above = tuned.priority(path).or(fields.priority(path));
+        assert!(
+            above.is_some(),
+            "{name} is nobody's, so it proves nothing here"
+        );
+        assert!(
+            NaiveSymbols.priority(path).is_some(),
+            "an AST reader claims {name} and the floor does not"
+        );
+        assert!(
+            NaiveSymbols.priority(path) < above,
+            "the floor must rank below the reader it stands under on {name}"
+        );
+    }
+}
+
 /// Deep nesting must cost neither stack nor quadratic time.
 ///
 /// This reader takes JavaScript, Java, C, C++ and C#, where a minified bundle
@@ -900,7 +938,7 @@ fn every_reader_fingerprint_pins_its_answers() {
             "3daa183a1262c364fb8acf8107650a6dbee9b62d",
         ),
         ("ast-fields-v3", "7d1eb9f41d9cb7aff66aa240710a0337c62ba2c6"),
-        ("naive-v3", "3b6a6cfece0afc2ea5d6172739e6e6d8747305bc"),
+        ("naive-v4", "3b6a6cfece0afc2ea5d6172739e6e6d8747305bc"),
     ];
     let pinned: Vec<(String, String)> = PINNED
         .iter()

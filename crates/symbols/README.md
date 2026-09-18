@@ -4,8 +4,10 @@ The symbol readers for [`differential`](https://crates.io/crates/differential). 
 one question about a file — **what does each line define, and what does it reference?** —
 and the answer becomes the dependency graph that orders a review foundation-first.
 
-Three readers ship. Each ranks itself for a given path, and the best claimant answers. A
-file no reader claims contributes no symbols at all.
+Three readers ship. Each ranks itself for a given path, and the best claimant answers. The
+regex floor stands under every extension the table below names, so a file an AST reader
+claims and fails to parse still gets crude symbols rather than none. A file no reader
+claims contributes no symbols at all.
 
 Project home: <https://github.com/thepartly/differential>
 
@@ -24,7 +26,7 @@ Project home: <https://github.com/thepartly/differential>
 | C | `.c` `.h` | field rules |
 | C++ | `.cc` `.cpp` `.cxx` `.hpp` `.hh` | field rules |
 | C# | `.cs` | field rules |
-| Ruby, PHP, Swift, Scala, shell, Perl, Lua, Elixir, Erlang, Haskell, OCaml, Dart, Vue, Svelte, SQL, Protobuf, Zig | `.rb` `.php` `.swift` `.scala` `.sh` `.bash` `.zsh` `.pl` `.pm` `.lua` `.ex` `.exs` `.erl` `.hs` `.ml` `.mli` `.dart` `.vue` `.svelte` `.sql` `.proto` `.zig` | regex floor |
+| Ruby, PHP, Swift, Scala, shell, Perl, Lua, Elixir, Erlang, Haskell, OCaml, Dart, Vue, Svelte, SQL, Protobuf, Zig | `.rb` `.php` `.swift` `.scala` `.sh` `.bash` `.zsh` `.pl` `.pm` `.lua` `.ex` `.exs` `.erl` `.hs` `.ml` `.mli` `.dart` `.vue` `.svelte` `.sql` `.proto` `.zig` | regex floor (only reader) |
 | everything else — manifests, lockfiles, prose, data | — | none |
 
 ## What each rung costs you
@@ -74,8 +76,10 @@ they keep every edge they can honestly draw.
 build graph, so a shared word is never evidence that two packages are connected (ADR 0031).
 `namespace::of` is the table, and all three readers share it — the crude reader is the AST
 readers' fallback, so a namespace of its own would split a language in two the first time a
-parse failed. This *raises* the edge count on a mixed repository: a name declared once per
-language used to have two definers and be dropped for both.
+parse failed. The floor's claim (`namespace::is_code`) reads the same table, so it cannot
+know fewer extensions than the readers it stands under. This *raises* the edge count on a
+mixed repository: a name declared once per language used to have two definers and be
+dropped for both.
 
 Comments and strings are dropped by both AST readers without any query, because every
 grammar names those nodes with those words. A token that reaches a string through an
@@ -125,9 +129,6 @@ to order — disappeared entirely.
 
 ## Known edges
 
-- `.pyi`, `.mts` and `.cts` are claimed by the tuned reader but are absent from the regex
-  floor's list. Nothing fails today, so nothing falls through; if a parse ever did fail on
-  one, it would get no symbols rather than crude ones.
 - Rust's `(source_file (const_item …)) @def` does not check `pub`, so a private constant is
   global where an unexported TypeScript one is not. Predates the scope split, and moving it
   belongs to its own measurement (ADR 0030).
