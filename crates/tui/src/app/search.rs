@@ -177,18 +177,6 @@ pub(super) fn matcher(query: &str, reading: Reading) -> Option<Regex> {
         .ok()
 }
 
-/// The box's own state.
-///
-/// One type rather than seven fields on the mode variant: nine functions each
-/// opened by naming a different subset of them, the draw took eight arguments
-/// to be handed the same thing, and three one-line accessors existed only to
-/// peek at one field of it.
-///
-/// **The boundary.** This owns what the box IS — the query, how it is read,
-/// what it found, where the cursor is in that. It owns none of what the box
-/// reads or does: scanning wants the document and the blob cache, and jumping
-/// wants the rows, so both live on [`App`] and take this as an argument. That
-/// is why nothing here needs a repository and every method on it is pure.
 /// What `/` was last asked for, and which hit it was left on.
 ///
 /// Kept so that finding the NEXT occurrence is `/` and an arrow rather than
@@ -210,6 +198,18 @@ impl Default for Last {
     }
 }
 
+/// The box's own state.
+///
+/// One type rather than seven fields on the mode variant: nine functions each
+/// opened by naming a different subset of them, the draw took eight arguments
+/// to be handed the same thing, and three one-line accessors existed only to
+/// peek at one field of it.
+///
+/// **The boundary.** This owns what the box IS — the query, how it is read,
+/// what it found, where the cursor is in that. It owns none of what the box
+/// reads or does: scanning wants the document and the blob cache, and jumping
+/// wants the rows, so both live on [`App`] and take this as an argument. That
+/// is why nothing here needs a repository and every method on it is pure.
 pub struct Search {
     /// The query and its caret.
     ///
@@ -784,7 +784,7 @@ impl App {
                 format!("{path}:{line} is {away} lines from the nearest hunk · z opens more");
             return;
         }
-        let e = self.opened.context.entry(hunk).or_default();
+        let e = self.opened.expansion.entry(hunk).or_default();
         if down {
             e.down = e.down.max(away as usize);
         } else {

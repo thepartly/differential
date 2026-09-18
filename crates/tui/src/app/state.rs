@@ -805,7 +805,7 @@ impl App {
             return;
         };
         let step = self.opts.context_step;
-        let e = self.opened.context.entry(hunk).or_default();
+        let e = self.opened.expansion.entry(hunk).or_default();
         match (side, crossing) {
             (Side::Up, false) => e.up += step,
             (Side::Down, false) => e.down += step,

@@ -36,10 +36,9 @@ use ratatui::style::Style;
 use ratatui::widgets::{Block, Borders};
 use tui_textarea::TextArea;
 
-use crate::rows::RowsContext;
 use crate::rows::{
-    DiffMode, GroupContext, RAIL, Row, RowContent, RowFactory, build_dir_rows, build_file_rows,
-    build_group_rows, pill,
+    DiffMode, GroupContext, RAIL, Row, RowContent, RowFactory, RowsContext, build_dir_rows,
+    build_file_rows, build_group_rows, pill,
 };
 use crate::theme::Theme;
 use crate::window::Expansion;
@@ -488,7 +487,7 @@ pub struct Opened {
     /// Group ids whose fold is open.
     pub folds: HashSet<String>,
     /// How far each hunk's context has been pulled open, by canonical index.
-    pub context: HashMap<usize, Expansion>,
+    pub expansion: HashMap<usize, Expansion>,
     /// Resolved threads the reader has opened with `z`. A resolved thread is
     /// collapsed to its header by default; the rest is settled reading, shown
     /// on demand.
@@ -522,7 +521,7 @@ impl Opened {
             show_group_labels,
             context: opts.context,
             context_step: opts.context_step,
-            expansion: &self.context,
+            expansion: &self.expansion,
             expanded_threads: &self.threads,
         }
     }
