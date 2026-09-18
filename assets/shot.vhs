@@ -6,7 +6,7 @@
 # PATH. The gif it writes is a throwaway — vhs demands an `Output`, and this
 # tape wants only the `Screenshot`.
 #
-# Separate from record.vhs for one reason: that tape runs inside zellij so it
+# Separate from record.vhs for one reason: that tape runs inside tmux so it
 # can caption itself, and the README image should not advertise a multiplexer
 # `dfr` does not need. So this one opens the reviewer directly.
 #

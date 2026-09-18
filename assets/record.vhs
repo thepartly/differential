@@ -21,7 +21,7 @@
 # it. Outside, a forgotten warm is a loud vhs timeout instead of a wrong video.
 #
 # The README image is `assets/shot.vhs`, not this tape. This one runs inside
-# zellij so it can caption itself, and the image should not advertise a
+# tmux so it can caption itself, and the image should not advertise a
 # multiplexer `dfr` does not need. Either order; both reset the session first.
 #
 # The range is fixed on purpose. This tape used to type a bare `dfr review`
@@ -30,9 +30,9 @@
 # and its plan has all three tiers in it: eight focus groups, six skim, one
 # folded noise group. Every beat below has real material to land on.
 #
-# Needs `vim` for the last beat, and `zellij` for the captions — the reviewer
-# runs inside one. `assets/demo.kdl` is its whole configuration, and the note
-# at the top of that file says why a caption has to be a keystroke.
+# Needs `vim` for the last beat, and `tmux` for the captions — the reviewer
+# runs inside one. `assets/demo.tmux.conf` is its whole configuration, and
+# the note at the top of it says why a caption has to be a keystroke.
 
 Output demo.webm
 Set Shell zsh
@@ -66,20 +66,21 @@ Enter
 Type "cd assets && clear"
 Enter
 
-# The reviewer runs inside zellij so the tape can caption itself: `ctrl-q` is
-# bound to rename-pane, and the words after it land in the tab bar instead of
-# in the reviewer. See assets/demo.kdl.
+# The reviewer runs inside tmux so the tape can caption itself: `ctrl-q` is
+# bound to a prompt that stores the words typed after it, and the status line
+# draws them and nothing else. The reviewer never sees the key or the text.
+# See assets/demo.tmux.conf.
 #
-# Named, so the bar reads `Zellij (differential)` rather than two random words
-# that change every run.
-# Delete the session before starting it. A named session that already exists
-# is an error, not a fresh one, so without this the tape records a shell that
-# refused to start anything.
-Type "zellij delete-session differential --force 2>/dev/null"
+# Kill the session before starting it, so a second recording starts fresh
+# rather than attaching to wherever the last one stopped.
+Type "tmux kill-session -t differential 2>/dev/null"
 Enter
-Type "zellij --config demo.kdl -s differential"
+Type "tmux -f demo.tmux.conf new-session -s differential"
 Enter
-Wait+Screen@20s /Zellij \(differential\)/
+
+# The opening caption, set in the config, doubles as the word that says tmux
+# has drawn.
+Wait+Screen@20s /a reading plan for a diff/
 Sleep 800ms
 Type "clear"
 Enter
@@ -93,7 +94,7 @@ Ctrl+q
 Sleep 150ms
 Type@4ms "dfr review  ·  no range, so it offers a base to pick"
 Enter
-Sleep 300ms
+Sleep 500ms
 
 Type "dfr review"
 Enter
@@ -110,7 +111,7 @@ Ctrl+q
 Sleep 150ms
 Type@4ms "or name the range yourself"
 Enter
-Sleep 300ms
+Sleep 500ms
 
 Type "dfr review ecc9400..cfea95f"
 Enter
@@ -142,7 +143,7 @@ Ctrl+q
 Sleep 150ms
 Type@4ms "the reading plan  ·  what to read first, and what each group follows"
 Enter
-Sleep 300ms
+Sleep 500ms
 
 Down@200ms 6
 Sleep 1.7s
@@ -154,7 +155,7 @@ Ctrl+q
 Sleep 150ms
 Type@4ms "z  ·  unfold what the plan is withholding"
 Enter
-Sleep 300ms
+Sleep 500ms
 
 Down@140ms 8
 Sleep 600ms
@@ -170,7 +171,7 @@ Ctrl+q
 Sleep 150ms
 Type@4ms "f  ·  every file in the change, as a tree"
 Enter
-Sleep 300ms
+Sleep 500ms
 
 Type "f"
 Sleep 900ms
@@ -194,7 +195,7 @@ Ctrl+q
 Sleep 150ms
 Type@4ms "/  ·  a word, found anywhere in the change"
 Enter
-Sleep 300ms
+Sleep 500ms
 
 Type "/"
 Wait+Screen@10s /type to search every changed file/
@@ -244,7 +245,7 @@ Ctrl+q
 Sleep 150ms
 Type@4ms "z  ·  what declares the name under the cursor"
 Enter
-Sleep 300ms
+Sleep 500ms
 
 Type "z"
 Wait+Screen@10s /· .*\.rs:[0-9]+/
@@ -272,7 +273,7 @@ Ctrl+q
 Sleep 150ms
 Type@4ms "back to the top of the plan, and into the diff"
 Enter
-Sleep 300ms
+Sleep 500ms
 
 Up@90ms 16
 Sleep 800ms
@@ -286,7 +287,7 @@ Ctrl+q
 Sleep 150ms
 Type@4ms "s  ·  side by side, or unified"
 Enter
-Sleep 300ms
+Sleep 500ms
 
 Type "s"
 Sleep 1.5s
@@ -301,7 +302,7 @@ Ctrl+q
 Sleep 150ms
 Type@4ms "z  ·  pull in the context a hunk does not carry"
 Enter
-Sleep 300ms
+Sleep 500ms
 
 Type "f"
 Sleep 700ms
@@ -326,7 +327,7 @@ Ctrl+q
 Sleep 150ms
 Type@4ms "n jumps to the next hunk  ·  c writes a finding on the line"
 Enter
-Sleep 300ms
+Sleep 500ms
 
 Type "n"
 Sleep 700ms
@@ -345,7 +346,7 @@ Ctrl+q
 Sleep 150ms
 Type@4ms "v selects  ·  c writes one finding over the whole range"
 Enter
-Sleep 300ms
+Sleep 500ms
 
 Type "n"
 Sleep 700ms
@@ -368,7 +369,7 @@ Ctrl+q
 Sleep 150ms
 Type@4ms "space  ·  mark the whole group reviewed"
 Enter
-Sleep 300ms
+Sleep 500ms
 
 Tab
 Sleep 500ms
@@ -392,7 +393,7 @@ Ctrl+q
 Sleep 150ms
 Type@4ms "F  ·  every finding, wherever in the branch it lives"
 Enter
-Sleep 300ms
+Sleep 500ms
 
 Type "F"
 Sleep 1.2s
@@ -407,7 +408,7 @@ Ctrl+q
 Sleep 150ms
 Type@4ms "y  ·  copy them all as markdown"
 Enter
-Sleep 300ms
+Sleep 500ms
 
 Type "y"
 Sleep 1.3s
@@ -431,7 +432,7 @@ Ctrl+q
 Sleep 150ms
 Type@4ms "and paste them to your agent"
 Enter
-Sleep 300ms
+Sleep 500ms
 
 Type "vim"
 Enter
