@@ -1,8 +1,11 @@
-//! The whole input surface: one `handle_key`, one `handle_paste`.
+//! The whole input surface: one `handle_key`, one `handle_mouse`, one
+//! `handle_paste`.
 //!
-//! A plain method on the model returning effects, so a test drives the
-//! reviewer without a terminal. Modal arms return early; the normal-mode arm
-//! is the tail.
+//! Plain methods on the model returning effects, so a test drives the
+//! reviewer without a terminal. Each is a dispatcher and one handler per mode:
+//! the dispatcher does what every key does — the latch, the quit, the status,
+//! `?` — and the mode's handler does the rest, so a key's meaning in a list is
+//! read next to the list's other keys and nowhere else.
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::{Position, Rect};
@@ -213,75 +216,8 @@ impl App {
             // A box the caret owns, and two questions only `y` answers: their
             // footers took the click above, and nothing else in them does.
             Mode::Editing { .. } | Mode::Publish { .. } | Mode::DeleteComment { .. } => {}
-            Mode::FileList {
-                entries,
-                selected,
-                scroll,
-            } => {
-                if step != 0 {
-                    let rows = file_list_rows(entries.len(), self.viewport.body_rows);
-                    step_list(selected, scroll, entries.len(), rows, step > 0);
-                    return Vec::new();
-                }
-                if !click {
-                    return Vec::new();
-                }
-                match content_line(file_list_modal_area(panes.body, entries), at) {
-                    None => self.mode = Mode::Normal,
-                    Some(line) => {
-                        let hit = *scroll + line;
-                        if hit >= entries.len() {
-                            return Vec::new();
-                        }
-                        if hit == *selected {
-                            self.jump_to_listed_file();
-                        } else {
-                            *selected = hit;
-                        }
-                    }
-                }
-            }
-            Mode::Findings {
-                entries,
-                selected,
-                scroll,
-                confirming,
-            } => {
-                let rules = section_rules(entries);
-                let area = findings_modal_area(panes.body, entries.len(), rules.len());
-                // While `D` waits for its answer the wheel is not one, and a
-                // click off the footer is `n`, as any key but `y` is.
-                if *confirming {
-                    if click {
-                        *confirming = false;
-                        self.status = "nothing deleted".into();
-                    }
-                    return Vec::new();
-                }
-                if step != 0 {
-                    let rows = findings_rows(entries.len(), rules.len(), self.viewport.body_rows);
-                    step_list(selected, scroll, entries.len(), rows, step > 0);
-                    return Vec::new();
-                }
-                if !click {
-                    return Vec::new();
-                }
-                match content_line(area, at) {
-                    None => self.mode = Mode::Normal,
-                    Some(line) => {
-                        let skip = findings_skip(*scroll, &rules);
-                        let Some(hit) = findings_entry_at_line(entries.len(), &rules, skip + line)
-                        else {
-                            return Vec::new();
-                        };
-                        if hit == *selected {
-                            self.jump_to_listed_finding();
-                        } else {
-                            *selected = hit;
-                        }
-                    }
-                }
-            }
+            Mode::FileList { .. } => self.file_list_mouse(panes.body, at, click, step),
+            Mode::Findings { .. } => self.findings_mouse(panes.body, at, click, step),
             Mode::Search(_) => {
                 if step != 0 {
                     self.search_wheel(step > 0);
@@ -296,62 +232,11 @@ impl App {
                 }
             }
             Mode::Normal => {
-                // The two dividers, ahead of everything else in this pane. A
-                // press on one grabs it and the drags that follow move it; a
-                // press anywhere else lets go.
-                //
-                // Ahead of the float guards below because a float is drawn at
-                // its pane's full width, so each one lies across a divider's
-                // column and would swallow the grab. A divider wins: it is a
-                // line down the whole pane, and one that went dead where a
-                // transient box happened to sit would read as a divider that
-                // sometimes does not work.
-                //
-                // Each is grabbable only where its line IS drawn — the pane
-                // divider stops above the status row, the middle stays inside
-                // the diff pane's frame. A press off the end of a line is a
-                // press on nothing, whatever column it is in.
-                let (left, right) = divider(&panes);
-                if click {
-                    self.divider_grab =
-                        if (at.x == left || at.x == right) && panes.body.contains(at) {
-                            Some(Grab::Panes(at.x as i16 - self.plan_cols() as i16))
-                        } else if self.split_column() == Some(at.x)
-                            && pane_inner(panes.detail).contains(at)
-                        {
-                            Some(Grab::Split)
-                        } else {
-                            None
-                        };
-                    if self.divider_grab.is_some() {
-                        return Vec::new();
-                    }
-                }
-                if let Some(grab) = self.divider_grab
-                    && drag
-                {
-                    match grab {
-                        Grab::Panes(off) => self.drag_panes_to(at.x, off),
-                        Grab::Split => self.drag_split_to(at.x),
-                    }
+                // The dividers first, then the floats: each is a region of
+                // the pane that takes the event and lets nothing beneath see
+                // it. The order is the dividers', and `grab_divider` says why.
+                if self.grab_divider(&panes, at, click, drag) || self.over_a_float(&panes, at) {
                     return Vec::new();
-                }
-                // The symbol float is a map too, and unlike the other two it
-                // appears in every view — so its guard is not inside the
-                // `Groups` check below.
-                if self.peek_area(panes.detail).is_some_and(|a| a.contains(at)) {
-                    return Vec::new();
-                }
-                // The floats are maps, deliberately not interactive: a click
-                // on one must not fall through to the pane beneath.
-                if self.view_mode == ViewMode::Groups {
-                    let float = match self.focus {
-                        Focus::Groups => self.group_map_area(panes.detail),
-                        Focus::Detail => self.file_list_area(panes.plan),
-                    };
-                    if float.is_some_and(|a| a.contains(at)) {
-                        return Vec::new();
-                    }
                 }
                 if panes.plan.contains(at) {
                     self.focus = Focus::Groups;
@@ -394,6 +279,151 @@ impl App {
             }
         }
         Vec::new()
+    }
+
+    /// The wheel and a click in the file list: a notch steps the selection,
+    /// a click selects the entry under it — or, on the selected one, opens
+    /// it — and a click outside the box closes it.
+    fn file_list_mouse(&mut self, body: Rect, at: Position, click: bool, step: isize) {
+        let Mode::FileList {
+            entries,
+            selected,
+            scroll,
+        } = &mut self.mode
+        else {
+            return;
+        };
+        if step != 0 {
+            let rows = file_list_rows(entries.len(), self.viewport.body_rows);
+            step_list(selected, scroll, entries.len(), rows, step > 0);
+            return;
+        }
+        if !click {
+            return;
+        }
+        match content_line(file_list_modal_area(body, entries), at) {
+            None => self.mode = Mode::Normal,
+            Some(line) => {
+                let hit = *scroll + line;
+                if hit >= entries.len() {
+                    return;
+                }
+                if hit == *selected {
+                    self.jump_to_listed_file();
+                } else {
+                    *selected = hit;
+                }
+            }
+        }
+    }
+
+    /// The same in the findings list, with one more state: while `D` waits
+    /// for its answer the wheel is not one, and a click off the footer is
+    /// `n`, as any key but `y` is.
+    fn findings_mouse(&mut self, body: Rect, at: Position, click: bool, step: isize) {
+        let Mode::Findings {
+            entries,
+            selected,
+            scroll,
+            confirming,
+        } = &mut self.mode
+        else {
+            return;
+        };
+        let rules = section_rules(entries);
+        let area = findings_modal_area(body, entries.len(), rules.len());
+        if *confirming {
+            if click {
+                *confirming = false;
+                self.status = "nothing deleted".into();
+            }
+            return;
+        }
+        if step != 0 {
+            let rows = findings_rows(entries.len(), rules.len(), self.viewport.body_rows);
+            step_list(selected, scroll, entries.len(), rows, step > 0);
+            return;
+        }
+        if !click {
+            return;
+        }
+        match content_line(area, at) {
+            None => self.mode = Mode::Normal,
+            Some(line) => {
+                let skip = findings_skip(*scroll, &rules);
+                let Some(hit) = findings_entry_at_line(entries.len(), &rules, skip + line) else {
+                    return;
+                };
+                if hit == *selected {
+                    self.jump_to_listed_finding();
+                } else {
+                    *selected = hit;
+                }
+            }
+        }
+    }
+
+    /// A press on one of the two dividers grabs it and the drags that follow
+    /// move it; a press anywhere else lets go. True when the event was the
+    /// divider's and nothing beneath should see it — a press that grabbed
+    /// nothing has still let go, and is not.
+    ///
+    /// Ahead of the float guards because a float is drawn at its pane's
+    /// full width, so each one lies across a divider's column and would
+    /// swallow the grab. A divider wins: it is a line down the whole pane,
+    /// and one that went dead where a transient box happened to sit would
+    /// read as a divider that sometimes does not work.
+    ///
+    /// Each is grabbable only where its line IS drawn — the pane divider
+    /// stops above the status row, the middle stays inside the diff pane's
+    /// frame. A press off the end of a line is a press on nothing, whatever
+    /// column it is in.
+    fn grab_divider(&mut self, panes: &Panes, at: Position, click: bool, drag: bool) -> bool {
+        let (left, right) = divider(panes);
+        if click {
+            self.divider_grab = if (at.x == left || at.x == right) && panes.body.contains(at) {
+                Some(Grab::Panes(at.x as i16 - self.plan_cols() as i16))
+            } else if self.split_column() == Some(at.x) && pane_inner(panes.detail).contains(at) {
+                Some(Grab::Split)
+            } else {
+                None
+            };
+            if self.divider_grab.is_some() {
+                return true;
+            }
+        }
+        if let Some(grab) = self.divider_grab
+            && drag
+        {
+            match grab {
+                Grab::Panes(off) => self.drag_panes_to(at.x, off),
+                Grab::Split => self.drag_split_to(at.x),
+            }
+            return true;
+        }
+        false
+    }
+
+    /// Whether `at` is on a float — the symbol peek, the group map, the file
+    /// list. The floats are maps, deliberately not interactive: a click on
+    /// one must not fall through to the pane beneath.
+    fn over_a_float(&self, panes: &Panes, at: Position) -> bool {
+        // The symbol float is a map too, and unlike the other two it
+        // appears in every view — so its guard is not inside the
+        // `Groups` check below.
+        if self.peek_area(panes.detail).is_some_and(|a| a.contains(at)) {
+            return true;
+        }
+        if self.view_mode == ViewMode::Groups {
+            let float = match self.focus {
+                Focus::Groups => self.group_map_area(panes.detail),
+                Focus::Detail => self.file_list_area(panes.plan),
+            };
+            if float.is_some_and(|a| a.contains(at)) {
+                return true;
+            }
+        }
+        false
     }
 
     /// The keys a click at `at` presses on the open modal's footer, if it has
@@ -513,122 +543,14 @@ impl App {
             // have dropped the reader out of the list they were reading.
             Mode::Help(from) => {
                 self.mode = *std::mem::replace(from, Box::new(Mode::Normal));
-                return Vec::new();
+                Vec::new()
             }
             Mode::Notice { .. } => {
                 self.mode = Mode::Normal;
-                return Vec::new();
+                Vec::new()
             }
-            Mode::FileList {
-                entries,
-                selected,
-                scroll,
-            } => {
-                let rows = file_list_rows(entries.len(), self.viewport.body_rows);
-                match key.code {
-                    KeyCode::Char('j') | KeyCode::Down => {
-                        step_list(selected, scroll, entries.len(), rows, true);
-                    }
-                    KeyCode::Char('k') | KeyCode::Up => {
-                        step_list(selected, scroll, entries.len(), rows, false);
-                    }
-                    KeyCode::Enter => self.jump_to_listed_file(),
-                    // `/` reaches the search from here too: it is a key of
-                    // the review rather than of a pane, and a reader who has
-                    // opened the wrong list should not have to close it first.
-                    KeyCode::Char('/') => self.open_search(),
-                    KeyCode::Esc | KeyCode::Char('f') | KeyCode::Char('q') => {
-                        self.mode = Mode::Normal;
-                    }
-                    _ => {}
-                }
-                return Vec::new();
-            }
-            Mode::Findings {
-                entries,
-                selected,
-                scroll,
-                confirming,
-            } => {
-                // Asking to delete everything: the next key answers, and only
-                // `y` means yes. Anything else is a slip, and a slip must not
-                // be the thing that empties the store.
-                if *confirming {
-                    *confirming = false;
-                    if is_yes(key) {
-                        self.clear_findings();
-                    } else {
-                        self.status = "nothing deleted".into();
-                    }
-                    return Vec::new();
-                }
-                let rules = section_rules(entries).len();
-                let rows = findings_rows(entries.len(), rules, self.viewport.body_rows);
-                let mut copy = false;
-                match (key.code, key.modifiers) {
-                    (KeyCode::Char('j'), _) | (KeyCode::Down, _) => {
-                        step_list(selected, scroll, entries.len(), rows, true);
-                    }
-                    (KeyCode::Char('k'), _) | (KeyCode::Up, _) => {
-                        step_list(selected, scroll, entries.len(), rows, false);
-                    }
-                    // Only the local notes are up for this: a published note is
-                    // the request's, and a thread is somebody else's.
-                    (KeyCode::Char('D'), _) => {
-                        if entries.iter().any(|e| !e.thread && !e.published) {
-                            *confirming = true;
-                        } else {
-                            self.status = "nothing local to delete · dd deletes a published note on the forge".into();
-                        }
-                    }
-                    (KeyCode::Char('d'), KeyModifiers::NONE) => {
-                        if pending_d {
-                            let (id, thread, published) = {
-                                let e = &entries[*selected];
-                                (e.id.clone(), e.thread, e.published)
-                            };
-                            // Whose the comment is, the session says; see
-                            // `delete_finding_at_cursor` for the same rule.
-                            let own = if thread {
-                                self.session.own_root(&id)
-                            } else if published {
-                                self.session.own_of_finding(&id)
-                            } else {
-                                None
-                            };
-                            match (own, thread) {
-                                (Some(own), _) => self.mode = Mode::DeleteComment { own },
-                                (None, true) => self.status = NOT_YOURS.into(),
-                                (None, false) => self.delete_finding(&id),
-                            }
-                        } else {
-                            self.pending_d = true;
-                        }
-                    }
-                    // Copy from here too, for the same reason `P` sends from
-                    // here: the list is where the reader sees what is not yet
-                    // on the request. The clipboard call is the caller's, so
-                    // this arm only says the summary is wanted.
-                    (KeyCode::Char('y'), _) => copy = true,
-                    // Publish from here too: the list is where the reader sees
-                    // what is not yet on the request, and it sends everything
-                    // that is not, exactly as P in the diff does.
-                    (KeyCode::Char('P'), _) => {
-                        self.mode = Mode::Normal;
-                        self.offer_publish();
-                    }
-                    (KeyCode::Enter, _) => self.jump_to_listed_finding(),
-                    (KeyCode::Char('/'), _) => self.open_search(),
-                    (KeyCode::Esc, _) | (KeyCode::Char('F'), _) | (KeyCode::Char('q'), _) => {
-                        self.mode = Mode::Normal;
-                    }
-                    _ => {}
-                }
-                if copy {
-                    return vec![Effect::CopySummary(self.findings_summary())];
-                }
-                return Vec::new();
-            }
+            Mode::FileList { .. } => self.file_list_key(key),
+            Mode::Findings { .. } => self.findings_key(key, pending_d),
             Mode::DeleteComment { .. } => {
                 let Mode::DeleteComment { own } = std::mem::replace(&mut self.mode, Mode::Normal)
                 else {
@@ -639,7 +561,7 @@ impl App {
                 } else {
                     self.status = "nothing deleted".into();
                 }
-                return Vec::new();
+                Vec::new()
             }
             Mode::Publish { .. } => {
                 // Only `y` sends. Anything else keeps every note local, which
@@ -652,103 +574,242 @@ impl App {
                 } else {
                     self.status = "nothing published".into();
                 }
-                return Vec::new();
+                Vec::new()
             }
-            Mode::Editing {
-                hunk,
-                lines,
-                rewriting,
-                reply_to,
-                own,
-                editor: textarea,
-            } => {
-                match (key.code, key.modifiers) {
-                    (KeyCode::Esc, _) => {
-                        self.mode = Mode::Normal;
-                        self.status = "finding discarded".into();
-                        return Vec::new();
-                    }
-                    // `enter` saves. A finding is usually one line, and the key
-                    // that ends a line is the key a reader reaches for to be
-                    // done with it. `ctrl-s` still saves too: it costs one arm,
-                    // and it is what the box said for two releases.
-                    //
-                    // A newline is `shift+enter` where the terminal reports it,
-                    // and a trailing `\` before `enter` where it does not —
-                    // most terminals send plain `enter` for both unless the
-                    // kitty keyboard protocol is on, which this reviewer
-                    // deliberately does not ask for.
-                    (KeyCode::Enter, m) if m.contains(KeyModifiers::SHIFT) => {
-                        textarea.insert_newline();
-                        return Vec::new();
-                    }
-                    (KeyCode::Enter, _)
-                        // The character before the CURSOR, not the end of the
-                        // line: `delete_char` takes what the cursor sits after,
-                        // so a `\` at the end of a line the reader had gone
-                        // back to edit would have deleted something else.
-                        if {
-                            let (row, col) = textarea.cursor();
-                            textarea
-                                .lines()
-                                .get(row)
-                                .and_then(|l| col.checked_sub(1).and_then(|i| l.chars().nth(i)))
-                                == Some('\\')
-                        } =>
-                    {
-                        textarea.delete_char();
-                        textarea.insert_newline();
-                        return Vec::new();
-                    }
-                    (KeyCode::Enter, _) | (KeyCode::Char('s'), KeyModifiers::CONTROL) => {
-                        let body = textarea.lines().join("\n").trim().to_string();
-                        // Read out before the mode is dropped; only the save
-                        // needs them, so only the save pays for the clones.
-                        let (hunk, lines, rewriting, reply_to, own) = (
-                            *hunk,
-                            lines.clone(),
-                            rewriting.clone(),
-                            reply_to.clone(),
-                            own.clone(),
-                        );
-                        self.mode = Mode::Normal;
-                        // A comment on the forge: the text goes there first, and
-                        // emptying the box leaves it as it was, as with a note.
-                        if let Some(own) = own {
-                            if body.is_empty() {
-                                self.status = "comment left as it was".into();
-                            } else {
-                                self.start_edit_comment(own, body);
-                            }
-                            return Vec::new();
-                        }
-                        match (rewriting, reply_to, body.is_empty()) {
-                            // Emptying the box does NOT delete the note. That
-                            // is `dd`, which is a deliberate press; a note lost
-                            // to a stray `ctrl-u` and an `enter` is not.
-                            (Some(_), _, true) => self.status = "finding left as it was".into(),
-                            (Some(id), _, false) => self.rewrite_finding(&id, body),
-                            (None, _, true) => self.status = "empty finding discarded".into(),
-                            (None, Some(thread), false) => self.add_reply(&thread, body),
-                            (None, None, false) => self.add_finding(hunk, lines, body),
-                        }
-                        return Vec::new();
-                    }
-                    _ => {
-                        textarea.input(key);
-                        return Vec::new();
-                    }
-                }
-            }
+            Mode::Editing { .. } => self.composer_key(key),
             // Every printable key types, which is why this arm takes the
             // whole event and why `?` is a character here and not help.
             Mode::Search(_) => {
                 self.search_key(key);
-                return Vec::new();
+                Vec::new()
             }
-            Mode::Normal => {}
+            Mode::Normal => self.normal_key(key, pending_d),
         }
+    }
 
+    /// A key in the file list: `j`/`k` step it, `enter` opens the file, and
+    /// `esc`, `f` or `q` close it.
+    fn file_list_key(&mut self, key: KeyEvent) -> Vec<Effect> {
+        let Mode::FileList {
+            entries,
+            selected,
+            scroll,
+        } = &mut self.mode
+        else {
+            return Vec::new();
+        };
+        let rows = file_list_rows(entries.len(), self.viewport.body_rows);
+        match key.code {
+            KeyCode::Char('j') | KeyCode::Down => {
+                step_list(selected, scroll, entries.len(), rows, true);
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                step_list(selected, scroll, entries.len(), rows, false);
+            }
+            KeyCode::Enter => self.jump_to_listed_file(),
+            // `/` reaches the search from here too: it is a key of
+            // the review rather than of a pane, and a reader who has
+            // opened the wrong list should not have to close it first.
+            KeyCode::Char('/') => self.open_search(),
+            KeyCode::Esc | KeyCode::Char('f') | KeyCode::Char('q') => {
+                self.mode = Mode::Normal;
+            }
+            _ => {}
+        }
+        Vec::new()
+    }
+
+    /// A key in the findings list. `pending_d` is the `d` before this one,
+    /// taken by the dispatcher: a handler reading the latch itself would find
+    /// it already cleared.
+    fn findings_key(&mut self, key: KeyEvent, pending_d: bool) -> Vec<Effect> {
+        let Mode::Findings {
+            entries,
+            selected,
+            scroll,
+            confirming,
+        } = &mut self.mode
+        else {
+            return Vec::new();
+        };
+        // Asking to delete everything: the next key answers, and only
+        // `y` means yes. Anything else is a slip, and a slip must not
+        // be the thing that empties the store.
+        if *confirming {
+            *confirming = false;
+            if is_yes(key) {
+                self.clear_findings();
+            } else {
+                self.status = "nothing deleted".into();
+            }
+            return Vec::new();
+        }
+        let rules = section_rules(entries).len();
+        let rows = findings_rows(entries.len(), rules, self.viewport.body_rows);
+        let mut copy = false;
+        match (key.code, key.modifiers) {
+            (KeyCode::Char('j'), _) | (KeyCode::Down, _) => {
+                step_list(selected, scroll, entries.len(), rows, true);
+            }
+            (KeyCode::Char('k'), _) | (KeyCode::Up, _) => {
+                step_list(selected, scroll, entries.len(), rows, false);
+            }
+            // Only the local notes are up for this: a published note is
+            // the request's, and a thread is somebody else's.
+            (KeyCode::Char('D'), _) => {
+                if entries.iter().any(|e| !e.thread && !e.published) {
+                    *confirming = true;
+                } else {
+                    self.status =
+                        "nothing local to delete · dd deletes a published note on the forge".into();
+                }
+            }
+            (KeyCode::Char('d'), KeyModifiers::NONE) => {
+                if pending_d {
+                    let (id, thread, published) = {
+                        let e = &entries[*selected];
+                        (e.id.clone(), e.thread, e.published)
+                    };
+                    // Whose the comment is, the session says; see
+                    // `delete_finding_at_cursor` for the same rule.
+                    let own = if thread {
+                        self.session.own_root(&id)
+                    } else if published {
+                        self.session.own_of_finding(&id)
+                    } else {
+                        None
+                    };
+                    match (own, thread) {
+                        (Some(own), _) => self.mode = Mode::DeleteComment { own },
+                        (None, true) => self.status = NOT_YOURS.into(),
+                        (None, false) => self.delete_finding(&id),
+                    }
+                } else {
+                    self.pending_d = true;
+                }
+            }
+            // Copy from here too, for the same reason `P` sends from
+            // here: the list is where the reader sees what is not yet
+            // on the request. The clipboard call is the caller's, so
+            // this arm only says the summary is wanted.
+            (KeyCode::Char('y'), _) => copy = true,
+            // Publish from here too: the list is where the reader sees
+            // what is not yet on the request, and it sends everything
+            // that is not, exactly as P in the diff does.
+            (KeyCode::Char('P'), _) => {
+                self.mode = Mode::Normal;
+                self.offer_publish();
+            }
+            (KeyCode::Enter, _) => self.jump_to_listed_finding(),
+            (KeyCode::Char('/'), _) => self.open_search(),
+            (KeyCode::Esc, _) | (KeyCode::Char('F'), _) | (KeyCode::Char('q'), _) => {
+                self.mode = Mode::Normal;
+            }
+            _ => {}
+        }
+        if copy {
+            return vec![Effect::CopySummary(self.findings_summary())];
+        }
+        Vec::new()
+    }
+
+    /// A key in the composer: `esc` discards, `enter` saves, a newline is
+    /// `shift+enter` or a trailing `\`, and everything else types.
+    fn composer_key(&mut self, key: KeyEvent) -> Vec<Effect> {
+        let Mode::Editing {
+            hunk,
+            lines,
+            rewriting,
+            reply_to,
+            own,
+            editor: textarea,
+        } = &mut self.mode
+        else {
+            return Vec::new();
+        };
+        match (key.code, key.modifiers) {
+            (KeyCode::Esc, _) => {
+                self.mode = Mode::Normal;
+                self.status = "finding discarded".into();
+                Vec::new()
+            }
+            // `enter` saves. A finding is usually one line, and the key
+            // that ends a line is the key a reader reaches for to be
+            // done with it. `ctrl-s` still saves too: it costs one arm,
+            // and it is what the box said for two releases.
+            //
+            // A newline is `shift+enter` where the terminal reports it,
+            // and a trailing `\` before `enter` where it does not —
+            // most terminals send plain `enter` for both unless the
+            // kitty keyboard protocol is on, which this reviewer
+            // deliberately does not ask for.
+            (KeyCode::Enter, m) if m.contains(KeyModifiers::SHIFT) => {
+                textarea.insert_newline();
+                Vec::new()
+            }
+            (KeyCode::Enter, _)
+                // The character before the CURSOR, not the end of the
+                // line: `delete_char` takes what the cursor sits after,
+                // so a `\` at the end of a line the reader had gone
+                // back to edit would have deleted something else.
+                if {
+                    let (row, col) = textarea.cursor();
+                    textarea
+                        .lines()
+                        .get(row)
+                        .and_then(|l| col.checked_sub(1).and_then(|i| l.chars().nth(i)))
+                        == Some('\\')
+                } =>
+            {
+                textarea.delete_char();
+                textarea.insert_newline();
+                Vec::new()
+            }
+            (KeyCode::Enter, _) | (KeyCode::Char('s'), KeyModifiers::CONTROL) => {
+                let body = textarea.lines().join("\n").trim().to_string();
+                // Read out before the mode is dropped; only the save
+                // needs them, so only the save pays for the clones.
+                let (hunk, lines, rewriting, reply_to, own) = (
+                    *hunk,
+                    lines.clone(),
+                    rewriting.clone(),
+                    reply_to.clone(),
+                    own.clone(),
+                );
+                self.mode = Mode::Normal;
+                // A comment on the forge: the text goes there first, and
+                // emptying the box leaves it as it was, as with a note.
+                if let Some(own) = own {
+                    if body.is_empty() {
+                        self.status = "comment left as it was".into();
+                    } else {
+                        self.start_edit_comment(own, body);
+                    }
+                    return Vec::new();
+                }
+                match (rewriting, reply_to, body.is_empty()) {
+                    // Emptying the box does NOT delete the note. That
+                    // is `dd`, which is a deliberate press; a note lost
+                    // to a stray `ctrl-u` and an `enter` is not.
+                    (Some(_), _, true) => self.status = "finding left as it was".into(),
+                    (Some(id), _, false) => self.rewrite_finding(&id, body),
+                    (None, _, true) => self.status = "empty finding discarded".into(),
+                    (None, Some(thread), false) => self.add_reply(&thread, body),
+                    (None, None, false) => self.add_finding(hunk, lines, body),
+                }
+                Vec::new()
+            }
+            _ => {
+                textarea.input(key);
+                Vec::new()
+            }
+        }
+    }
+
+    /// A key in the review proper: one table, because that is what a key
+    /// table reads as. Forty of its arms are one call each; the two that
+    /// are not, `c` and `r`, have names of their own below.
+    fn normal_key(&mut self, key: KeyEvent, pending_d: bool) -> Vec<Effect> {
         match (key.code, key.modifiers) {
             (KeyCode::Char('q'), _) => {
                 self.save_cursor();
@@ -926,74 +987,7 @@ impl App {
             (KeyCode::Esc, _) if self.visual.is_some() => {
                 self.visual = None;
             }
-            // `c` edits. On a comment of the reader's the box opens with its
-            // text, and saving sends the new text to the forge. On anyone
-            // else's comment there is nothing of the reader's to edit, and the
-            // footer says so — `r` replies there instead. Anywhere else `c`
-            // files a note.
-            (KeyCode::Char('c'), KeyModifiers::NONE) => {
-                if let Some(own) = self.own_comment_at_cursor() {
-                    let hunk = self.current_hunk().unwrap_or(0);
-                    let ta = self.composer(&own.body, format!(" {} · on the request ", own.at));
-                    self.visual = None;
-                    self.mode = Mode::Editing {
-                        hunk,
-                        lines: None,
-                        rewriting: None,
-                        reply_to: None,
-                        own: Some(own),
-                        editor: ta,
-                    };
-                } else if self.thread_at_cursor().is_some() {
-                    self.status = NOT_YOURS.into();
-                } else if let Some(h) = self.current_hunk() {
-                    // A line already carrying a note opens THAT note. Two
-                    // notes on one line would each be half the story, and
-                    // there was no way to correct a typo but delete and
-                    // retype. A SELECTION is the exception: picking a run of
-                    // lines is asking for a note about the run.
-                    let existing = self
-                        .visual
-                        .is_none()
-                        .then(|| self.finding_at_cursor())
-                        .flatten()
-                        .map(|f| (f.id.clone(), f.body.clone(), f.anchor.line_span()));
-                    let lines = self.selected_lines();
-                    // Name what is being annotated: a note whose subject you
-                    // cannot see is a note you have to trust yourself to have
-                    // written carefully.
-                    let hunk = &self.session.doc().hunks[h];
-                    let file = basename(&hunk.file);
-                    let at = match (&existing, &lines) {
-                        // A note's own anchor, which may not be the row the
-                        // cursor is on — it can have re-anchored to the hunk.
-                        (Some((_, _, span)), _) => format!("L{span}"),
-                        (None, Some(l)) if l.end > l.start => format!("L{}-{}", l.start, l.end),
-                        (None, Some(l)) => format!("L{}", l.start),
-                        // No line under the cursor — a hunk header, a fold.
-                        // The finding anchors the hunk, so the title says so.
-                        (None, None) if hunk.new_count > 1 => format!(
-                            "L{}-{}",
-                            hunk.new_start,
-                            hunk.new_start + hunk.new_count - 1
-                        ),
-                        (None, None) => format!("L{}", hunk.new_start),
-                    };
-                    let body = existing.as_ref().map(|(_, b, _)| b.as_str()).unwrap_or("");
-                    let ta = self.composer(body, format!(" {file} · {at} "));
-                    self.visual = None;
-                    self.mode = Mode::Editing {
-                        hunk: h,
-                        lines,
-                        rewriting: existing.map(|(id, _, _)| id),
-                        reply_to: None,
-                        own: None,
-                        editor: ta,
-                    };
-                } else {
-                    self.status = "move onto a hunk first".into();
-                }
-            }
+            (KeyCode::Char('c'), KeyModifiers::NONE) => self.edit_at_cursor(),
             (KeyCode::Char('d'), KeyModifiers::NONE) => {
                 if pending_d {
                     self.delete_finding_at_cursor();
@@ -1004,32 +998,7 @@ impl App {
             (KeyCode::Char('y'), _) => {
                 return vec![Effect::CopySummary(self.findings_summary())];
             }
-            // `r` replies to the review thread under the cursor — the reader's
-            // own thread or anyone's. The reply is a finding carrying the
-            // thread's id until a publish sends it (ADR 0029).
-            (KeyCode::Char('r'), KeyModifiers::NONE) => {
-                if let Some(t) = self.thread_at_cursor() {
-                    let (id, author, path) = (
-                        t.id.clone(),
-                        t.root().map(|c| c.author.clone()).unwrap_or_default(),
-                        t.path.clone(),
-                    );
-                    let hunk = self.current_hunk().unwrap_or(0);
-                    let ta =
-                        self.composer("", format!(" {} · reply to {author} ", basename(&path)));
-                    self.visual = None;
-                    self.mode = Mode::Editing {
-                        hunk,
-                        lines: None,
-                        rewriting: None,
-                        reply_to: Some(id),
-                        own: None,
-                        editor: ta,
-                    };
-                } else {
-                    self.status = "r replies to a review thread".into();
-                }
-            }
+            (KeyCode::Char('r'), KeyModifiers::NONE) => self.reply_at_cursor(),
             // The forge's threads (ADR 0029): resolve the one under the cursor,
             // or fetch them all again. Both go out on a worker thread and
             // land through `poll_forge`.
@@ -1039,6 +1008,101 @@ impl App {
             _ => {}
         }
         Vec::new()
+    }
+
+    /// `c`: open the composer on what is under the cursor. On a comment of
+    /// the reader's the box opens with its text, and saving sends the new
+    /// text to the forge. On anyone else's comment there is nothing of the
+    /// reader's to edit, and the footer says so — `r` replies there instead.
+    /// Anywhere else it files a note.
+    fn edit_at_cursor(&mut self) {
+        if let Some(own) = self.own_comment_at_cursor() {
+            let hunk = self.current_hunk().unwrap_or(0);
+            let ta = self.composer(&own.body, format!(" {} · on the request ", own.at));
+            self.visual = None;
+            self.mode = Mode::Editing {
+                hunk,
+                lines: None,
+                rewriting: None,
+                reply_to: None,
+                own: Some(own),
+                editor: ta,
+            };
+        } else if self.thread_at_cursor().is_some() {
+            self.status = NOT_YOURS.into();
+        } else if let Some(h) = self.current_hunk() {
+            // A line already carrying a note opens THAT note. Two
+            // notes on one line would each be half the story, and
+            // there was no way to correct a typo but delete and
+            // retype. A SELECTION is the exception: picking a run of
+            // lines is asking for a note about the run.
+            let existing = self
+                .visual
+                .is_none()
+                .then(|| self.finding_at_cursor())
+                .flatten()
+                .map(|f| (f.id.clone(), f.body.clone(), f.anchor.line_span()));
+            let lines = self.selected_lines();
+            // Name what is being annotated: a note whose subject you
+            // cannot see is a note you have to trust yourself to have
+            // written carefully.
+            let hunk = &self.session.doc().hunks[h];
+            let file = basename(&hunk.file);
+            let at = match (&existing, &lines) {
+                // A note's own anchor, which may not be the row the
+                // cursor is on — it can have re-anchored to the hunk.
+                (Some((_, _, span)), _) => format!("L{span}"),
+                (None, Some(l)) if l.end > l.start => format!("L{}-{}", l.start, l.end),
+                (None, Some(l)) => format!("L{}", l.start),
+                // No line under the cursor — a hunk header, a fold.
+                // The finding anchors the hunk, so the title says so.
+                (None, None) if hunk.new_count > 1 => format!(
+                    "L{}-{}",
+                    hunk.new_start,
+                    hunk.new_start + hunk.new_count - 1
+                ),
+                (None, None) => format!("L{}", hunk.new_start),
+            };
+            let body = existing.as_ref().map(|(_, b, _)| b.as_str()).unwrap_or("");
+            let ta = self.composer(body, format!(" {file} · {at} "));
+            self.visual = None;
+            self.mode = Mode::Editing {
+                hunk: h,
+                lines,
+                rewriting: existing.map(|(id, _, _)| id),
+                reply_to: None,
+                own: None,
+                editor: ta,
+            };
+        } else {
+            self.status = "move onto a hunk first".into();
+        }
+    }
+
+    /// `r`: reply to the review thread under the cursor — the reader's own
+    /// thread or anyone's. The reply is a finding carrying the thread's id
+    /// until a publish sends it (ADR 0029).
+    fn reply_at_cursor(&mut self) {
+        if let Some(t) = self.thread_at_cursor() {
+            let (id, author, path) = (
+                t.id.clone(),
+                t.root().map(|c| c.author.clone()).unwrap_or_default(),
+                t.path.clone(),
+            );
+            let hunk = self.current_hunk().unwrap_or(0);
+            let ta = self.composer("", format!(" {} · reply to {author} ", basename(&path)));
+            self.visual = None;
+            self.mode = Mode::Editing {
+                hunk,
+                lines: None,
+                rewriting: None,
+                reply_to: Some(id),
+                own: None,
+                editor: ta,
+            };
+        } else {
+            self.status = "r replies to a review thread".into();
+        }
     }
 }
 
