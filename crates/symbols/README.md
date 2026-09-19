@@ -143,10 +143,18 @@ to order — disappeared entirely.
 - C# and Zig have no `type_identifier` node — a type is a plain identifier in a `type:`
   field — so their queries reach types through a wildcard on that field rather than through a
   node kind. A type position the grammar spells with some other field name is missed.
-- Zig's file-scope `@def` gates on the BODY a `const` binds, because `const Helper =
-  @import("x.zig")` is shaped exactly like a type declaration. So a `pub const MAX = 100` is
-  file-local where a `pub const Widget = struct {…}` is global. Losing that edge is the
-  price of not making every importing file the definer of what it imported.
+- Zig gates on `pub`, exactly as TypeScript gates on `export`. The shape of a Zig
+  declaration says nothing about who can reach it — a type is a `const` bound to a container
+  body and a value is a `const` bound to anything else — so a private
+  `const Helper = @import("x.zig")` stays file-local while `pub const MAX = 100` and
+  `pub const ReExport = @import(…)` are both global. Everything private in a Zig file is
+  invisible across files, which is what the graph now says.
+- **Zig is the only one of these where a visibility gate is expressible.** `pub` is required
+  to export, so its absence means private and a positive match settles it. Swift's default is
+  `internal` and PHP's is `public`, so there the gate would have to match an ABSENT modifier,
+  which a tree-sitter query cannot do — a positive match on `public` would drop every method
+  that leaves the modifier off. So a `private func` in Swift and a `private function` in PHP
+  are still read as definitions, and the single-definer rule absorbs the ones that collide.
 - PHP's `__construct` is a method like any other here, so a class that declares one defines
   that name. Every class does, so the single-definer rule drops it — which is the mechanism
   for exactly this, not an accident.

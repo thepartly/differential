@@ -1,24 +1,32 @@
-; Zig has no type declaration: a type is a `const` bound to a `struct`, `enum`,
-; `union` or `opaque` body, and the grammar gives the bound name no field — it
-; is simply the declaration's first child, which is what the anchor pins.
+; `pub` is the whole predicate, exactly as `export` is in TypeScript. Zig has no
+; type declaration — a type is a `const` bound to a `struct`, `enum`, `union` or
+; `opaque` body, and a value is a `const` bound to anything else — so the SHAPE
+; of a declaration says nothing about who can reach it. `pub` says all of it: a
+; declaration other files can use, which is ADR 0030's definition of a
+; definition.
 ;
-; The bound BODY is what this gates on, and it has to. `const Helper =
-; @import("helper.zig")` has the same shape as a type, and taking it would make
-; every importing file the definer of the name it imported — the `mod template;`
-; false definition ADR 0030 measured at 64% of one range's edges. An import
-; binding falls to the file-local rule below, where it draws every edge it
-; honestly can inside its own file.
-(source_file (variable_declaration . (identifier) @def
-  [(struct_declaration) (enum_declaration) (union_declaration) (opaque_declaration)]))
-(source_file (function_declaration name: (identifier) @def))
+; That matters most for the thing shaped like a type and named by the importer.
+; `const Helper = @import("helper.zig")` is a private binding, and taking it
+; would make every importing file the definer of the name it imported — the
+; `mod template;` false definition ADR 0030 measured at 64% of one range's
+; edges. It falls to the file-local rule below, where it still draws every edge
+; it honestly can inside its own file. `pub const ReExport = @import(…)` is a
+; different statement and is taken: that name IS reachable from other files.
+;
+; The grammar gives the bound name no field — it is the declaration's first
+; named child — so the anchor is what keeps `pub const Alias = Other;` from
+; defining `Other` as well.
+(source_file (variable_declaration "pub" . (identifier) @def))
+(source_file (function_declaration "pub" name: (identifier) @def))
 
-; A function a container's body declares is reached through that container's
-; name from other files (ADR 0030). Zig has no interface to exempt: a method is
-; a plain function inside a struct.
-(struct_declaration (function_declaration name: (identifier) @def))
-(union_declaration (function_declaration name: (identifier) @def))
-(enum_declaration (function_declaration name: (identifier) @def))
-(opaque_declaration (function_declaration name: (identifier) @def))
+; A `pub` function a container's body declares is reached through that
+; container's name from other files (ADR 0030). Zig has no interface to exempt:
+; a method is a plain function inside a struct, and `pub` is again the whole of
+; the question.
+(struct_declaration (function_declaration "pub" name: (identifier) @def))
+(union_declaration (function_declaration "pub" name: (identifier) @def))
+(enum_declaration (function_declaration "pub" name: (identifier) @def))
+(opaque_declaration (function_declaration "pub" name: (identifier) @def))
 
 (call_expression function: (identifier) @call)
 (call_expression function: (field_expression member: (identifier) @call))
