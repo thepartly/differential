@@ -7,3 +7,4 @@ tmp/
 # `assets/record.vhs` is what reproduces it; run it from `assets/`, because
 # the tape's `Output` and `Screenshot` paths are relative.
 assets/demo.webm
+assets/.shot.gif
