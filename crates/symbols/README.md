@@ -23,10 +23,13 @@ Project home: <https://github.com/thepartly/differential>
 | Kotlin | `.kt` `.kts` | tuned query |
 | Java | `.java` | tuned query |
 | C# | `.cs` | tuned query |
+| Swift | `.swift` | tuned query |
+| PHP | `.php` | tuned query |
+| Zig | `.zig` | tuned query |
 | JavaScript | `.js` `.jsx` `.mjs` `.cjs` | field rules |
 | C | `.c` `.h` | field rules |
 | C++ | `.cc` `.cpp` `.cxx` `.hpp` `.hh` | field rules |
-| Ruby, PHP, Swift, Scala, shell, Perl, Lua, Elixir, Erlang, Haskell, OCaml, Dart, Vue, Svelte, SQL, Protobuf, Zig | `.rb` `.php` `.swift` `.scala` `.sh` `.bash` `.zsh` `.pl` `.pm` `.lua` `.ex` `.exs` `.erl` `.hs` `.ml` `.mli` `.dart` `.vue` `.svelte` `.sql` `.proto` `.zig` | regex floor (only reader) |
+| Ruby, Scala, shell, Perl, Lua, Elixir, Erlang, Haskell, OCaml, Dart, Vue, Svelte, SQL, Protobuf | `.rb` `.scala` `.sh` `.bash` `.zsh` `.pl` `.pm` `.lua` `.ex` `.exs` `.erl` `.hs` `.ml` `.mli` `.dart` `.vue` `.svelte` `.sql` `.proto` | regex floor (only reader) |
 | everything else — manifests, lockfiles, prose, data | — | none |
 
 ## What each rung costs you
@@ -119,7 +122,7 @@ extraction, and nothing else in the tree would notice.
 
 | reader | evidence |
 |---|---|
-| tuned query | Rust, Python and TypeScript run against a real multi-language corpus; TypeScript and TSX additionally against a React corpus, and Rust against a service-backend one. Go, Kotlin, Java and C# are covered by per-language tests only, and their method and path rules are unmeasured — see ADR 0030. The corpus ranges the parity test pins hold no Java or C# change, so the promotion moved neither range's edge count. |
+| tuned query | Rust, Python and TypeScript run against a real multi-language corpus; TypeScript and TSX additionally against a React corpus, and Rust against a service-backend one. Go, Kotlin, Java, C#, Swift, PHP and Zig are covered by per-language tests only, and their method and path rules are unmeasured — see ADR 0030. The corpus ranges the parity test pins hold no Java, C#, Swift, PHP or Zig change, so neither range's edge count moved when those five were promoted. |
 | field rules | C, C++ and JavaScript, by per-language tests only. |
 | regex floor | runs against the corpus wherever no grammar claims a file. |
 
@@ -134,12 +137,27 @@ to order — disappeared entirely.
   belongs to its own measurement (ADR 0030).
 - `.jsx` goes to the field rules, which have no JSX rule — a rendered component draws no
   edge there. `.tsx` does, by query.
-- Go's `@ref`, Python's, Java's and C#'s take struct-field and attribute reads too: those
-  languages spell a qualified name and a member read the same way. Rust's
-  `scoped_identifier` does not have this problem.
-- C# has no `type_identifier` node — a type is a plain identifier in a `type:` field — so its
-  query reaches types through a wildcard on that field rather than through a node kind. A
-  type position the grammar spells with some other field name is missed.
+- Go's `@ref`, Python's, Java's, C#'s, Swift's, PHP's and Zig's take struct-field and
+  attribute reads too: those languages spell a qualified name and a member read the same
+  way. Rust's `scoped_identifier` does not have this problem.
+- C# and Zig have no `type_identifier` node — a type is a plain identifier in a `type:`
+  field — so their queries reach types through a wildcard on that field rather than through a
+  node kind. A type position the grammar spells with some other field name is missed.
+- Zig gates on `pub`, exactly as TypeScript gates on `export`. The shape of a Zig
+  declaration says nothing about who can reach it — a type is a `const` bound to a container
+  body and a value is a `const` bound to anything else — so a private
+  `const Helper = @import("x.zig")` stays file-local while `pub const MAX = 100` and
+  `pub const ReExport = @import(…)` are both global. Everything private in a Zig file is
+  invisible across files, which is what the graph now says.
+- **Zig is the only one of these where a visibility gate is expressible.** `pub` is required
+  to export, so its absence means private and a positive match settles it. Swift's default is
+  `internal` and PHP's is `public`, so there the gate would have to match an ABSENT modifier,
+  which a tree-sitter query cannot do — a positive match on `public` would drop every method
+  that leaves the modifier off. So a `private func` in Swift and a `private function` in PHP
+  are still read as definitions, and the single-definer rule absorbs the ones that collide.
+- PHP's `__construct` is a method like any other here, so a class that declares one defines
+  that name. Every class does, so the single-definer rule drops it — which is the mechanism
+  for exactly this, not an accident.
 
 ## Using it
 
