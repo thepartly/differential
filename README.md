@@ -283,7 +283,7 @@ a parser. What a parser buys is the **symbols**. They pay for two things: accura
 dependency graph, which decides what to read before what, and the peek modal, which can only
 show a declaration a parser found.
 
-Rust, TypeScript, Python, Go and Kotlin get the most precise ordering.
+Rust, TypeScript, Python, Go, Kotlin, Java and C# get the most precise ordering.
 
 See the full language coverage tables:
 [`crates/symbols/README.md`](https://github.com/thepartly/differential/blob/main/crates/symbols/README.md).

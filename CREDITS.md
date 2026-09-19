@@ -95,8 +95,8 @@ The symbol readers:
 | crate | what it does here |
 |---|---|
 | [`tree-sitter`](https://crates.io/crates/tree-sitter) | Parsing, and the query engine behind the tuned readers. |
-| [`tree-sitter-rust`](https://crates.io/crates/tree-sitter-rust), [`-python`](https://crates.io/crates/tree-sitter-python), [`-go`](https://crates.io/crates/tree-sitter-go), [`-typescript`](https://crates.io/crates/tree-sitter-typescript), [`-kotlin-ng`](https://crates.io/crates/tree-sitter-kotlin-ng) | Grammars for the languages with a hand-written query. |
-| [`tree-sitter-javascript`](https://crates.io/crates/tree-sitter-javascript), [`-java`](https://crates.io/crates/tree-sitter-java), [`-c`](https://crates.io/crates/tree-sitter-c), [`-cpp`](https://crates.io/crates/tree-sitter-cpp), [`-c-sharp`](https://crates.io/crates/tree-sitter-c-sharp) | Grammars read by field name, with no query. |
+| [`tree-sitter-rust`](https://crates.io/crates/tree-sitter-rust), [`-python`](https://crates.io/crates/tree-sitter-python), [`-go`](https://crates.io/crates/tree-sitter-go), [`-typescript`](https://crates.io/crates/tree-sitter-typescript), [`-kotlin-ng`](https://crates.io/crates/tree-sitter-kotlin-ng), [`-java`](https://crates.io/crates/tree-sitter-java), [`-c-sharp`](https://crates.io/crates/tree-sitter-c-sharp) | Grammars for the languages with a hand-written query. |
+| [`tree-sitter-javascript`](https://crates.io/crates/tree-sitter-javascript), [`-c`](https://crates.io/crates/tree-sitter-c), [`-cpp`](https://crates.io/crates/tree-sitter-cpp) | Grammars read by field name, with no query. |
 | [`petgraph`](https://crates.io/crates/petgraph) | Test-only. Finds the cycles the corpus measurement reports. |
 
 The queries in `crates/symbols/src/ast/queries` are ours, not vendored. The grammars all

@@ -69,8 +69,8 @@ Three readers ship, and the graph cannot tell which answered:
 
 | reader | reads | how |
 | --- | --- | --- |
-| tuned | Rust, TypeScript (+TSX), Python, Go, Kotlin | a hand-written `.scm` per language |
-| field-rule | JavaScript, Java, C, C++, C# | tree-sitter with no query, using field names |
+| tuned | Rust, TypeScript (+TSX), Python, Go, Kotlin, Java, C# | a hand-written `.scm` per language |
+| field-rule | JavaScript, C, C++ | tree-sitter with no query, using field names |
 | crude | any other source extension | the moved regexes, at the floor |
 
 **A definition is a file-scope name others can use.** Not `mod template;`, which names a
