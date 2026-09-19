@@ -84,9 +84,10 @@ Range 7 loses the two false edges that prompted this and keeps its four real one
   cache — so all three bump, the crude one to `naive-v2` included. That last one is easy to
   miss and was: the tuned and field-rule readers had already moved for ADR 0030, so
   `SymbolReaders::fingerprint` — a concatenation of all three — changed regardless. But the
-  crude reader is the sole reader for Ruby, PHP, Swift, Elixir and the rest, and the only
-  fallback when an AST reader fails to parse, so the next change that touches it alone would
-  have served those languages a stale grouping with nothing to catch it.
+  crude reader is the sole reader for Ruby, Elixir and the rest — PHP and Swift have since
+  moved up — and the only fallback when an AST reader fails to parse, so the next change that
+  touches it alone would have served those languages a stale grouping with nothing to catch
+  it.
 - **A reviewer catching that is not a mechanism**, so there is one now:
   `every_reader_fingerprint_pins_its_answers` hashes each reader's extraction over fixed
   samples and pins it beside the version. The query pin test only ever covered a `.scm`
