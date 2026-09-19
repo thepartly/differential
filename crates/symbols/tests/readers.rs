@@ -287,7 +287,7 @@ fn csharp_names_its_types_by_their_declaration_and_not_by_a_type_node() {
 namespace Acme;
 interface IRenderer { string Paint(); }
 public record Point(int X, int Y);
-public class Widget : IRenderer, System.IDisposable
+public class Widget : IRenderer, System.IDisposable, MyNs.IRepo<Point>
 {
     private string label;
     public string Paint() { return label; }
@@ -297,7 +297,8 @@ public class Widget : IRenderer, System.IDisposable
         other.MethodCall();
         return "NoiseB";
     }
-    System.Collections.Generic.List<Point> Batch(MyNs.Plain p) { return null; }
+    System.Collections.Generic.Queue<Point> Batch(MyNs.Plain p, MyNs.Repository<int> repo) { return null; }
+    System.String Describe() { return label; }
 }
 "#,
     );
@@ -315,12 +316,24 @@ public class Widget : IRenderer, System.IDisposable
     // A base type spelled by its full path reaches the graph too. `base_list`
     // wraps it in a `qualified_name` and gives it no `type:` field, so the
     // wildcard cannot see it and the list needs patterns of its own.
-    has(&r.references, &["IRenderer", "IDisposable"]);
-    // Every type position is spelled three ways — bare, generic, and qualified
-    // by namespace — and a qualified one can be generic too, which needs the
-    // tail unwrapped twice. `returns:` is its own field and the wildcard never
-    // reaches it, so it carries the same four patterns.
-    has(&r.references, &["Plain", "List"]);
+    has(&r.references, &["IRenderer"]);
+    // Every type position is spelled four ways — bare, generic, qualified by
+    // namespace, and qualified AND generic, which needs the tail unwrapped
+    // twice. Three positions need all four: the `type:` wildcard, `returns:`
+    // (its own field, which the wildcard never reaches) and `base_list` (no
+    // field at all). One case per pattern, so a regression in any of them
+    // fails here rather than passing on a sibling's coverage:
+    has(
+        &r.references,
+        &[
+            "Plain",       // type: qualified
+            "Repository",  // type: qualified + generic
+            "String",      // returns: qualified
+            "Queue",       // returns: qualified + generic
+            "IDisposable", // base_list: qualified
+            "IRepo",       // base_list: qualified + generic
+        ],
+    );
     // The namespace parts of a qualified name are not types, and stay noise.
     lacks(&r.references, &["System", "Collections", "Generic", "MyNs"]);
     lacks(&r.references, &["NoiseA", "NoiseB"]);
