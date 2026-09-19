@@ -43,7 +43,14 @@ use tree_sitter::{Language, Query};
 ///
 /// A regex rather than a parser: the crate is already here for the floor, and
 /// an SFC's block boundary is a lexical fact about the file, not a grammar to
-/// write (design rule 5).
+/// write (design rule 5). `regex` has no backtracking, so a stray `<script`
+/// costs linear time and not a hang.
+///
+/// The one known edge: `[^>]*` stops at the first `>`, so an attribute value
+/// holding a literal `>` would end the tag early and mask out the script it
+/// opened. The file would then read as template-only and fall to the floor —
+/// the same answer it got before this reader existed, which is why the tag is
+/// not worth parsing properly.
 static SCRIPT: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?is)<script\b[^>]*>(.*?)</script\s*>").expect("a fixed pattern compiles")
 });
