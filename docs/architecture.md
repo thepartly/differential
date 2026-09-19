@@ -113,8 +113,9 @@ produced it, and a cycle says whether it is in the change or only in the groupin
 The symbols come from a reader, and which reader is decided per file. A tuned tree-sitter
 query handles Rust, TypeScript, Python, Go, Kotlin, Java, C#, Swift, PHP and Zig, and the
 same TypeScript query handles a Vue component's `<script>` blocks; generic field rules handle
-JavaScript, C and C++; a regex handles anything else that looks like source. **A file no reader claims — a lockfile, a manifest, a README — contributes
-nothing**, because a guess costs more than silence.
+JavaScript, C and C++; a regex handles anything else that looks like source. **A file no
+reader claims — a lockfile, a manifest, a README — contributes nothing**, because a guess
+costs more than silence.
 
 What counts as a definition is the part that matters. It is a file-scope name others can
 use: not `mod template;`, which names a module, and not a method inside a type, which is
