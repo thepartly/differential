@@ -25,12 +25,13 @@ does not read that file. The rule is: **ask the best claimant, fall to the next 
 fails, and if nobody claims the file, take no symbols from it.** A reader ranks itself, so
 no wiring order can get the ranking wrong.
 
-Three readers ship. Which one answered is not a distinction this stage can see:
+Four readers ship. Which one answered is not a distinction this stage can see:
 
 | reader | reads | definitions | references |
 | --- | --- | --- | --- |
 | tuned | Rust, TypeScript (+TSX), Python, Go, Kotlin, Java, C#, Swift, PHP, Zig | from the tree, per query | calls, types, JSX names, and names reached by path, per query |
 | field-rule | JavaScript, C, C++ | from the tree | calls and types, from field names |
+| single-file | Vue | from the tree, over the `<script>` blocks alone | as TypeScript, over the same |
 | crude | the other extensions the README lists — nothing else | declaration keywords | every identifier ≥ 4 chars |
 
 Which language sits in which row, and every extension:
