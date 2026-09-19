@@ -314,6 +314,17 @@ public class Widget : IRenderer, IBox<Point>, System.IDisposable, MyNs.IRepo<Poi
         &r.defines,
         &["Widget", "IRenderer", "Point", "Render", "Paint"],
     );
+    // A call names its method in `function:`, with or without a receiver. This
+    // is the only coverage `csharp.scm`'s two `invocation_expression` patterns
+    // have anywhere, and restructuring this test around types dropped it once.
+    //
+    // `PlainCall` pins the bare pattern on its own. `MethodCall` pins a PAIR:
+    // the called member access and `(member_access_expression name: … @ref)`
+    // both capture it and both answer with a global reference, so either can
+    // be deleted while the other still satisfies this — only deleting both
+    // fails. That overlap is deliberate and Go's query has the same one, so it
+    // is stated here rather than worked around.
+    has(&r.references, &["PlainCall", "MethodCall"]);
     // A type reaches the graph through the field it sits in, not through a
     // node kind — C# has no `type_identifier`. Three positions need patterns:
     // the `type:` wildcard, `returns:` (its own field, which the wildcard never
