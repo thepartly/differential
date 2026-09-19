@@ -293,7 +293,7 @@ fn csharp_names_its_types_by_their_declaration_and_not_by_a_type_node() {
 namespace Acme;
 interface IRenderer { string Paint(); }
 public record Point(int X, int Y);
-public class Widget : IRenderer, System.IDisposable
+public class Widget : IRenderer, IBox<Point>, System.IDisposable, MyNs.IRepo<Point>
 {
     private string label;
     public string Paint() { return label; }
@@ -303,7 +303,10 @@ public class Widget : IRenderer, System.IDisposable
         other.MethodCall();
         return "NoiseB";
     }
-    System.Collections.Generic.List<Point> Batch(MyNs.Plain p) { return null; }
+    System.Collections.Generic.Queue<Point> Batch(MyNs.Plain p, MyNs.Repository<int> repo) { return null; }
+    System.String Describe() { return label; }
+    Marker Clone() { return null; }
+    Stack<Point> Many() { return null; }
 }
 "#,
     );
@@ -311,22 +314,36 @@ public class Widget : IRenderer, System.IDisposable
         &r.defines,
         &["Widget", "IRenderer", "Point", "Render", "Paint"],
     );
-    // A type reaches the graph through the `type:` field it sits in, not
-    // through a node kind — `Widget` as a parameter's type and `List` as the
-    // head of a `generic_name` are both here.
+    // A type reaches the graph through the field it sits in, not through a
+    // node kind — C# has no `type_identifier`. Three positions need patterns:
+    // the `type:` wildcard, `returns:` (its own field, which the wildcard never
+    // reaches) and `base_list` (no field at all). Each is spelled four ways —
+    // bare, generic, qualified by namespace, and qualified AND generic, the
+    // last needing the tail unwrapped twice. Twelve patterns, twelve cases.
+    //
+    // Every name here appears exactly once in the snippet. That second
+    // condition is the one that bites: `List` was the first choice for the
+    // `returns:` qualified-generic case, and `List<string>` is already a
+    // parameter type, so the assertion was satisfied by the `type:` wildcard
+    // and deleting the `returns:` pattern still passed. A test that cannot
+    // fail looks exactly like a test that passes.
     has(
         &r.references,
-        &["PlainCall", "MethodCall", "Widget", "List"],
+        &[
+            "Widget",      // type: bare
+            "List",        // type: generic
+            "Plain",       // type: qualified
+            "Repository",  // type: qualified + generic
+            "Marker",      // returns: bare
+            "Stack",       // returns: generic
+            "String",      // returns: qualified
+            "Queue",       // returns: qualified + generic
+            "IRenderer",   // base_list: bare
+            "IBox",        // base_list: generic
+            "IDisposable", // base_list: qualified
+            "IRepo",       // base_list: qualified + generic
+        ],
     );
-    // A base type spelled by its full path reaches the graph too. `base_list`
-    // wraps it in a `qualified_name` and gives it no `type:` field, so the
-    // wildcard cannot see it and the list needs patterns of its own.
-    has(&r.references, &["IRenderer", "IDisposable"]);
-    // Every type position is spelled three ways — bare, generic, and qualified
-    // by namespace — and a qualified one can be generic too, which needs the
-    // tail unwrapped twice. `returns:` is its own field and the wildcard never
-    // reaches it, so it carries the same four patterns.
-    has(&r.references, &["Plain", "List"]);
     // The namespace parts of a qualified name are not types, and stay noise.
     lacks(&r.references, &["System", "Collections", "Generic", "MyNs"]);
     lacks(&r.references, &["NoiseA", "NoiseB"]);
