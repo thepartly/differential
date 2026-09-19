@@ -65,12 +65,13 @@ pub trait SymbolSource {
 - **`Language` keeps normalisation and nothing else** (ADR 0015). One trait serving two
   unrelated needs is the merged supertrait the layering rules forbid.
 
-Three readers ship, and the graph cannot tell which answered:
+Four readers ship, and the graph cannot tell which answered:
 
 | reader | reads | how |
 | --- | --- | --- |
 | tuned | Rust, TypeScript (+TSX), Python, Go, Kotlin, Java, C#, Swift, PHP, Zig | a hand-written `.scm` per language |
 | field-rule | JavaScript, C, C++ | tree-sitter with no query, using field names |
+| single-file | Vue | the TypeScript query, over a mask of the `<script>` blocks (ADR 0035) |
 | crude | any other source extension | the moved regexes, at the floor |
 
 **A definition is a file-scope name others can use.** Not `mod template;`, which names a

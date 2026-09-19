@@ -1,12 +1,16 @@
 //! Tree-sitter readers, and what they share.
 //!
-//! Two readers sit on top of this module and neither knows about the other.
-//! [`tuned::AstSymbols`] has a hand-written query per language. [`generic::
-//! AstTier2Symbols`] has none, and works from field names instead. They claim
-//! disjoint sets of languages, so they never rank against each other.
+//! Three readers sit on top of this module and none knows about the others.
+//! [`tuned::AstSymbols`] has a hand-written query per language.
+//! [`sfc::SfcSymbols`] runs the TypeScript query over a mask of a single-file
+//! component's `<script>` blocks (ADR 0035). [`generic::AstTier2Symbols`] has
+//! no query at all, and works from field names instead. They claim disjoint
+//! sets of languages, so they never rank against each other.
 //!
-//! What they share is here: parsing, line numbering, and [`is_prose`] — the
-//! rule for deciding that a token is comment or string rather than code.
+//! What they share is here: parsing, line numbering, [`run_query`] — the
+//! meaning of every capture name, which the two readers that have a query both
+//! read from — and [`is_prose`], the rule for deciding that a token is comment
+//! or string rather than code.
 //!
 //! [`is_prose`] is the rule stated once, climbing from a token to the root. It
 //! is only affordable per token when there are few of them, and since the
@@ -18,12 +22,14 @@
 //! `deep_nesting_costs_neither_stack_nor_quadratic_time`.
 
 pub mod generic;
+pub mod sfc;
 pub mod tuned;
 
 use std::collections::HashSet;
 use std::ops::Range;
 
-use tree_sitter::{Node, Parser, Tree};
+use differential_engine::artefact::symbols::{FileSymbols, Symbol};
+use tree_sitter::{Language, Node, Parser, Query, QueryCursor, StreamingIterator, Tree};
 
 /// Parse `content`, or `None` if the grammar cannot be installed.
 ///
@@ -171,4 +177,144 @@ fn extent_of(node: Node) -> u32 {
 /// A node's text, or `None` if it is not UTF-8.
 fn text_of<'a>(node: Node, content: &'a [u8]) -> Option<&'a [u8]> {
     content.get(node.byte_range())
+}
+
+/// One query capture, with everything the decision below needs.
+///
+/// A struct rather than the tuple this was: six fields travelling together is
+/// what `clippy::type_complexity` exists to catch, and naming them is how the
+/// veto below stays readable.
+struct Capture<'a> {
+    name: &'a str,
+    /// Zero-based index into the parallel `FileSymbols` vectors.
+    line: usize,
+    /// Byte range in the FILE — the identity key the definition veto compares.
+    range: Range<usize>,
+    text: Vec<u8>,
+    /// Byte range within the token's own line.
+    columns: (u32, u32),
+    through: u32,
+}
+
+/// Run one compiled query over `content` and decide what each capture means.
+///
+/// Shared by the two readers that HAVE a query — the tuned table, and the
+/// single-file-component reader, which hands this the same TypeScript query
+/// over a masked buffer (`sfc`). Nothing here knows which called it: a query
+/// and a namespace are the whole input.
+pub(super) fn run_query(
+    language: &Language,
+    query: &Query,
+    content: &[u8],
+    namespace: Vec<u8>,
+) -> Option<FileSymbols> {
+    let tree = parse(language, content)?;
+    let lines = line_count(content);
+    let mut out = FileSymbols {
+        namespace,
+        defines: vec![Vec::new(); lines],
+        references: vec![Vec::new(); lines],
+    };
+
+    // Collect first, decide after. A definition site is also a type
+    // mention — `struct Widget` matches both `@def` and `@type` — and query
+    // matches arrive in no particular order, so the veto needs every
+    // capture in hand.
+    let prose = prose_tokens(&tree);
+    let names = query.capture_names();
+    let mut captured: Vec<Capture<'_>> = Vec::new();
+    let mut cursor = QueryCursor::new();
+    let mut matches = cursor.matches(query, tree.root_node(), content);
+    while let Some(m) = matches.next() {
+        for capture in m.captures() {
+            let node = capture.node;
+            // A token answers from the set; anything else — no query here
+            // captures one — pays the ancestor walk.
+            let prosaic = if node.child_count() == 0 {
+                prose.contains(&node.byte_range())
+            } else {
+                is_prose(node)
+            };
+            if prosaic {
+                continue;
+            }
+            let (Some(text), Some(line)) = (text_of(node, content), line_of(node).checked_sub(1))
+            else {
+                continue;
+            };
+            if line >= lines {
+                continue;
+            }
+            let (from, to) = columns_of(node);
+            let name = names[capture.index as usize];
+            // **Only a definition pays for its extent.** `Node::parent`
+            // walks DOWN from the root, so calling it once per capture is
+            // an ancestor walk per token — the quadratic shape
+            // `the_tuned_reader_survives_deep_nesting_too` exists to catch,
+            // and it caught this: 20k levels went from seconds to 175.
+            //
+            // Since ADR 0030 there is one capture per token, and all but a
+            // handful are `@local_ref`. A reference has no body to show, so
+            // it has no reason to ask.
+            let declares = name == "def" || name == "local_def";
+            captured.push(Capture {
+                name,
+                line,
+                range: node.byte_range(),
+                text: text.to_vec(),
+                columns: (from, to),
+                through: if declares { extent_of(node) } else { 0 },
+            });
+        }
+    }
+
+    let ranges = |wanted: &str| -> HashSet<Range<usize>> {
+        captured
+            .iter()
+            .filter(|c| c.name == wanted)
+            .map(|c| c.range.clone())
+            .collect()
+    };
+    let defined = ranges("def");
+    let locally_defined = ranges("local_def");
+
+    for c in captured {
+        let Capture {
+            name,
+            line,
+            range,
+            text,
+            columns: (from, to),
+            through,
+        } = c;
+        // Definitions win: a class must never appear to consume the thing
+        // it introduces. A file-scope definition also wins over the
+        // file-local capture of the same token, which is how
+        // `(variable_declarator …) @local_def` and its `(program …) @def`
+        // sibling both stay in the query without fighting.
+        let is_a_definition = defined.contains(&range) || locally_defined.contains(&range);
+        // A definition carries its body's last line; a reference has no
+        // body of its own, so it carries only its columns.
+        match name {
+            "def" => out.defines[line].push(Symbol::global(text).at(from, to).through(through)),
+            "local_def" if !defined.contains(&range) => {
+                out.defines[line].push(Symbol::local(text).at(from, to).through(through));
+            }
+            // Three spellings of one thing: the file consumes a name
+            // that came from somewhere else. `@ref` is the one that is
+            // neither a call nor a type — a function handed to a router
+            // rather than invoked, an enum variant, a constant by path.
+            "call" | "type" | "ref" if !is_a_definition => {
+                out.references[line].push(Symbol::global(text).at(from, to));
+            }
+            // A call may be resolving a file-local binding or a global
+            // one, and nothing here can say which. Both are recorded; the
+            // graph keeps whichever finds a definer.
+            "local_ref" if !is_a_definition => {
+                out.references[line].push(Symbol::local(text).at(from, to));
+            }
+            _ => {}
+        }
+    }
+    Some(out)
 }

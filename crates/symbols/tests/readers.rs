@@ -11,7 +11,7 @@
 //!   dependency edges false.
 
 use differential_engine::artefact::symbols::{FileSymbols, Scope, Symbol, SymbolSource};
-use differential_symbols::{AstSymbols, AstTier2Symbols, NaiveSymbols};
+use differential_symbols::{AstSymbols, AstTier2Symbols, NaiveSymbols, SfcSymbols};
 use sha1::{Digest, Sha1};
 
 /// One reader's answer, split by how far each name reaches.
@@ -115,6 +115,12 @@ fn every_tuned_query_compiles_against_its_pinned_grammar() {
         failures.failures().is_empty(),
         "queries that would not compile: {:?}",
         failures.failures()
+    );
+    // The SFC reader compiles the TypeScript query against the same pinned
+    // grammar, and answers nothing at all if it cannot.
+    assert!(
+        SfcSymbols::new().ready(),
+        "the SFC reader's query would not compile against its grammar"
     );
 }
 
@@ -473,6 +479,100 @@ fn privateFunction() void {}
     lacks(&r.references, &["NoiseA", "NoiseB"]);
 }
 
+/// A Vue SFC is read as the script it is.
+///
+/// No tree-sitter Vue grammar parses a `<script>` body — it is one `raw_text`
+/// node, resolved by an injection the Rust query engine does not do. So the
+/// reader masks the file down to its script blocks and runs the TypeScript
+/// query over the result. Line numbers and columns are the FILE's, which is the
+/// whole reason for masking rather than parsing a substring and adding offsets.
+#[test]
+fn a_vue_component_is_read_through_its_script_and_not_its_template() {
+    let src = r#"<template>
+  <ChildWidget :label="title" />
+</template>
+
+<script setup lang="ts">
+import { computed } from 'vue'
+const count = ref(0)
+const formatted = computed(() => formatLabel(count.value))
+function bump(step: number) { count.value += step }
+</script>
+
+<style scoped>
+.panel { color: NoiseB; }
+</style>
+"#;
+    let r = read(&SfcSymbols::new(), b"Panel.vue", src);
+    has(&r.references, &["computed", "ref", "formatLabel"]);
+    has(
+        &r.local_defines,
+        &["count", "formatted", "bump", "step", "computed"],
+    );
+    // The template and the style are masked out, so nothing in either can
+    // become a symbol — `ChildWidget` included.
+    lacks(&r.references, &["ChildWidget", "NoiseB", "panel", "title"]);
+    lacks(&r.local_defines, &["ChildWidget", "panel"]);
+
+    // The mask is what keeps a line number honest: `bump` is on the file's
+    // ninth line, not the script's fifth.
+    let line = read_line(&SfcSymbols::new(), b"Panel.vue", src, "function bump");
+    assert!(
+        line.defines.iter().any(|n| n == "bump"),
+        "bump lands on its own line: {line:?}",
+        line = line.defines
+    );
+}
+
+/// A component with no script block is DECLINED, not answered empty.
+///
+/// Answering with an empty `FileSymbols` would claim the file and state that it
+/// has no symbols. Declining says something different and true — this reader
+/// cannot read it — and hands it to the floor, exactly as a failed parse does.
+#[test]
+fn a_template_only_component_falls_to_the_floor() {
+    let sfc = SfcSymbols::new();
+    let path = b"Static.vue".as_slice();
+    let src = b"<template>\n  <p>hello</p>\n</template>\n";
+    assert!(sfc.priority(path).is_some(), "it claims every .vue");
+    assert!(
+        sfc.file_symbols(path, src).is_none(),
+        "and declines the ones it cannot read"
+    );
+    assert!(NaiveSymbols.priority(path).is_some(), "the floor takes it");
+}
+
+/// A Vue component defines no name of its own, and nothing global would read it
+/// if it did.
+///
+/// `<script setup>` exports nothing and a classic block is `export default
+/// { … }`, so the TypeScript query's `export` gate finds nothing to take. The
+/// name importers use is the FILE's — and deriving it from the path was
+/// considered and dropped, because an importer records `import Child from
+/// './Child.vue'` as a FILE-LOCAL binding (ADR 0030). A global definition with
+/// no global consumer is the false-definition shape ADR 0023 measured, so this
+/// pins the absence rather than leaving it to be re-litigated. ADR 0035.
+#[test]
+fn a_component_draws_no_incoming_edge_because_an_import_is_file_local() {
+    let component = read(
+        &SfcSymbols::new(),
+        b"ChildWidget.vue",
+        "<script setup lang=\"ts\">\nconst n = 1\n</script>\n",
+    );
+    assert!(
+        component.defines.is_empty(),
+        "a component names nothing globally: {:?}",
+        component.defines
+    );
+    let importer = read(
+        &AstSymbols::new(),
+        b"page.ts",
+        "import ChildWidget from './ChildWidget.vue'\nexport const wrap = () => ChildWidget\n",
+    );
+    has(&importer.local_defines, &["ChildWidget"]);
+    lacks(&importer.references, &["ChildWidget"]);
+}
+
 // ------------------------------------------------------ the field-rule reader
 
 /// The field rules still take JavaScript, C and C++, and this is what they buy
@@ -519,6 +619,22 @@ fn the_tuned_reader_outranks_the_field_reader_and_they_never_overlap() {
         assert!(tuned.priority(path).is_none(), "both claimed {path:?}");
         assert!(fields.priority(path).is_some());
     }
+    // And the SFC reader takes `.vue` alone. It ranks with the tuned reader
+    // because it runs a query too, so a second claimant on one path would put
+    // the two at 9 apiece and let registration order decide.
+    let sfc = SfcSymbols::new();
+    assert!(sfc.priority(b"Panel.vue").is_some());
+    for path in [
+        b"src/lib.rs".as_slice(),
+        b"app.ts",
+        b"a.js",
+        b"Main.java",
+        b"a.swift",
+    ] {
+        assert!(sfc.priority(path).is_none(), "the SFC reader took {path:?}");
+    }
+    assert!(tuned.priority(b"Panel.vue").is_none());
+    assert!(fields.priority(b"Panel.vue").is_none());
     // The ranking, on the ONE path where it could ever be consulted. This used
     // to compare the two readers over two different files — a contest the
     // loops above prove can never happen, so it reduced to comparing two
@@ -557,6 +673,7 @@ fn the_tuned_reader_outranks_the_field_reader_and_they_never_overlap() {
 fn the_floor_stands_under_every_file_the_ast_readers_claim() {
     let tuned = AstSymbols::new();
     let fields = AstTier2Symbols::new();
+    let sfc = SfcSymbols::new();
     for path in [
         b"a.rs".as_slice(),
         b"a.pyi",
@@ -572,9 +689,13 @@ fn the_floor_stands_under_every_file_the_ast_readers_claim() {
         b"a.swift",
         b"a.php",
         b"a.zig",
+        b"Panel.vue",
     ] {
         let name = String::from_utf8_lossy(path);
-        let above = tuned.priority(path).or(fields.priority(path));
+        let above = tuned
+            .priority(path)
+            .or(fields.priority(path))
+            .or(sfc.priority(path));
         assert!(
             above.is_some(),
             "{name} is nobody's, so it proves nothing here"
@@ -1318,6 +1439,10 @@ fn every_reader_fingerprint_pins_its_answers() {
             "a.zig",
             "pub const W = struct {\n    pub fn serve(self: W) void { plain(); }\n};\n",
         ),
+        (
+            "P.vue",
+            "<template><p/></template>\n<script setup lang=\"ts\">\nconst n = call();\n</script>\n",
+        ),
         ("a.rb", "class W\n  def serve\n    plain_call\n  end\nend\n"),
         ("q.sql", "select id from widgets where owner_id = $1\n"),
     ];
@@ -1361,6 +1486,7 @@ fn every_reader_fingerprint_pins_its_answers() {
 
     let readers: Vec<Box<dyn SymbolSource>> = vec![
         Box::new(AstSymbols::new()),
+        Box::new(SfcSymbols::new()),
         Box::new(AstTier2Symbols::new()),
         Box::new(NaiveSymbols),
     ];
@@ -1385,8 +1511,12 @@ fn every_reader_fingerprint_pins_its_answers() {
             "ast-tuned-v2[csharp-v1,go-v4,java-v1,kotlin-v4,php-v1,python-v4,rust-v4,swift-v1,tsx-v4,typescript-v4,zig-v1]",
             "04f3b5060d27eae51f040e9d3695d235da67f696",
         ),
+        (
+            "sfc-v1[typescript-v4]",
+            "2b7681f9556c805df338fc214fea83b36db03667",
+        ),
         ("ast-fields-v4", "ecbe41bf43ddfcef4c6883e3c26b12bd2dbe4416"),
-        ("naive-v4", "6740dce32f993fc8f790a080c56bcd5baa2590d6"),
+        ("naive-v4", "b360aa01832f2e39cc50179dedc7fabc6e8c6c19"),
     ];
     let pinned: Vec<(String, String)> = PINNED
         .iter()

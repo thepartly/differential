@@ -15,6 +15,7 @@ mod naive;
 pub mod namespace;
 
 pub use ast::generic::AstTier2Symbols;
+pub use ast::sfc::SfcSymbols;
 pub use ast::tuned::AstSymbols;
 pub use naive::NaiveSymbols;
 
@@ -27,6 +28,7 @@ use differential_engine::artefact::symbols::SymbolReaders;
 pub fn readers() -> SymbolReaders {
     let mut r = SymbolReaders::default();
     r.register(Box::new(AstSymbols::new()));
+    r.register(Box::new(SfcSymbols::new()));
     r.register(Box::new(AstTier2Symbols::new()));
     r.register(Box::new(NaiveSymbols));
     r

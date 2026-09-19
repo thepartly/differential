@@ -4,7 +4,7 @@ The symbol readers for [`differential`](https://crates.io/crates/differential). 
 one question about a file — **what does each line define, and what does it reference?** —
 and the answer becomes the dependency graph that orders a review foundation-first.
 
-Three readers ship. Each ranks itself for a given path, and the best claimant answers. The
+Four readers ship. Each ranks itself for a given path, and the best claimant answers. The
 regex floor stands under every extension the table below names, so a file an AST reader
 claims and fails to parse still gets crude symbols rather than none. A file no reader
 claims contributes no symbols at all.
@@ -26,10 +26,11 @@ Project home: <https://github.com/thepartly/differential>
 | Swift | `.swift` | tuned query |
 | PHP | `.php` | tuned query |
 | Zig | `.zig` | tuned query |
+| Vue | `.vue` | tuned query, over the `<script>` blocks |
 | JavaScript | `.js` `.jsx` `.mjs` `.cjs` | field rules |
 | C | `.c` `.h` | field rules |
 | C++ | `.cc` `.cpp` `.cxx` `.hpp` `.hh` | field rules |
-| Ruby, Scala, shell, Perl, Lua, Elixir, Erlang, Haskell, OCaml, Dart, Vue, Svelte, SQL, Protobuf | `.rb` `.scala` `.sh` `.bash` `.zsh` `.pl` `.pm` `.lua` `.ex` `.exs` `.erl` `.hs` `.ml` `.mli` `.dart` `.vue` `.svelte` `.sql` `.proto` | regex floor (only reader) |
+| Ruby, Scala, shell, Perl, Lua, Elixir, Erlang, Haskell, OCaml, Dart, Svelte, SQL, Protobuf | `.rb` `.scala` `.sh` `.bash` `.zsh` `.pl` `.pm` `.lua` `.ex` `.exs` `.erl` `.hs` `.ml` `.mli` `.dart` `.svelte` `.sql` `.proto` | regex floor (only reader) |
 | everything else — manifests, lockfiles, prose, data | — | none |
 
 ## What each rung costs you
@@ -99,6 +100,12 @@ empty.
 `@call` and `@type`. Roughly ten patterns. Queries compile when the reader is built, so a
 wrong node name fails immediately and names the node.
 
+**A single-file format is its own reader.** A `.vue` file's `<script>` body is one `raw_text`
+node in every Vue grammar — editors resolve it by an injection the Rust query engine does not
+do — so `src/ast/sfc.rs` masks every byte outside a script block to a space and runs the
+TypeScript query over the result. Line numbers and columns stay the file's, which is the
+point of masking rather than parsing a substring (ADR 0035).
+
 Kotlin is the worked example of why the top rung exists. Its `call_expression` carries no
 `function:` field and its `navigation_expression` names none of its children, so the field
 rules found no calls there at all. Nine of the other ten grammars passed those rules on a
@@ -122,7 +129,7 @@ extraction, and nothing else in the tree would notice.
 
 | reader | evidence |
 |---|---|
-| tuned query | Rust, Python and TypeScript run against a real multi-language corpus; TypeScript and TSX additionally against a React corpus, and Rust against a service-backend one. Go, Kotlin, Java, C#, Swift, PHP and Zig are covered by per-language tests only, and their method and path rules are unmeasured — see ADR 0030. The corpus ranges the parity test pins hold no Java, C#, Swift, PHP or Zig change, so neither range's edge count moved when those five were promoted. |
+| tuned query | Rust, Python and TypeScript run against a real multi-language corpus; TypeScript and TSX additionally against a React corpus, and Rust against a service-backend one. Go, Kotlin, Java, C#, Swift, PHP, Zig and Vue are covered by per-language tests only, and their method and path rules are unmeasured — see ADR 0030. The corpus ranges the parity test pins hold no Java, C#, Swift, PHP, Zig or Vue change, so neither range's edge count moved when those six were promoted. |
 | field rules | C, C++ and JavaScript, by per-language tests only. |
 | regex floor | runs against the corpus wherever no grammar claims a file. |
 
@@ -158,6 +165,12 @@ to order — disappeared entirely.
 - PHP's `__construct` is a method like any other here, so a class that declares one defines
   that name. Every class does, so the single-definer rule drops it — which is the mechanism
   for exactly this, not an accident.
+- A Vue component defines no global name: `<script setup>` exports nothing and a classic
+  block is `export default { … }`, so the `export` gate takes nothing. Deriving one from the
+  file stem was considered and dropped — an importer records the import as file-local, so
+  there would be no global consumer for it (ADR 0035).
+- A Vue `<template>` is masked out, so `<ChildWidget />` draws no edge. That is `.jsx`'s
+  known edge in another language, and reading the template needs a Vue grammar.
 
 ## Using it
 
