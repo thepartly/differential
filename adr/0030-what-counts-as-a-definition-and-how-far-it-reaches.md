@@ -180,6 +180,11 @@ reader Ruby, PHP, Swift and Elixir have, and file-scoping it would delete every 
 edge those languages draw. That is a precision question with its own corpus measurement, and
 bundling it here would make one movement in the numbers impossible to attribute.
 
+(PHP and Swift have since gained queries of their own, along with Zig, so the languages that
+argument is about are Ruby, Elixir and the rest of the floor's list. The argument itself is
+unchanged: whichever languages the floor is the only reader for, file-scoping it deletes
+every cross-file edge they draw.)
+
 **Splitting a group when the graph says it holds both a definition and its use.** The merge
 is the model's judgement (ADR 0001) and the graph that would undo it is heuristic. A wrong
 edge misorders; a wrong cut breaks a coherent group and mislabels both halves.

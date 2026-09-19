@@ -23,10 +23,13 @@ Project home: <https://github.com/thepartly/differential>
 | Kotlin | `.kt` `.kts` | tuned query |
 | Java | `.java` | tuned query |
 | C# | `.cs` | tuned query |
+| Swift | `.swift` | tuned query |
+| PHP | `.php` | tuned query |
+| Zig | `.zig` | tuned query |
 | JavaScript | `.js` `.jsx` `.mjs` `.cjs` | field rules |
 | C | `.c` `.h` | field rules |
 | C++ | `.cc` `.cpp` `.cxx` `.hpp` `.hh` | field rules |
-| Ruby, PHP, Swift, Scala, shell, Perl, Lua, Elixir, Erlang, Haskell, OCaml, Dart, Vue, Svelte, SQL, Protobuf, Zig | `.rb` `.php` `.swift` `.scala` `.sh` `.bash` `.zsh` `.pl` `.pm` `.lua` `.ex` `.exs` `.erl` `.hs` `.ml` `.mli` `.dart` `.vue` `.svelte` `.sql` `.proto` `.zig` | regex floor (only reader) |
+| Ruby, Scala, shell, Perl, Lua, Elixir, Erlang, Haskell, OCaml, Dart, Vue, Svelte, SQL, Protobuf | `.rb` `.scala` `.sh` `.bash` `.zsh` `.pl` `.pm` `.lua` `.ex` `.exs` `.erl` `.hs` `.ml` `.mli` `.dart` `.vue` `.svelte` `.sql` `.proto` | regex floor (only reader) |
 | everything else — manifests, lockfiles, prose, data | — | none |
 
 ## What each rung costs you
@@ -119,7 +122,7 @@ extraction, and nothing else in the tree would notice.
 
 | reader | evidence |
 |---|---|
-| tuned query | Rust, Python and TypeScript run against a real multi-language corpus; TypeScript and TSX additionally against a React corpus, and Rust against a service-backend one. Go, Kotlin, Java and C# are covered by per-language tests only, and their method and path rules are unmeasured — see ADR 0030. The corpus ranges the parity test pins hold no Java or C# change, so the promotion moved neither range's edge count. |
+| tuned query | Rust, Python and TypeScript run against a real multi-language corpus; TypeScript and TSX additionally against a React corpus, and Rust against a service-backend one. Go, Kotlin, Java, C#, Swift, PHP and Zig are covered by per-language tests only, and their method and path rules are unmeasured — see ADR 0030. The corpus ranges the parity test pins hold no change in any of those four newest languages, so neither range's edge count moved when they were promoted. |
 | field rules | C, C++ and JavaScript, by per-language tests only. |
 | regex floor | runs against the corpus wherever no grammar claims a file. |
 
@@ -134,12 +137,19 @@ to order — disappeared entirely.
   belongs to its own measurement (ADR 0030).
 - `.jsx` goes to the field rules, which have no JSX rule — a rendered component draws no
   edge there. `.tsx` does, by query.
-- Go's `@ref`, Python's, Java's and C#'s take struct-field and attribute reads too: those
-  languages spell a qualified name and a member read the same way. Rust's
-  `scoped_identifier` does not have this problem.
-- C# has no `type_identifier` node — a type is a plain identifier in a `type:` field — so its
-  query reaches types through a wildcard on that field rather than through a node kind. A
-  type position the grammar spells with some other field name is missed.
+- Go's `@ref`, Python's, Java's, C#'s, Swift's, PHP's and Zig's take struct-field and
+  attribute reads too: those languages spell a qualified name and a member read the same
+  way. Rust's `scoped_identifier` does not have this problem.
+- C# and Zig have no `type_identifier` node — a type is a plain identifier in a `type:`
+  field — so their queries reach types through a wildcard on that field rather than through a
+  node kind. A type position the grammar spells with some other field name is missed.
+- Zig's file-scope `@def` gates on the BODY a `const` binds, because `const Helper =
+  @import("x.zig")` is shaped exactly like a type declaration. So a `pub const MAX = 100` is
+  file-local where a `pub const Widget = struct {…}` is global. Losing that edge is the
+  price of not making every importing file the definer of what it imported.
+- PHP's `__construct` is a method like any other here, so a class that declares one defines
+  that name. Every class does, so the single-definer rule drops it — which is the mechanism
+  for exactly this, not an accident.
 
 ## Using it
 

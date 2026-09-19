@@ -339,6 +339,125 @@ public class Widget : IRenderer, System.IDisposable, MyNs.IRepo<Point>
     lacks(&r.references, &["NoiseA", "NoiseB"]);
 }
 
+/// Swift: a type's method is a definition, a protocol's requirement is not.
+///
+/// Swift spells `class`, `struct` and `enum` all as `class_declaration`, so one
+/// pattern takes all three — and its `call_expression` names none of its
+/// children, which is Kotlin's shape and the reason a query is the only way to
+/// read either language.
+#[test]
+fn swift_takes_a_type_method_and_reads_a_call_with_no_named_callee() {
+    let r = read(
+        &AstSymbols::new(),
+        b"Widget.swift",
+        r#"
+// mentions NoiseA
+protocol Renderer { func paint() -> String }
+struct Point { let x: Int }
+class Widget: Renderer {
+    let label: String
+    func paint() -> String { return label }
+    func render(other: Widget) -> String { plainCall(); other.methodCall(); return "NoiseB" }
+}
+"#,
+    );
+    has(
+        &r.defines,
+        &["Widget", "Renderer", "Point", "render", "paint"],
+    );
+    has(
+        &r.references,
+        &["plainCall", "methodCall", "Widget", "String"],
+    );
+    lacks(&r.references, &["NoiseA", "NoiseB"]);
+}
+
+/// PHP: a class's method is a definition; an interface's and a trait's are not.
+///
+/// All three bodies are spelled `declaration_list`, so the owner has to be
+/// named. A file-scope `const` is a name others can use and a class constant is
+/// not, which is the one place PHP needs the file-scope anchor at all.
+#[test]
+fn php_separates_a_class_method_from_an_interface_and_a_trait_one() {
+    let r = read(
+        &AstSymbols::new(),
+        b"Widget.php",
+        r#"<?php
+// mentions NoiseA
+interface Renderer { public function paint(): string; }
+trait Loggable { public function log(): void {} }
+const LIMIT = 3;
+class Widget implements Renderer {
+    private string $label;
+    const CAP = 1;
+    public function paint(): string { return $this->label; }
+    public function render(Widget $other): string {
+        plainCall();
+        $other->methodCall();
+        Helper::staticCall();
+        return "NoiseB";
+    }
+}
+"#,
+    );
+    has(
+        &r.defines,
+        &["Widget", "Renderer", "Loggable", "LIMIT", "render", "paint"],
+    );
+    // A trait's method and a class constant are both reached through the thing
+    // that owns them (ADR 0030).
+    has(&r.local_defines, &["log", "CAP", "label"]);
+    lacks(&r.defines, &["log", "CAP"]);
+    has(
+        &r.references,
+        &["plainCall", "methodCall", "staticCall", "Widget", "Helper"],
+    );
+    lacks(&r.references, &["NoiseA", "NoiseB"]);
+}
+
+/// Zig: a type is a `const` bound to a container body, and an `@import` is not.
+///
+/// Both have the same shape — a file-scope `const` with no field naming what it
+/// binds — so the query gates on the BODY. Taking the import too would make
+/// every importing file the definer of the name it imported, which is the
+/// `mod template;` false definition ADR 0030 measured.
+#[test]
+fn zig_takes_a_container_const_and_refuses_an_import_one() {
+    let r = read(
+        &AstSymbols::new(),
+        b"widget.zig",
+        r#"
+// mentions NoiseA
+const Helper = @import("helper.zig");
+
+pub const Widget = struct {
+    label: []const u8,
+
+    pub fn render(self: Widget, other: Widget) void {
+        plainCall();
+        other.methodCall();
+        Helper.staticCall();
+        const s = "NoiseB";
+        drop(s);
+    }
+};
+
+pub fn freeFunction(a: i32) i32 { return a; }
+"#,
+    );
+    has(&r.defines, &["Widget", "render", "freeFunction"]);
+    // The import binding is file-local, so `Helper.staticCall()` still draws
+    // its edge — inside this file, where it is honestly known.
+    lacks(&r.defines, &["Helper"]);
+    has(&r.local_defines, &["Helper", "label", "self", "other", "s"]);
+    has(&r.local_references, &["Helper"]);
+    has(
+        &r.references,
+        &["plainCall", "methodCall", "staticCall", "Widget"],
+    );
+    lacks(&r.references, &["NoiseA", "NoiseB"]);
+}
+
 // ------------------------------------------------------ the field-rule reader
 
 /// The field rules still take JavaScript, C and C++, and this is what they buy
@@ -374,6 +493,9 @@ fn the_tuned_reader_outranks_the_field_reader_and_they_never_overlap() {
         b"main.go",
         b"Main.java",
         b"a.cs",
+        b"a.swift",
+        b"a.php",
+        b"a.zig",
     ] {
         assert!(tuned.priority(path).is_some());
         assert!(fields.priority(path).is_none(), "both claimed {path:?}");
@@ -432,6 +554,9 @@ fn the_floor_stands_under_every_file_the_ast_readers_claim() {
         b"a.h",
         b"a.hh",
         b"a.cs",
+        b"a.swift",
+        b"a.php",
+        b"a.zig",
     ] {
         let name = String::from_utf8_lossy(path);
         let above = tuned.priority(path).or(fields.priority(path));
@@ -768,6 +893,101 @@ class Bind
     );
 }
 
+/// Swift: `bound_identifier:` is the one field every binding position shares,
+/// and two of them hang it off the statement rather than off a pattern.
+///
+/// A property, a `for` item and a `catch` error put it under a `(pattern)`;
+/// `if let` and `guard let` put it directly under the statement. The wildcard
+/// is what reaches both shapes, and without it the catch-all took every one of
+/// them for a READ.
+#[test]
+fn swift_reads_every_binding_position_as_a_declaration() {
+    let r = read(
+        &AstSymbols::new(),
+        b"Bind.swift",
+        r#"
+func readThem(rows: [String]) {
+    var total = 0
+    for row in rows { drop(row) }
+    do { try open() } catch let err { drop(err) }
+    if let cast = rows.first { drop(cast) }
+    guard let kept = rows.last else { return }
+    rows.forEach { item in drop(item) }
+    drop(total)
+    drop(kept)
+}
+"#,
+    );
+    has(
+        &r.local_defines,
+        &["rows", "total", "row", "err", "cast", "kept", "item"],
+    );
+    has(
+        &r.local_references,
+        &["rows", "row", "err", "cast", "kept", "item"],
+    );
+}
+
+/// PHP declares a variable by assigning to it, so the assignment's left side IS
+/// the binding position — there is no `let` to key on.
+///
+/// `foreach` is the awkward one: the grammar gives neither the collection nor
+/// the binding a field, so the two-child form is reached by anchoring past the
+/// collection and the `as $k => $v` form through its `pair`.
+#[test]
+fn php_reads_every_binding_position_as_a_declaration() {
+    let r = read(
+        &AstSymbols::new(),
+        b"bind.php",
+        r#"<?php
+function readThem(array $rows, int ...$rest) {
+    $total = 0;
+    foreach ($rows as $row) { drop($row); }
+    foreach ($rows as $key => $val) { drop($key); drop($val); }
+    try { open(); } catch (RuntimeException $err) { drop($err); }
+    $fn = fn($x) => $x;
+    $cb = function ($y) use ($total) { return $y; };
+    [$a, $b] = pair();
+    drop($rest); drop($a); drop($b);
+}
+"#,
+    );
+    has(
+        &r.local_defines,
+        &[
+            "rows", "rest", "total", "row", "key", "val", "err", "fn", "cb", "x", "y", "a", "b",
+        ],
+    );
+    has(
+        &r.local_references,
+        &["rows", "row", "key", "val", "err", "x", "a"],
+    );
+}
+
+/// Zig: a `|payload|` is the binding `if`, `while`, `for` and `catch` all
+/// share, and a declaration's name is its first child with no field to key on.
+#[test]
+fn zig_reads_every_binding_position_as_a_declaration() {
+    let r = read(
+        &AstSymbols::new(),
+        b"bind.zig",
+        r#"
+pub fn readThem(rows: [][]const u8) void {
+    var total: usize = 0;
+    for (rows) |row| { drop(row); }
+    while (next()) |item| { drop(item); }
+    if (maybe()) |cast| { drop(cast); }
+    drop(total);
+}
+"#,
+    );
+    has(&r.local_defines, &["rows", "total", "row", "item", "cast"]);
+    has(
+        &r.local_references,
+        &["rows", "row", "item", "cast", "total"],
+    );
+}
+
 /// The change that made this whole distinction necessary, in miniature.
 ///
 /// A React component is `export const Panel = …`, its dependencies are
@@ -986,6 +1206,9 @@ fn every_query_version_pins_its_patterns() {
         ("kotlin-v4", "64b5b5aa082f00fc71ee8e5500577d532a30f0cf"),
         ("java-v1", "659f2843fd4028823b099498ab401528d2033455"),
         ("csharp-v1", "e51a1379f9f464306274ee71a155e7bbc8c10082"),
+        ("swift-v1", "24295c3bae3c4bef7e7da00f93261f9fd78b0c83"),
+        ("php-v1", "ca86f321d951314dc8c67fbfb39b7a8e8e33a456"),
+        ("zig-v1", "d4d2cf24af15f8d57d65eb0d13635a05cee58451"),
     ];
     let actual: Vec<(String, String)> = AstSymbols::queries()
         .into_iter()
@@ -1028,6 +1251,13 @@ fn every_query_version_pins_its_patterns() {
 /// can change extraction, which changes the graph, which must cold the cache —
 /// and nothing else in the tree would have noticed.
 ///
+/// **Adding a SAMPLE moves a hash without any reader having changed**, and that
+/// move must NOT bump a version: no cached grouping is stale, and bumping would
+/// cold every one of them for nothing. Three `.swift`, `.php` and `.zig`
+/// samples moved the floor's hash exactly this way — the floor answers those
+/// files as it always did, it is simply now asked. The version and the hash
+/// mean different things, which is why both are pinned.
+///
 /// To update: change the reader, bump its version, paste the hashes below.
 #[test]
 fn every_reader_fingerprint_pins_its_answers() {
@@ -1061,6 +1291,18 @@ fn every_reader_fingerprint_pins_its_answers() {
             "class W { String r(W w) { plain(); return w.meth(); } }\n",
         ),
         ("a.c", "int r(struct W *w) { return plain(w); }\n"),
+        (
+            "a.swift",
+            "class W { func serve() -> Int { plain(); return 0 } }\n",
+        ),
+        (
+            "a.php",
+            "<?php\nclass W { function r(W $w) { plain(); return $w->meth(); } }\n",
+        ),
+        (
+            "a.zig",
+            "pub const W = struct {\n    pub fn serve(self: W) void { plain(); }\n};\n",
+        ),
         ("a.rb", "class W\n  def serve\n    plain_call\n  end\nend\n"),
         ("q.sql", "select id from widgets where owner_id = $1\n"),
     ];
@@ -1125,11 +1367,11 @@ fn every_reader_fingerprint_pins_its_answers() {
 
     const PINNED: &[(&str, &str)] = &[
         (
-            "ast-tuned-v2[csharp-v1,go-v4,java-v1,kotlin-v4,python-v4,rust-v4,tsx-v4,typescript-v4]",
-            "e14b4e16c07d7f221bdad70329941e9942ed815b",
+            "ast-tuned-v2[csharp-v1,go-v4,java-v1,kotlin-v4,php-v1,python-v4,rust-v4,swift-v1,tsx-v4,typescript-v4,zig-v1]",
+            "04f3b5060d27eae51f040e9d3695d235da67f696",
         ),
         ("ast-fields-v4", "ecbe41bf43ddfcef4c6883e3c26b12bd2dbe4416"),
-        ("naive-v4", "3b6a6cfece0afc2ea5d6172739e6e6d8747305bc"),
+        ("naive-v4", "6740dce32f993fc8f790a080c56bcd5baa2590d6"),
     ];
     let pinned: Vec<(String, String)> = PINNED
         .iter()

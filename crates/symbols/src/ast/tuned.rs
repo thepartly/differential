@@ -119,6 +119,24 @@ static TUNED: &[Tuned] = &[
         language: csharp,
         sources: &[include_str!("queries/csharp.scm")],
     },
+    Tuned {
+        version: "swift-v1",
+        extensions: &[b".swift"],
+        language: swift,
+        sources: &[include_str!("queries/swift.scm")],
+    },
+    Tuned {
+        version: "php-v1",
+        extensions: &[b".php"],
+        language: php,
+        sources: &[include_str!("queries/php.scm")],
+    },
+    Tuned {
+        version: "zig-v1",
+        extensions: &[b".zig"],
+        language: zig,
+        sources: &[include_str!("queries/zig.scm")],
+    },
 ];
 
 fn rust() -> Language {
@@ -144,6 +162,18 @@ fn java() -> Language {
 }
 fn csharp() -> Language {
     tree_sitter_c_sharp::LANGUAGE.into()
+}
+fn swift() -> Language {
+    tree_sitter_swift::LANGUAGE.into()
+}
+/// `LANGUAGE_PHP`, not `LANGUAGE_PHP_ONLY`: a `.php` file may open in HTML and
+/// reach its first `<?php` some lines down, and the PHP-only grammar cannot
+/// parse that at all.
+fn php() -> Language {
+    tree_sitter_php::LANGUAGE_PHP.into()
+}
+fn zig() -> Language {
+    tree_sitter_zig::LANGUAGE.into()
 }
 
 pub struct AstSymbols {
