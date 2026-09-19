@@ -26,11 +26,15 @@
 //! and JavaScript (ADR 0031), so a component and the modules that import it
 //! compare names as they should.
 //!
-//! **A component defines no name of its own**, and that is not an oversight.
-//! `<script setup>` exports nothing and a classic block is `export default
-//! { … }`, so the TypeScript query's `export` gate finds nothing to take. The
-//! name importers use is the file's, and nothing in the file says it — see
-//! ADR 0035 for why that stays out of here.
+//! **A component's own name is never exported, though its other names may be.**
+//! A classic `<script>` block is an ordinary ES module: `export const`,
+//! `export function` and `export interface` all pass the TypeScript query's
+//! `export` gate and become definitions, exactly as they would in a `.ts` file.
+//! What no Vue file exports by name is the COMPONENT — `<script setup>` has the
+//! compiler generate the default export, and a classic block writes
+//! `export default { … }`, an anonymous object literal. The name importers use
+//! for it is the file's, and nothing in the file says it; ADR 0035 has why that
+//! stays out of here.
 
 use std::sync::LazyLock;
 

@@ -57,25 +57,38 @@ The reader is its own `SymbolSource` rather than a row in the tuned table, becau
 step the table cannot express — the mask — and because the next single-file format lands
 beside it rather than inside a growing struct.
 
-## A component defines no name of its own
+## A component's own name is never exported
 
-`<script setup>` exports nothing, and a classic block is `export default { … }`. So the
-TypeScript query's `export` gate — the predicate ADR 0030 settled on for a module language —
-finds nothing to take, and a `.vue` file draws **no incoming edge at all**.
+A `.vue` file's named exports are ordinary and are taken. A classic `<script>` block is an ES
+module, so `export const PANEL_LIMIT = 10`, `export function formatTitle(…)` and
+`export interface PanelProps` all pass the TypeScript query's `export` gate — the predicate
+ADR 0030 settled on for a module language — and become definitions, exactly as they would in
+a `.ts` file. Nothing special is needed for that; masking put them at the top level of a
+program and the gate did the rest.
 
-Deriving the name from the path was the obvious answer, and it was wrong. `Panel.vue` is
+**The COMPONENT is the one name no Vue file exports.** `<script setup>` has the compiler
+generate the default export, so the file never writes one; a classic block writes
+`export default { … }`, which is an anonymous object literal with no name to bind. Both are
+explicit enough — there is simply no identifier in either.
+
+Deriving that name from the path was the obvious answer, and it was wrong. `Panel.vue` is
 imported as `Panel`, so the file stem is genuinely the name importers use — but **an importer
 records that import as a FILE-LOCAL binding**, by ADR 0030's own rule
 (`(import_clause (identifier) @local_def)`). Measured on the readers as they ship:
 `import ChildWidget from './ChildWidget.vue'` puts `ChildWidget` in the importing file's
 local definitions and in nobody's global references.
 
-A global definition with no global consumer is not a neutral addition. It is the
-false-definition shape ADR 0023 measured at 64% of one range's edges: a unique name that any
-stray global mention anywhere then links to. So the component's name stays out, and a test
-pins its absence rather than leaving the question to be re-litigated.
+That is how every module language here works, and for a named export it is harmless: the
+edge comes from the USE, not the import — `formatTitle(x)` in the importing file is a global
+`@call`, and it finds the definer. A default-imported component has no such use, because the
+only place it is used is a `<template>`, which is masked out. So a file-stem definition would
+be a global name with no global consumer anywhere: the false-definition shape ADR 0023
+measured at 64% of one range's edges, where any stray global mention then links to it.
 
-What would actually buy a component-to-component edge is reading the `<template>` — capturing
+So the component's name stays out, and two tests pin the pair — that a named export IS taken,
+and that the component's own name is not.
+
+What would buy a component-to-component edge is reading the `<template>` — capturing
 `<ChildWidget />` the way `tsx.scm` captures JSX. That needs a Vue grammar after all, for the
 template alone, and it is a separate change with its own measurement.
 

@@ -542,16 +542,53 @@ fn a_template_only_component_falls_to_the_floor() {
     assert!(NaiveSymbols.priority(path).is_some(), "the floor takes it");
 }
 
-/// A Vue component defines no name of its own, and nothing global would read it
-/// if it did.
+/// A classic `<script>` block is an ES module, and its named exports are taken.
 ///
-/// `<script setup>` exports nothing and a classic block is `export default
-/// { … }`, so the TypeScript query's `export` gate finds nothing to take. The
-/// name importers use is the FILE's — and deriving it from the path was
-/// considered and dropped, because an importer records `import Child from
-/// './Child.vue'` as a FILE-LOCAL binding (ADR 0030). A global definition with
-/// no global consumer is the false-definition shape ADR 0023 measured, so this
-/// pins the absence rather than leaving it to be re-litigated. ADR 0035.
+/// Nothing special makes this work: masking puts the block at the top level of
+/// a program, and the TypeScript query's `export` gate does the rest. It is
+/// the half of the story the component's own missing name tends to hide — a
+/// `.vue` file can and does define names other files import.
+#[test]
+fn a_classic_script_blocks_named_exports_are_definitions_like_any_module_s() {
+    let r = read(
+        &SfcSymbols::new(),
+        b"Panel.vue",
+        r#"<template>
+  <div>{{ label }}</div>
+</template>
+
+<script lang="ts">
+export const PANEL_LIMIT = 10
+export interface PanelProps { title: string }
+export function formatTitle(t: string) { return t.trim() }
+export default { inheritAttrs: false }
+</script>
+
+<script setup lang="ts">
+const label = formatTitle('x')
+</script>
+"#,
+    );
+    has(&r.defines, &["PANEL_LIMIT", "PanelProps", "formatTitle"]);
+    // `export default { … }` is an anonymous object literal, so it names
+    // nothing — and a `<script setup>` binding is not an export at all.
+    has(&r.local_defines, &["label", "t"]);
+    lacks(&r.defines, &["label", "inheritAttrs", "Panel"]);
+}
+
+/// The component's OWN name is never exported, and nothing global would read it
+/// if it were.
+///
+/// `<script setup>` has the compiler generate the default export and a classic
+/// block writes `export default { … }`, an anonymous object literal — so
+/// neither gives the component an identifier. The name importers use is the
+/// FILE's, and deriving it from the path was considered and dropped: an
+/// importer records `import Child from './Child.vue'` as a FILE-LOCAL binding
+/// (ADR 0030), and unlike a named export there is no later USE to supply the
+/// global reference, because the only place a component is used is a
+/// `<template>` and that is masked out. A global definition with no global
+/// consumer is the false-definition shape ADR 0023 measured, so this pins the
+/// absence rather than leaving it to be re-litigated. ADR 0035.
 #[test]
 fn a_component_draws_no_incoming_edge_because_an_import_is_file_local() {
     let component = read(
