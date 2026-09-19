@@ -29,7 +29,7 @@ Reading a large diff well takes four things:
 [What it does that a diff viewer does not](#what-it-does-that-a-diff-viewer-does-not) is
 how `differential` answers each one.
 
-https://github.com/user-attachments/assets/72d04e96-9322-4425-9364-159197065680
+https://github.com/user-attachments/assets/1674e11c-cab4-42d4-a011-0ee1c4d889d0
 
 ## Requirements
 
