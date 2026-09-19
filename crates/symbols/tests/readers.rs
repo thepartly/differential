@@ -506,25 +506,33 @@ fn a_vue_component_is_read_through_its_script_and_not_its_template() {
 </template>
 
 <script setup lang="ts">
+// mentions NoiseA
 import { computed } from 'vue'
 const count = ref(0)
 const formatted = computed(() => formatLabel(count.value))
-function bump(step: number) { count.value += step }
+const caption = `a ${resolve(count)} b`
+function bump(step: number) { count.value += step; return "NoiseB" }
 </script>
 
 <style scoped>
-.panel { color: NoiseB; }
+.panel { color: NoiseC; }
 </style>
 "#;
     let r = read(&SfcSymbols::new(), b"Panel.vue", src);
     has(&r.references, &["computed", "ref", "formatLabel"]);
     has(
         &r.local_defines,
-        &["count", "formatted", "bump", "step", "computed"],
+        &["count", "formatted", "bump", "step", "caption", "computed"],
     );
+    // Comments and strings inside the script are dropped by the reader, the
+    // same way they are for every other language — the mask is not what does
+    // that. An interpolation still holds real code, so `${resolve(count)}`
+    // keeps its call.
+    lacks(&r.references, &["NoiseA", "NoiseB"]);
+    has(&r.references, &["resolve"]);
     // The template and the style are masked out, so nothing in either can
     // become a symbol — `ChildWidget` included.
-    lacks(&r.references, &["ChildWidget", "NoiseB", "panel", "title"]);
+    lacks(&r.references, &["ChildWidget", "NoiseC", "panel", "title"]);
     lacks(&r.local_defines, &["ChildWidget", "panel"]);
 
     // The mask is what keeps a line number honest: `bump` is on the file's
