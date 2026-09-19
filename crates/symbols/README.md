@@ -122,7 +122,7 @@ extraction, and nothing else in the tree would notice.
 
 | reader | evidence |
 |---|---|
-| tuned query | Rust, Python and TypeScript run against a real multi-language corpus; TypeScript and TSX additionally against a React corpus, and Rust against a service-backend one. Go, Kotlin, Java, C#, Swift, PHP and Zig are covered by per-language tests only, and their method and path rules are unmeasured — see ADR 0030. The corpus ranges the parity test pins hold no change in any of those four newest languages, so neither range's edge count moved when they were promoted. |
+| tuned query | Rust, Python and TypeScript run against a real multi-language corpus; TypeScript and TSX additionally against a React corpus, and Rust against a service-backend one. Go, Kotlin, Java, C#, Swift, PHP and Zig are covered by per-language tests only, and their method and path rules are unmeasured — see ADR 0030. The corpus ranges the parity test pins hold no Java, C#, Swift, PHP or Zig change, so neither range's edge count moved when those five were promoted. |
 | field rules | C, C++ and JavaScript, by per-language tests only. |
 | regex floor | runs against the corpus wherever no grammar claims a file. |
 

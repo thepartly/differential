@@ -395,7 +395,7 @@ class Widget implements Renderer {
         plainCall();
         $other->methodCall();
         Helper::staticCall();
-        return "NoiseB";
+        return Mode::Fast . "NoiseB";
     }
 }
 "#,
@@ -412,6 +412,9 @@ class Widget implements Renderer {
         &r.references,
         &["plainCall", "methodCall", "staticCall", "Widget", "Helper"],
     );
+    // A constant read by path gives up both halves: the class is a type, the
+    // case is a name consumed without being called.
+    has(&r.references, &["Mode", "Fast"]);
     lacks(&r.references, &["NoiseA", "NoiseB"]);
 }
 
