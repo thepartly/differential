@@ -42,6 +42,7 @@
 (catch_formal_parameter name: (identifier) @local_def)
 (enhanced_for_statement name: (identifier) @local_def)
 (inferred_parameters (identifier) @local_def)
+(lambda_expression parameters: (identifier) @local_def)
 (resource name: (identifier) @local_def)
 (enum_constant name: (identifier) @local_def)
 (type_parameter (type_identifier) @local_def)

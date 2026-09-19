@@ -34,6 +34,8 @@
 (method_declaration returns: (generic_name (identifier) @type))
 (base_list (identifier) @type)
 (base_list (generic_name (identifier) @type))
+(base_list (qualified_name name: (identifier) @type))
+(base_list (qualified_name name: (generic_name (identifier) @type)))
 
 ; File-local names. An interface's method, a property, a field, a local and
 ; every binding position: each reaches only its own file, so it may only draw an

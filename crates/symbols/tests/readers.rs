@@ -287,7 +287,7 @@ fn csharp_names_its_types_by_their_declaration_and_not_by_a_type_node() {
 namespace Acme;
 interface IRenderer { string Paint(); }
 public record Point(int X, int Y);
-public class Widget : IRenderer
+public class Widget : IRenderer, System.IDisposable
 {
     private string label;
     public string Paint() { return label; }
@@ -311,6 +311,10 @@ public class Widget : IRenderer
         &r.references,
         &["PlainCall", "MethodCall", "Widget", "List"],
     );
+    // A base type spelled by its full path reaches the graph too. `base_list`
+    // wraps it in a `qualified_name` and gives it no `type:` field, so the
+    // wildcard cannot see it and the list needs patterns of its own.
+    has(&r.references, &["IRenderer", "IDisposable"]);
     lacks(&r.references, &["NoiseA", "NoiseB"]);
 }
 
@@ -686,6 +690,7 @@ class Bind<T> {
     for (String row : rest) { drop(row); }
     try (var res = open()) { drop(res); }
     catchIt((a, b) -> drop(a));
+    catchIt(bare -> drop(bare));
   }
   void catchIt(Object f) {
     try { drop(f); } catch (RuntimeException err) { drop(err); }
@@ -695,9 +700,12 @@ class Bind<T> {
     );
     has(
         &r.local_defines,
-        &["rest", "row", "res", "a", "b", "err", "f", "T"],
+        &["rest", "row", "res", "a", "b", "bare", "err", "f", "T"],
     );
-    has(&r.local_references, &["rest", "row", "res", "a", "err"]);
+    has(
+        &r.local_references,
+        &["rest", "row", "res", "a", "bare", "err"],
+    );
 }
 
 /// C#: `foreach`, a catch declaration, an `is` pattern, a tuple deconstruction
@@ -955,8 +963,8 @@ fn every_query_version_pins_its_patterns() {
         ("typescript-v4", "a959775f12a0d9f24e79423d12a92fe11aa46bdd"),
         ("tsx-v4", "7d991606e98d9ae2aee744df90d114c9448aab3d"),
         ("kotlin-v4", "64b5b5aa082f00fc71ee8e5500577d532a30f0cf"),
-        ("java-v1", "04f85daca6d9701b9328343b889c6f79179b348c"),
-        ("csharp-v1", "69d542475bf966c347f703bfa26e7db8081fc1d6"),
+        ("java-v1", "659f2843fd4028823b099498ab401528d2033455"),
+        ("csharp-v1", "637291fbe0e11bdda30e85ea1922018f3e67573d"),
     ];
     let actual: Vec<(String, String)> = AstSymbols::queries()
         .into_iter()
