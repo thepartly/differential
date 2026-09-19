@@ -107,6 +107,18 @@ static TUNED: &[Tuned] = &[
         language: kotlin,
         sources: &[include_str!("queries/kotlin.scm")],
     },
+    Tuned {
+        version: "java-v1",
+        extensions: &[b".java"],
+        language: java,
+        sources: &[include_str!("queries/java.scm")],
+    },
+    Tuned {
+        version: "csharp-v1",
+        extensions: &[b".cs"],
+        language: csharp,
+        sources: &[include_str!("queries/csharp.scm")],
+    },
 ];
 
 fn rust() -> Language {
@@ -126,6 +138,12 @@ fn tsx() -> Language {
 }
 fn kotlin() -> Language {
     tree_sitter_kotlin_ng::LANGUAGE.into()
+}
+fn java() -> Language {
+    tree_sitter_java::LANGUAGE.into()
+}
+fn csharp() -> Language {
+    tree_sitter_c_sharp::LANGUAGE.into()
 }
 
 pub struct AstSymbols {

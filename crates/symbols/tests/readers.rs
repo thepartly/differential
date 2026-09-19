@@ -233,24 +233,107 @@ fun render(w: Widget): Int { plainCall(); w.methodCall(); val s = "NoiseB"; retu
     lacks(&r.references, &["NoiseA", "NoiseB"]);
 }
 
-// ------------------------------------------------------ the field-rule reader
-
+/// Java: a class body's method is a definition, an interface's is not.
+///
+/// The field rules could not tell those apart — they saw one
+/// `method_declaration` under one `declaration`-ish parent and called every
+/// method file-local, so Java drew no cross-file method edge at all. The query
+/// makes the distinction ADR 0030 draws: `render` is declared in one class and
+/// callers elsewhere name it exactly, while `paint` is declared again by every
+/// implementor of `Renderer`.
 #[test]
-fn java_reads_through_field_names_with_no_query() {
+fn java_takes_a_class_method_and_still_refuses_an_interface_one() {
     let r = read(
-        &AstTier2Symbols::new(),
+        &AstSymbols::new(),
         b"Main.java",
         r#"
 // mentions NoiseA
-class Widget {
+interface Renderer { String paint(); }
+class Widget implements Renderer {
+  private String label;
   void methodOnType() {}
+  public String paint() { return label; }
   String render(Widget w) { plainCall(); w.methodCall(); return "NoiseB"; }
+}
+"#,
+    );
+    has(
+        &r.defines,
+        &["Widget", "Renderer", "render", "methodOnType"],
+    );
+    // `paint` is declared twice here and by every other implementor too. The
+    // interface's declaration is file-local; the class's is not, which is the
+    // same answer Go and Kotlin give a method.
+    has(&r.local_defines, &["paint", "label"]);
+    lacks(&r.defines, &["label"]);
+    has(&r.references, &["plainCall", "methodCall", "Widget"]);
+    lacks(&r.references, &["NoiseA", "NoiseB"]);
+}
+
+/// C#: every type is a definition wherever it is declared, and a method is one
+/// only when a class, struct or record declares it.
+///
+/// C# has no `type_identifier` node and no file-scope anchor: a nested type is
+/// reached as `Outer.Inner` and a namespaced one through its `using`, so the
+/// query gates on the DECLARING node rather than on where it sits. Both bodies
+/// are spelled `declaration_list`, which is why the owner is named.
+#[test]
+fn csharp_names_its_types_by_their_declaration_and_not_by_a_type_node() {
+    let r = read(
+        &AstSymbols::new(),
+        b"Widget.cs",
+        r#"
+// mentions NoiseA
+namespace Acme;
+interface IRenderer { string Paint(); }
+public record Point(int X, int Y);
+public class Widget : IRenderer
+{
+    private string label;
+    public string Paint() { return label; }
+    public string Render(Widget other, List<string> rows)
+    {
+        PlainCall();
+        other.MethodCall();
+        return "NoiseB";
+    }
+}
+"#,
+    );
+    has(
+        &r.defines,
+        &["Widget", "IRenderer", "Point", "Render", "Paint"],
+    );
+    // A type reaches the graph through the `type:` field it sits in, not
+    // through a node kind — `Widget` as a parameter's type and `List` as the
+    // head of a `generic_name` are both here.
+    has(
+        &r.references,
+        &["PlainCall", "MethodCall", "Widget", "List"],
+    );
+    lacks(&r.references, &["NoiseA", "NoiseB"]);
+}
+
+// ------------------------------------------------------ the field-rule reader
+
+/// The field rules still take JavaScript, C and C++, and this is what they buy
+/// there: symbols from the tree, with every value conservatively file-local.
+#[test]
+fn javascript_reads_through_field_names_with_no_query() {
+    let r = read(
+        &AstTier2Symbols::new(),
+        b"widget.js",
+        r#"
+// mentions NoiseA
+class Widget {
+  methodOnType() {}
+  render(w) { plainCall(); w.methodCall(); return "NoiseB"; }
 }
 "#,
     );
     has(&r.defines, &["Widget"]);
     lacks(&r.defines, &["render", "methodOnType"]);
-    has(&r.references, &["plainCall", "methodCall", "Widget"]);
+    has(&r.references, &["plainCall", "methodCall"]);
     lacks(&r.references, &["NoiseA", "NoiseB"]);
 }
 
@@ -259,11 +342,18 @@ fn the_tuned_reader_outranks_the_field_reader_and_they_never_overlap() {
     let tuned = AstSymbols::new();
     let fields = AstTier2Symbols::new();
     // Disjoint by construction: a language has a query or it does not.
-    for path in [b"src/lib.rs".as_slice(), b"Main.kt", b"app.ts", b"main.go"] {
+    for path in [
+        b"src/lib.rs".as_slice(),
+        b"Main.kt",
+        b"app.ts",
+        b"main.go",
+        b"Main.java",
+        b"a.cs",
+    ] {
         assert!(tuned.priority(path).is_some());
         assert!(fields.priority(path).is_none(), "both claimed {path:?}");
     }
-    for path in [b"Main.java".as_slice(), b"a.c", b"a.cpp", b"a.cs", b"a.js"] {
+    for path in [b"a.c".as_slice(), b"a.cpp", b"a.js"] {
         assert!(tuned.priority(path).is_none(), "both claimed {path:?}");
         assert!(fields.priority(path).is_some());
     }
@@ -337,7 +427,7 @@ fn the_floor_stands_under_every_file_the_ast_readers_claim() {
 
 /// Deep nesting must cost neither stack nor quadratic time.
 ///
-/// This reader takes JavaScript, Java, C, C++ and C#, where a minified bundle
+/// This reader takes JavaScript, C and C++, where a minified bundle
 /// or a generated literal makes AST depth track nesting. Two separate hazards
 /// live there, and this one test catches both:
 ///
@@ -579,6 +669,76 @@ fun readThem(rows: List<String>) {
     has(&r.local_references, &["rows", "each"]);
 }
 
+/// Java: a `for`-each name, a catch parameter, a try-with-resources name, an
+/// inferred lambda parameter and a varargs declarator all declare.
+///
+/// `variable_declarator` and `formal_parameter` reach the ordinary cases and
+/// the varargs one; these five are the positions that sit outside both, and
+/// without them the catch-all took a declaration for a READ.
+#[test]
+fn java_reads_every_binding_position_as_a_declaration() {
+    let r = read(
+        &AstSymbols::new(),
+        b"Bind.java",
+        r#"
+class Bind<T> {
+  void readThem(String... rest) throws Exception {
+    for (String row : rest) { drop(row); }
+    try (var res = open()) { drop(res); }
+    catchIt((a, b) -> drop(a));
+  }
+  void catchIt(Object f) {
+    try { drop(f); } catch (RuntimeException err) { drop(err); }
+  }
+}
+"#,
+    );
+    has(
+        &r.local_defines,
+        &["rest", "row", "res", "a", "b", "err", "f", "T"],
+    );
+    has(&r.local_references, &["rest", "row", "res", "a", "err"]);
+}
+
+/// C#: `foreach`, a catch declaration, an `is` pattern, a tuple deconstruction
+/// and a bare lambda parameter all declare.
+///
+/// The bare one is why `implicit_parameter` is captured as a whole node rather
+/// than through a field: in `x => x + 1` the grammar gives the parameter no
+/// child to name.
+#[test]
+fn csharp_reads_every_binding_position_as_a_declaration() {
+    let r = read(
+        &AstSymbols::new(),
+        b"Bind.cs",
+        r#"
+class Bind
+{
+    void ReadThem<T>(List<string> rows, T item)
+    {
+        foreach (var row in rows) { Drop(row); }
+        try { Drop(item); } catch (Exception err) { Drop(err); }
+        if (rows is List<string> cast) { Drop(cast); }
+        using (var res = Open()) { Drop(res); }
+        (int a, int b) = Pair();
+        Func<int, int> f = x => x + 1;
+        Drop(a); Drop(b); Drop(f);
+    }
+}
+"#,
+    );
+    has(
+        &r.local_defines,
+        &[
+            "rows", "item", "row", "err", "cast", "res", "a", "b", "f", "x", "T",
+        ],
+    );
+    has(
+        &r.local_references,
+        &["rows", "row", "err", "cast", "res", "a", "x"],
+    );
+}
+
 /// The change that made this whole distinction necessary, in miniature.
 ///
 /// A React component is `export const Panel = …`, its dependencies are
@@ -795,6 +955,8 @@ fn every_query_version_pins_its_patterns() {
         ("typescript-v4", "a959775f12a0d9f24e79423d12a92fe11aa46bdd"),
         ("tsx-v4", "7d991606e98d9ae2aee744df90d114c9448aab3d"),
         ("kotlin-v4", "64b5b5aa082f00fc71ee8e5500577d532a30f0cf"),
+        ("java-v1", "04f85daca6d9701b9328343b889c6f79179b348c"),
+        ("csharp-v1", "69d542475bf966c347f703bfa26e7db8081fc1d6"),
     ];
     let actual: Vec<(String, String)> = AstSymbols::queries()
         .into_iter()
@@ -934,10 +1096,10 @@ fn every_reader_fingerprint_pins_its_answers() {
 
     const PINNED: &[(&str, &str)] = &[
         (
-            "ast-tuned-v2[go-v4,kotlin-v4,python-v4,rust-v4,tsx-v4,typescript-v4]",
-            "3daa183a1262c364fb8acf8107650a6dbee9b62d",
+            "ast-tuned-v2[csharp-v1,go-v4,java-v1,kotlin-v4,python-v4,rust-v4,tsx-v4,typescript-v4]",
+            "e14b4e16c07d7f221bdad70329941e9942ed815b",
         ),
-        ("ast-fields-v3", "7d1eb9f41d9cb7aff66aa240710a0337c62ba2c6"),
+        ("ast-fields-v4", "ecbe41bf43ddfcef4c6883e3c26b12bd2dbe4416"),
         ("naive-v4", "3b6a6cfece0afc2ea5d6172739e6e6d8747305bc"),
     ];
     let pinned: Vec<(String, String)> = PINNED

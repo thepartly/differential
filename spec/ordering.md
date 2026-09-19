@@ -29,8 +29,8 @@ Three readers ship. Which one answered is not a distinction this stage can see:
 
 | reader | reads | definitions | references |
 | --- | --- | --- | --- |
-| tuned | Rust, TypeScript (+TSX), Python, Go, Kotlin | from the tree, per query | calls, types, JSX names, and names reached by path, per query |
-| field-rule | JavaScript, Java, C, C++, C# | from the tree | calls and types, from field names |
+| tuned | Rust, TypeScript (+TSX), Python, Go, Kotlin, Java, C# | from the tree, per query | calls, types, JSX names, and names reached by path, per query |
+| field-rule | JavaScript, C, C++ | from the tree | calls and types, from field names |
 | crude | the other extensions the README lists — nothing else | declaration keywords | every identifier ≥ 4 chars |
 
 Which language sits in which row, and every extension:

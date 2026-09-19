@@ -17,6 +17,11 @@
 //! plain call, the method call and the type, and dropped both a comment mention
 //! and a string mention. The tenth was Kotlin, which is why Kotlin has a query
 //! instead.
+//!
+//! The table is the evidence for the rules, not a list of what this reader
+//! still takes. Java and C# have since moved up to queries of their own, and
+//! Java's row is why `name:` is in [`MEMBER_FIELDS`] — a rule the remaining
+//! grammars are read by, and one the next grammar to arrive may need.
 
 use differential_engine::artefact::symbols::{FileSymbols, Scope, Symbol, SymbolSource};
 use tree_sitter::{Language, Node, Tree};
@@ -36,20 +41,12 @@ fn grammars() -> Vec<Grammar> {
             language: || tree_sitter_javascript::LANGUAGE.into(),
         },
         Grammar {
-            extensions: &[b".java"],
-            language: || tree_sitter_java::LANGUAGE.into(),
-        },
-        Grammar {
             extensions: &[b".c", b".h"],
             language: || tree_sitter_c::LANGUAGE.into(),
         },
         Grammar {
             extensions: &[b".cc", b".cpp", b".cxx", b".hpp", b".hh"],
             language: || tree_sitter_cpp::LANGUAGE.into(),
-        },
-        Grammar {
-            extensions: &[b".cs"],
-            language: || tree_sitter_c_sharp::LANGUAGE.into(),
         },
     ]
 }
@@ -144,7 +141,7 @@ impl SymbolSource for AstTier2Symbols {
     }
 
     fn fingerprint(&self) -> String {
-        "ast-fields-v3".to_string()
+        "ast-fields-v4".to_string()
     }
 }
 
@@ -156,8 +153,8 @@ impl SymbolSource for AstTier2Symbols {
 /// in Rust, Go, Python, TypeScript and C++.
 ///
 /// **Iterative, and it never calls `Node::parent`.** Both matter for the same
-/// input. This reader takes JavaScript, Java, C, C++ and C#, where a minified
-/// bundle or a generated literal makes AST depth track nesting. Recursion would
+/// input. This reader takes JavaScript, C and C++, where a minified bundle or a
+/// generated literal makes AST depth track nesting. Recursion would
 /// abort the process on overflow instead of returning `None` and letting a
 /// cruder reader answer — and `parent()` walks down from the root each time it
 /// is called, so asking every node for its parent costs depth per node. One

@@ -21,11 +21,11 @@ Project home: <https://github.com/thepartly/differential>
 | TypeScript | `.ts` `.mts` `.cts` | tuned query |
 | TSX | `.tsx` | tuned query |
 | Kotlin | `.kt` `.kts` | tuned query |
+| Java | `.java` | tuned query |
+| C# | `.cs` | tuned query |
 | JavaScript | `.js` `.jsx` `.mjs` `.cjs` | field rules |
-| Java | `.java` | field rules |
 | C | `.c` `.h` | field rules |
 | C++ | `.cc` `.cpp` `.cxx` `.hpp` `.hh` | field rules |
-| C# | `.cs` | field rules |
 | Ruby, PHP, Swift, Scala, shell, Perl, Lua, Elixir, Erlang, Haskell, OCaml, Dart, Vue, Svelte, SQL, Protobuf, Zig | `.rb` `.php` `.swift` `.scala` `.sh` `.bash` `.zsh` `.pl` `.pm` `.lua` `.ex` `.exs` `.erl` `.hs` `.ml` `.mli` `.dart` `.vue` `.svelte` `.sql` `.proto` `.zig` | regex floor (only reader) |
 | everything else — manifests, lockfiles, prose, data | — | none |
 
@@ -119,8 +119,8 @@ extraction, and nothing else in the tree would notice.
 
 | reader | evidence |
 |---|---|
-| tuned query | Rust, Python and TypeScript run against a real multi-language corpus; TypeScript and TSX additionally against a React corpus, and Rust against a service-backend one. Go and Kotlin are covered by per-language tests only, and their method and path rules are unmeasured — see ADR 0030. |
-| field rules | Java runs against the corpus. C, C++, C# and JavaScript are covered by per-language tests only. |
+| tuned query | Rust, Python and TypeScript run against a real multi-language corpus; TypeScript and TSX additionally against a React corpus, and Rust against a service-backend one. Go, Kotlin, Java and C# are covered by per-language tests only, and their method and path rules are unmeasured — see ADR 0030. The corpus ranges the parity test pins hold no Java or C# change, so the promotion moved neither range's edge count. |
+| field rules | C, C++ and JavaScript, by per-language tests only. |
 | regex floor | runs against the corpus wherever no grammar claims a file. |
 
 On that corpus the readers took two ranges from 288 and 131 dependency edges down to 63 and
@@ -134,9 +134,12 @@ to order — disappeared entirely.
   belongs to its own measurement (ADR 0030).
 - `.jsx` goes to the field rules, which have no JSX rule — a rendered component draws no
   edge there. `.tsx` does, by query.
-- Go's `@ref` and Python's take struct-field and attribute reads too: those languages spell
-  a qualified name and a member read the same way. Rust's `scoped_identifier` does not have
-  this problem.
+- Go's `@ref`, Python's, Java's and C#'s take struct-field and attribute reads too: those
+  languages spell a qualified name and a member read the same way. Rust's
+  `scoped_identifier` does not have this problem.
+- C# has no `type_identifier` node — a type is a plain identifier in a `type:` field — so its
+  query reaches types through a wildcard on that field rather than through a node kind. A
+  type position the grammar spells with some other field name is missed.
 
 ## Using it
 
