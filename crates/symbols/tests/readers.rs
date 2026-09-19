@@ -297,6 +297,7 @@ public class Widget : IRenderer, System.IDisposable
         other.MethodCall();
         return "NoiseB";
     }
+    System.Collections.Generic.List<Point> Batch(MyNs.Plain p) { return null; }
 }
 "#,
     );
@@ -315,6 +316,13 @@ public class Widget : IRenderer, System.IDisposable
     // wraps it in a `qualified_name` and gives it no `type:` field, so the
     // wildcard cannot see it and the list needs patterns of its own.
     has(&r.references, &["IRenderer", "IDisposable"]);
+    // Every type position is spelled three ways — bare, generic, and qualified
+    // by namespace — and a qualified one can be generic too, which needs the
+    // tail unwrapped twice. `returns:` is its own field and the wildcard never
+    // reaches it, so it carries the same four patterns.
+    has(&r.references, &["Plain", "List"]);
+    // The namespace parts of a qualified name are not types, and stay noise.
+    lacks(&r.references, &["System", "Collections", "Generic", "MyNs"]);
     lacks(&r.references, &["NoiseA", "NoiseB"]);
 }
 
@@ -964,7 +972,7 @@ fn every_query_version_pins_its_patterns() {
         ("tsx-v4", "7d991606e98d9ae2aee744df90d114c9448aab3d"),
         ("kotlin-v4", "64b5b5aa082f00fc71ee8e5500577d532a30f0cf"),
         ("java-v1", "659f2843fd4028823b099498ab401528d2033455"),
-        ("csharp-v1", "637291fbe0e11bdda30e85ea1922018f3e67573d"),
+        ("csharp-v1", "e51a1379f9f464306274ee71a155e7bbc8c10082"),
     ];
     let actual: Vec<(String, String)> = AstSymbols::queries()
         .into_iter()

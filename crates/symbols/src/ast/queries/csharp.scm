@@ -27,11 +27,21 @@
 ; `type:` field, or the head of a `generic_name`. The wildcard is what covers
 ; every declaration that names one — a parameter, a variable, a `new`, an `is`
 ; pattern, a `catch` — without listing them.
+; Each position is spelled three ways — bare, generic, and qualified by
+; namespace — and a qualified one can be generic as well, so the tail of a
+; `qualified_name` has to be unwrapped again. `System.Collections.Generic.
+; List<string>` reaches the graph as `List`, and the namespace parts stay
+; file-local noise.
 (_ type: (identifier) @type)
 (_ type: (generic_name (identifier) @type))
 (_ type: (qualified_name name: (identifier) @type))
+(_ type: (qualified_name name: (generic_name (identifier) @type)))
+; `returns:` is a field of its own, so the wildcard above never reaches it.
 (method_declaration returns: (identifier) @type)
 (method_declaration returns: (generic_name (identifier) @type))
+(method_declaration returns: (qualified_name name: (identifier) @type))
+(method_declaration returns: (qualified_name name: (generic_name (identifier) @type)))
+; And a base list wraps its entries in nothing at all — no field to match on.
 (base_list (identifier) @type)
 (base_list (generic_name (identifier) @type))
 (base_list (qualified_name name: (identifier) @type))
