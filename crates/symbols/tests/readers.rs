@@ -418,20 +418,26 @@ class Widget implements Renderer {
     lacks(&r.references, &["NoiseA", "NoiseB"]);
 }
 
-/// Zig: a type is a `const` bound to a container body, and an `@import` is not.
+/// Zig: `pub` is the whole predicate, exactly as `export` is in TypeScript.
 ///
-/// Both have the same shape — a file-scope `const` with no field naming what it
-/// binds — so the query gates on the BODY. Taking the import too would make
-/// every importing file the definer of the name it imported, which is the
-/// `mod template;` false definition ADR 0030 measured.
+/// A type is a `const` bound to a container body and a value is a `const` bound
+/// to anything else, so the SHAPE of a declaration says nothing about who can
+/// reach it — which is why a private `@import` binding, shaped exactly like a
+/// type, must not be taken. Doing so would make every importing file the
+/// definer of the name it imported: the `mod template;` false definition
+/// ADR 0030 measured. A `pub` re-export is a different statement, and is taken.
 #[test]
-fn zig_takes_a_container_const_and_refuses_an_import_one() {
+fn zig_gates_on_pub_and_so_refuses_a_private_import_binding() {
     let r = read(
         &AstSymbols::new(),
         b"widget.zig",
         r#"
 // mentions NoiseA
 const Helper = @import("helper.zig");
+pub const ReExport = @import("other.zig");
+pub const MAX = 100;
+const private_thing = 7;
+pub const Alias = Elsewhere;
 
 pub const Widget = struct {
     label: []const u8,
@@ -443,15 +449,34 @@ pub const Widget = struct {
         const s = "NoiseB";
         drop(s);
     }
+
+    fn privateHelper() void {}
 };
 
 pub fn freeFunction(a: i32) i32 { return a; }
+fn privateFunction() void {}
 "#,
     );
-    has(&r.defines, &["Widget", "render", "freeFunction"]);
-    // The import binding is file-local, so `Helper.staticCall()` still draws
-    // its edge — inside this file, where it is honestly known.
-    lacks(&r.defines, &["Helper"]);
+    // A `pub` name is reachable from another file whatever it is bound to — a
+    // container body, a plain value, another name, or a re-exported import.
+    has(
+        &r.defines,
+        &[
+            "Widget",
+            "render",
+            "freeFunction",
+            "MAX",
+            "Alias",
+            "ReExport",
+        ],
+    );
+    // The anchor is what stops `pub const Alias = Elsewhere;` defining the name
+    // on its right-hand side as well.
+    lacks(&r.defines, &["Elsewhere"]);
+    // A private import binding is file-local, so `Helper.staticCall()` still
+    // draws its edge — inside this file, where it is honestly known.
+    lacks(&r.defines, &["Helper", "private_thing", "privateHelper"]);
+    lacks(&r.defines, &["privateFunction"]);
     has(&r.local_defines, &["Helper", "label", "self", "other", "s"]);
     has(&r.local_references, &["Helper"]);
     has(
@@ -1211,7 +1236,7 @@ fn every_query_version_pins_its_patterns() {
         ("csharp-v1", "e51a1379f9f464306274ee71a155e7bbc8c10082"),
         ("swift-v1", "24295c3bae3c4bef7e7da00f93261f9fd78b0c83"),
         ("php-v1", "ca86f321d951314dc8c67fbfb39b7a8e8e33a456"),
-        ("zig-v1", "d4d2cf24af15f8d57d65eb0d13635a05cee58451"),
+        ("zig-v1", "1bdf88b0506ceee988bb85711f78da95654cd2b4"),
     ];
     let actual: Vec<(String, String)> = AstSymbols::queries()
         .into_iter()
