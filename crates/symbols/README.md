@@ -165,10 +165,13 @@ to order — disappeared entirely.
 - PHP's `__construct` is a method like any other here, so a class that declares one defines
   that name. Every class does, so the single-definer rule drops it — which is the mechanism
   for exactly this, not an accident.
-- A Vue component defines no global name: `<script setup>` exports nothing and a classic
-  block is `export default { … }`, so the `export` gate takes nothing. Deriving one from the
-  file stem was considered and dropped — an importer records the import as file-local, so
-  there would be no global consumer for it (ADR 0035).
+- A Vue file's named exports are taken like any module's — a classic `<script>` block's
+  `export const`, `export function` and `export interface` all pass the `export` gate. The
+  COMPONENT's own name is the one that is not: `<script setup>` has the compiler write the
+  default export and a classic block writes `export default { … }`, so there is no identifier
+  either way. Deriving one from the file stem was considered and dropped — the only use of a
+  component is in a `<template>`, which is masked, so it would have no global consumer
+  (ADR 0035).
 - A Vue `<template>` is masked out, so `<ChildWidget />` draws no edge. That is `.jsx`'s
   known edge in another language, and reading the template needs a Vue grammar.
 
