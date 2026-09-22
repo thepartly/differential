@@ -62,9 +62,11 @@ Sleep 400ms
 
 # `n` jumps to the next hunk and lands on its header, so counting from there
 # counts from the change rather than from the context the expansion pulled in.
+# How many rows it takes is read off the screen: the plan is the grouping
+# model's answer and moves when `dfr` does, and these counts move with it.
 Type "n"
 Sleep 500ms
-Down@80ms 6
+Down@80ms 1
 Sleep 200ms
 Type "c"
 Sleep 400ms
@@ -76,10 +78,10 @@ Sleep 600ms
 # continuation marker: it makes the `enter` after it a newline, not a save.
 Type "n"
 Sleep 500ms
-Down@80ms 4
+Down@80ms 1
 Sleep 300ms
 Type "v"
-Down@170ms 5
+Down@170ms 2
 Sleep 300ms
 Type "c"
 Sleep 500ms
