@@ -39,11 +39,10 @@
 # runs inside one. `assets/demo.tmux.conf` is its whole configuration, and
 # the note at the top of it says why a caption has to be a keystroke.
 
-# Two formats from one recording. GitHub plays the webm inline, which is what
-# the README links; the mp4 is for everywhere that does not, and for dropping
-# into a slide or a post. vhs encodes both from the same frames, so they cannot
-# drift apart the way two recordings would.
-Output demo.webm
+# mp4, and only mp4. GitHub plays it inline the same as a webm, and it is the
+# format everything else takes too — a slide, a post, a player that is not a
+# browser. A second output of the same frames earned nothing and was one more
+# file to upload and keep straight.
 Output demo.mp4
 Set Shell zsh
 Set FontSize 12
