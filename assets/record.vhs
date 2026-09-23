@@ -27,14 +27,23 @@
 # The range is fixed on purpose. This tape used to type a bare `dfr review`
 # and walk the commit picker, so every recording was a different diff and no
 # two runs could be compared. `ecc9400..cfea95f` is 11 commits and 79 files,
-# and its plan has all three tiers in it: eight focus groups, six skim, one
-# folded noise group. Every beat below has real material to land on.
+# and its plan has all three tiers in it. Every beat below has real material to
+# land on.
+#
+# The plan itself is the grouping model's answer, so it CHANGES when `dfr`
+# does: different labels, a different order, different hunks under the cursor.
+# Every `Down N` below is therefore read off the screen rather than derived,
+# and a release that moves the plan moves them. The waits are what catch it.
 #
 # Needs `vim` for the last beat, and `tmux` for the captions — the reviewer
 # runs inside one. `assets/demo.tmux.conf` is its whole configuration, and
 # the note at the top of it says why a caption has to be a keystroke.
 
-Output demo.webm
+# mp4, and only mp4. GitHub plays it inline the same as a webm, and it is the
+# format everything else takes too — a slide, a post, a player that is not a
+# browser. A second output of the same frames earned nothing and was one more
+# file to upload and keep straight.
+Output demo.mp4
 Set Shell zsh
 Set FontSize 12
 Set Height 800
@@ -137,8 +146,8 @@ Sleep 1s
 # the plan pane, as a gutter connector from the selected group up to each
 # group it follows, plus an `after:` line under the group and a `depends on:`
 # line in the detail header. So the beat is a cursor move and a pause. Six
-# down from the top is g4, "The diff pane soft-wraps", which follows four
-# other groups — the widest fan in this document.
+# down from the top lands on a group with several `after:` entries, which is
+# what makes the connector worth looking at.
 Ctrl+q
 Sleep 150ms
 Type@4ms "the reading plan  ·  what to read first, and what each group follows"
@@ -301,9 +310,9 @@ Sleep 1.2s
 # lands on whatever context the file opens with — which is how an earlier take
 # filed both of its findings against a doc comment and a `use` line.
 #
-# Six rows past the header clears the hunk's leading context and reaches the
-# change. The count is read off the screen, not derived: a hunk's context is
-# three lines by default, and the boundary rows above it are selectable too.
+# One row past the header is the change itself in this hunk. How many rows it
+# takes depends on the leading context the hunk carries, so the count is read
+# off the screen — see the note about the plan at the top of this file.
 Ctrl+q
 Sleep 150ms
 Type@4ms "n jumps to the next hunk  ·  c writes a finding on the line"
@@ -312,7 +321,7 @@ Sleep 500ms
 
 Type "n"
 Sleep 700ms
-Down@80ms 6
+Down@80ms 1
 Sleep 300ms
 Type "c"
 Sleep 500ms
@@ -331,10 +340,10 @@ Sleep 500ms
 
 Type "n"
 Sleep 700ms
-Down@80ms 4
+Down@80ms 1
 Sleep 400ms
 Type "v"
-Down@170ms 5
+Down@170ms 2
 Sleep 500ms
 Type "c"
 Sleep 700ms
