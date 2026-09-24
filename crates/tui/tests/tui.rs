@@ -11228,8 +11228,10 @@ fn clearing_the_editor_row_falls_back_to_the_environment() {
 /// The issue's shape: `root/parent1/parent2` holds nothing but one directory
 /// each, and branches only at `parent2`. `lib.rs` and `top.rs` sit beside
 /// `root/`, so the chain is not the whole tree and not its first row — a
-/// cursor that fell back to row 0 would not pass for one that found it. Every file its own shape, so every file is its
-/// own group and the map can be drawn for exactly one of them.
+/// cursor that fell back to row 0 would not pass for one that found it.
+///
+/// Each file's edit is a different shape, so each file is its own class and
+/// its own group, and the map can be drawn for exactly one file.
 fn app_with_a_directory_chain(store: &str) -> (TestRepo, App) {
     let r = TestRepo::new();
     let files = [
