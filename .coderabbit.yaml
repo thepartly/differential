@@ -1,0 +1,27 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+#
+# Automatic code review on every PR, by the CodeRabbit GitHub App (it must be
+# installed on the repo; this file only configures it). Drafts are skipped.
+# What counts as Important, and the Nit budget, live in REVIEW.md — read here
+# as a code guideline so the rules have one home, not two.
+language: "en-US"
+reviews:
+  profile: "chill"
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  auto_review:
+    enabled: true
+    drafts: false
+  path_instructions:
+    - path: "crates/tui/src/vendor/**"
+      instructions: |
+        Adapted MIT code whose shape is upstream's. Review for correctness
+        only; no style, naming or refactoring comments.
+knowledge_base:
+  code_guidelines:
+    enabled: true
+    filePatterns:
+      - "REVIEW.md"
+      - "AGENTS.md"
+      - ".claude/rules/*.md"
