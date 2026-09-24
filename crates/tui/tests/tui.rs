@@ -2967,6 +2967,52 @@ fn the_file_list_counts_the_whole_file_in_the_file_view() {
     );
 }
 
+/// A folded skim group shows one file of its three, so both file lists say
+/// how many the fold holds back — the group map counted three, and the reader
+/// must not be left to wonder where two went (issue 151).
+#[test]
+fn the_file_lists_count_the_files_a_skim_fold_holds_back() {
+    let (_r, mut app) = make_app();
+    app.handle_key(key('j'));
+    assert!(app.rows.iter().any(|r| r.kind == RowKind::Fold));
+    app.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+
+    let text = drawn_as_is(&mut app);
+    assert!(
+        text.contains("file 1 of 1 (2 safe to skip)"),
+        "the float does not name the fold: {text}"
+    );
+    app.handle_key(key('f'));
+    assert!(
+        drawn_as_is(&mut app).contains(" files (2 safe to skip) — "),
+        "the modal does not name the fold"
+    );
+    app.handle_key(key('f'));
+
+    // Unfolded, nothing is held back and neither list says otherwise.
+    app.focus = Focus::Groups;
+    app.handle_key(key('z'));
+    app.focus = Focus::Detail;
+    let text = drawn_as_is(&mut app);
+    assert!(text.contains("file 1 of 3"), "unfolded list: {text}");
+    assert!(!text.contains("safe to skip"), "unfolded list: {text}");
+
+    // A focus group holds nothing back either.
+    app.focus = Focus::Groups;
+    app.handle_key(key('k'));
+    app.focus = Focus::Detail;
+    assert!(!drawn_as_is(&mut app).contains("safe to skip"));
+
+    // The file view's rows are not a group's, so there is no fold to count.
+    app.focus = Focus::Groups;
+    app.handle_key(key('j'));
+    app.handle_key(key('z'));
+    assert!(app.rows.iter().any(|r| r.kind == RowKind::Fold));
+    switch_left_pane(&mut app);
+    app.focus = Focus::Detail;
+    assert!(!drawn_as_is(&mut app).contains("safe to skip"));
+}
+
 /// Reading the detail, a list of the files in view floats over the foot of the
 /// plan pane to say where you are and how much is left.
 #[test]
@@ -3127,7 +3173,7 @@ fn counts_are_coloured_in_the_file_modal() {
         .collect();
     let top = rows
         .iter()
-        .position(|r| r.contains("files — enter jump"))
+        .position(|r| r.contains("— enter jump"))
         .expect("the file modal's title row");
     let counted = (top + 1..rows.len())
         .find(|&y| rows[y].contains('+') && rows[y].contains('−'))

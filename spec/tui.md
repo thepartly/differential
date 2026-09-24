@@ -145,6 +145,11 @@ pane, the current one lit edge to edge and the title counting `file 2 of 7`. Lit
 marked with a glyph: the row the reader is on is the one place they are already looking,
 and a marker column costs every other row two cells to say nothing.
 
+The list counts the files **in view**, and a folded group has files out of it: a skim
+group's remainder, a noise group whole. So the title names what the fold holds back —
+`file 1 of 5 (13 safe to skip)` — and so does the `f` modal's. Without it the map says a
+group spans 18 files and the list says 5, and nothing says why until `z`.
+
 Neither float appears in the **file view**, where the left pane is already a file tree: a
 map of one group would name a group nothing is selecting, and a file list would be the pane
 behind it. Both trees are drawn with the same connector guides.

@@ -563,6 +563,9 @@ pub struct App {
     /// The group map's rows, derived from `map_tree` and `map_files`.
     map_rows: Vec<MapRow>,
     listed_files: Vec<usize>,
+    /// The selected group's files the rows do not show — the ones its fold
+    /// holds back. Zero when unfolded, and in the file view.
+    skipped_files: usize,
     /// Measured geometry. An input to update, never a draw-time output.
     viewport: Viewport,
     /// The divider, with the reading plan in the left pane.
@@ -661,6 +664,7 @@ impl App {
             map_files: HashSet::new(),
             map_rows: Vec::new(),
             listed_files: Vec::new(),
+            skipped_files: 0,
             viewport: Viewport::default(),
             plan_cols: DEFAULT_PLAN_COLS,
             tree_cols: DEFAULT_PLAN_COLS,
