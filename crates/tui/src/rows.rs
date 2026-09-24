@@ -773,7 +773,7 @@ pub struct RowsContext<'a> {
     /// The forge's review threads, placed against this plan. A published
     /// finding whose twin is here is drawn as the thread, not as the note.
     pub threads: &'a [RemoteThread],
-    /// Hunk indices whose class is marked reviewed.
+    /// Hunk indices marked reviewed (keyed per hunk digest, ADR 0025).
     pub reviewed: &'a std::collections::HashSet<usize>,
     pub mode: DiffMode,
     /// Label each hunk with its group. The file view needs it, where a hunk's
@@ -1154,7 +1154,7 @@ fn hunk_header_rows(ctx: &RowsContext, hi: usize, foreign: bool, rows: &mut Vec<
     // numbers they can.
     let (fg, bg) = ctx.theme.pill();
 
-    // The marks an idle header keeps: whose group the hunk is, `✓` for a class
+    // The marks an idle header keeps: whose group the hunk is, `✓` for a hunk
     // already read, `◆ N` for what stands filed against it. A reader scans a
     // file for those; the class and the counts they ask a hunk for once they
     // are in it.

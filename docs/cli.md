@@ -414,8 +414,8 @@ An unknown name is a hard error that lists the valid ones. `theme` in the **repo
 rejected: a palette is the reader's choice, not the repository's.
 
 A theme is a *derived* palette, not a copy of a published one. Each declares a syntax theme
-and six accents — an addition, a deletion, the accent, the skim tier, a finding, a reviewed
-mark — and the remaining thirty-odd colours are mixed from those against the ground the
+and six accents — an addition, a deletion, the accent, the skim tier, the highlight, a
+finding — and the remaining thirty-odd colours are mixed from those against the ground the
 syntax theme itself declares (ADR 0024). Where a published palette's own accents were not
 legible as interface text, they were adjusted and the reason recorded in that theme's file
 under `crates/tui/src/theme/`.
@@ -423,7 +423,7 @@ under `crates/tui/src/theme/`.
 **Config never removes a file or a hunk from analysis.** It tunes classification hints and
 tool behaviour only.
 
-The backend command is part of the grouping cache key. So two people running different
+The backend's identity is part of the grouping cache key. So two people running different
 agents get separate cache entries. That is correct: a different model may group
 differently.
 

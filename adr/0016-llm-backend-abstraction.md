@@ -17,6 +17,10 @@ concerns. Its whole contract is:
 trait LlmBackend { fn name(&self) -> &str; fn complete(&self, prompt: &str) -> Result<String, LlmError>; }
 ```
 
+(The trait has since gained `identity()`: everything about a backend that could change a
+grouping, hashed into the grouping cache key in place of the command line —
+[consumers.md](../spec/consumers.md).)
+
 One-shot: prompt in, raw text out. No tools, no streaming, no chat state — a backend that
 cannot express tools cannot stop to call one.
 

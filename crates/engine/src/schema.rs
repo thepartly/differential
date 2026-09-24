@@ -256,7 +256,9 @@ pub struct HunkEntry {
     pub nonl_old: bool,
     /// `\ No newline at end of file` on the new side.
     pub nonl_new: bool,
-    /// Position in the forge's rename-detected diff, for posting comments.
+    /// The hunk's first line on each side, in the canonical `--no-renames` view. Not a
+    /// posting anchor: the forge consumer places a finding by its own anchor and the
+    /// file's `old_path` (spec/json-contract.md).
     pub forge_position: ForgePosition,
 }
 

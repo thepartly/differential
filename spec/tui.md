@@ -296,7 +296,7 @@ label, and the one worth reading is the hunk you are in. Entering a hunk is one 
 and it is the same press that makes its header worth reading.
 
 What an idle header keeps is the **marks**: the group's id where the hunk is foreign, `✓`
-where its class is read, and `◆ N` for the findings filed against it. Those are facts about
+where it is marked reviewed, and `◆ N` for the findings filed against it. Those are facts about
 the hunk and they are what a reader scans a file for; the class and the counts describe it,
 and describing every hunk at once is the column that was in the way. The hatch carries the
 rest of the row, so a hunk still begins somewhere visible without a word on it.

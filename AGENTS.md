@@ -1,11 +1,13 @@
 # Agent instructions for `differential`
 
-A reading plan for a diff: it groups a branch's hunks by what they do, orders them, and
-reviews them in a terminal. Read [`README.md`](README.md) for what it is.
+A reading plan for a diff: it sorts a branch's hunks into shape classes, merges the classes
+into groups by intent, orders the groups foundation-first, and opens them in the terminal
+reviewer. Read [`README.md`](README.md) for what it is.
 
-`spec/` is normative — what the program does. `adr/` records why (0001–0035). **When your
-change contradicts a spec, an ADR or a constraint, the docs and the code change together,
-or the change is wrong.**
+`spec/` is normative — what the program does. `adr/` records why (0001–0035).
+[`spec/terminology.md`](spec/terminology.md) fixes the words: use them, and add one only for
+a concept no entry covers. **When your change contradicts a spec, an ADR or a constraint,
+the docs and the code change together, or the change is wrong.**
 
 ## Rules
 
@@ -18,12 +20,12 @@ has a way of quietly reversing itself. **Open the file before you argue with the
    design decision is the human's to make; ceremony and duplicated state you remove
    yourself.
 2. Prefer the simple solution. **No new abstractions without a demonstrated reason** — a
-   second consumer or a recorded decision, never "we might need it".
+   second caller or a recorded decision, never "we might need it".
 3. **Information is the most valuable thing analysis produces.** Do not discard it to keep
    a diff small. The tell: your reason for an approach was the size of its diff.
 4. **Business logic owns the trait; the adapter implements it** (ADR 0020). The domain
-   never names an adapter. Generics invert a dependency; `dyn` is for the four seams
-   whose implementation is a run-time answer.
+   never names an adapter. A port is a generic bound; `dyn` is for the four seams, whose
+   implementation is a run-time answer.
 5. **Don't hand-roll utilities** — find the boring, widely-used crate.
 6. **Don't artificially minimise blast radius.** A narrow patch that leaves the design
    wrong costs more than the wide diff that fixes it.
@@ -39,13 +41,14 @@ has a way of quietly reversing itself. **Open the file before you argue with the
 - **Enumeration is total** (ADR 0005, 0012) — no extension filters, no path exclusions,
   not even via config.
 - **The invariants stay** (`spec/invariants.md`). The recount never shares code with the
-  parser.
+  diff parser.
 - **The schema is frozen** at version 3 (ADR 0022). Additive changes only.
 - **The generic normaliser is frozen** (ADR 0015). Improvements land as language plugins.
 - **Git is real git, plumbing only** (ADR 0002, 0011, 0020), bar `git fetch` of a request's
   refs behind the `Fetcher` port (ADR 0029). One implementation of the
-  ports, `gitio::Repo`. A fake git for tests is forbidden.
-- **The core is a library** (ADR 0014, 0018). `crates/cli` is presentation and dispatch.
+  git ports, `gitio::Repo`. A fake git for tests is forbidden.
+- **The core is a library** (ADR 0014, 0018). `crates/cli` is the application layer:
+  presentation and dispatch.
 
 [`process.md`](.claude/rules/process.md) — branches, commits, PRs, reviews, releases.
 
@@ -68,12 +71,12 @@ has a way of quietly reversing itself. **Open the file before you argue with the
 ```sh
 cargo test                                  # unit + synthetic-repo integration tests
 cargo clippy --all-targets && cargo fmt     # keep both clean
-cargo run -q --bin dfr -- check <base>..<head>    # invariant runner
-cargo run -q --bin dfr -- stack <base>..<head>    # review stack (needs an LLM CLI on a cache miss)
+cargo run -q --bin dfr -- check <base>..<head>    # the invariants, verify stage included
+cargo run -q --bin dfr -- stack <base>..<head>    # shadow branch (needs an agent on a grouping-cache miss)
 cargo run -q --bin dfr -- review <base>..<head>   # terminal reviewer (same cache rule)
-cargo run -q --bin dfr -- review --pr <N>         # a GitHub pull request (needs gh); --mr for GitLab
-cargo run -q --bin dfr -- agent --doc <path>          # what the grouping model sees
-cargo run -p differential-symbols --example group -- <base>..<head> # grouped document JSON (dev)
+cargo run -q --bin dfr -- review --pr <N>         # a request: GitHub PR (needs gh); --mr for GitLab
+cargo run -q --bin dfr -- agent --doc <path>          # the pre-group document, as the grouping model reads it
+cargo run -p differential-symbols --example group -- <base>..<head> # the document after the grouping stage (dev)
 DIFFERENTIAL_FIXTURE_CONFIG=$PWD/fixtures.local.toml cargo test -- --ignored  # parity (local)
 ```
 

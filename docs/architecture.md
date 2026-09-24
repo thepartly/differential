@@ -162,7 +162,7 @@ Renderers are views over it:
 - **TUI** ([spec/tui.md](../spec/tui.md)) — a reviewer that emits structured
   findings keyed by hunk. Shipped, as `dfr review`. `dfr findings` prints those findings as
   JSON.
-- **Forge review** ([spec/forge.md](../spec/forge.md)) — a pull request's or merge request's
+- **Forge consumer** ([spec/forge.md](../spec/forge.md)) — a pull request's or merge request's
   review threads shown under their lines, and findings published back as review comments.
   Shipped, as `dfr review --pr` / `--mr` and `dfr findings --post`, through `gh` and `glab`
   on the path (ADR 0029).
@@ -194,8 +194,8 @@ orphan is listed, never silently dropped. See
 
 | crate | what it holds |
 |---|---|
-| [`crates/engine`](../crates/engine/README.md) | The backend: git io, diff parsing, the byte-exact applier, shape classes, grouping, ordering, invariants and review sessions. Owns the ports, including the symbol one; implements none of the readers. |
-| [`crates/symbols`](../crates/symbols) | The symbol readers: tree-sitter with tuned queries, tree-sitter with generic field rules, and a regex floor. Depends on the engine, never the reverse. |
+| [`crates/engine`](../crates/engine/README.md) | The engine: git io, diff parsing, the byte-exact applier, shape classes, grouping, ordering, invariants and review sessions. Owns the ports, including the symbol one; implements none of the readers. |
+| [`crates/symbols`](../crates/symbols) | The symbol readers: tree-sitter with tuned queries, tree-sitter with generic field rules, a single-file reader for Vue, and the crude regex reader. Depends on the engine, never the reverse. |
 | [`crates/stack`](../crates/stack/README.md) | The shadow-branch renderer. The diff as a synthetic commit stack. |
 | [`crates/tui`](../crates/tui/README.md) | The terminal reviewer. Vendored `tuicr` and `lumen` pieces live here. |
 | [`crates/cli`](cli.md) | The application layer: the `dfr` and `differential` binaries. Argument parsing and dispatch only. |

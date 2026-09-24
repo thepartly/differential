@@ -61,7 +61,7 @@ lines) is kept in the canonical hunk count but excluded from byte reconstruction
 Canonical enumeration from `git diff -U0 --no-renames`, every file, no exclusions.
 
 - `digest` — exact content hash of the hunk's removed ++ added bytes (un-normalised). Stable
-  across regenerations; comments and review state anchor to it (see
+  across regenerations; findings and review state anchor to it (see
   [persistence.md](persistence.md)).
 - `nonl_old` / `nonl_new` — the `\ No newline at end of file` marker, per side. Worth exactly
   one byte each in reconstruction.
