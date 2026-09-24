@@ -5,12 +5,13 @@ agent work; violations of those are findings here too).
 
 Reserve **Important** for: correctness bugs, weakening or skipping a structural
 invariant (`spec/invariants.md` — never tautologise them; the recount must stay
-independent of the parser), breaking the frozen schema contract (`engine::schema`
+independent of the diff parser), breaking the frozen schema contract (`engine::schema`
 is additive-only; breaking changes need a `schema_version` bump and an ADR),
 excluding anything from enumeration (enumeration is total — no extension filters
 or path exclusions, ADR 0005/0012), touching the frozen generic normaliser
 (`lang/generic.rs` is pinned for hash parity), or porcelain git usage (plumbing
-only, ADR 0002/0011).
+only, ADR 0002/0011; the one exception is `git fetch` of a request's refs behind the
+`Fetcher` port, ADR 0029).
 
 **Privacy is Important, always**: nothing may reference the private validation
 corpus — MR numbers, SHAs, company name, or repo-specific file/crate names from

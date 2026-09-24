@@ -1,7 +1,7 @@
 # Consuming the engine
 
 The core is a **library** (ADR 0014, 0018). Consumers — the TUI (`differential-tui`), the
-shadow-branch builder (`differential-stack`), the forge poster — link `differential-engine`
+shadow-branch builder (`differential-stack`), the forge consumer — link `differential-engine`
 directly (the frozen contract lives in `engine::schema`); the JSON form of the document is
 for export and persistence, not inter-process plumbing. The binaries (`dfr`, also installed
 as `differential`) live in the application-layer `crates/cli`, which consumes the renderer

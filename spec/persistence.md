@@ -100,9 +100,9 @@ name the source and target branch when you open it.
 `identity.json` records **exactly one** of a name, a pair of endpoints, or a request
 (`{forge, project, id}`, [forge.md](forge.md)), never two of them.
 
-## Comments
+## Findings
 
-Comment record:
+Finding record:
 
 ```jsonc
 { "id": "...", "created": "...", "body": "...",
@@ -118,7 +118,7 @@ Comment record:
   "upstream": { "thread": "...", "comment": "..." } | null }
 ```
 
-`moved` says a re-anchor reattached the comment by content match rather than by exact
+`moved` says a re-anchor reattached the finding by content match rather than by exact
 digest — the hunk it now sits on is not byte-identical to the one it was written on. It
 defaults to `false`, so a store written before it loads unchanged.
 
@@ -128,7 +128,7 @@ drafted under a fetched thread, and where a published finding landed. Both defau
 the request: the `y` summary and `dfr findings --summary` leave it out, and a publish never
 sends it twice.
 
-Comments anchor to a hunk's **digest** (exact content hash, stable across regenerations),
+Findings anchor to a hunk's **digest** (exact content hash, stable across regenerations),
 never to its positional id — and to an **offset inside it**, never to a line number. The
 digest fixes the hunk's content, so a hunk that moved in the file still holds the same line
 at the same offset, while its absolute number did not survive the move. `line`/`end_line`
@@ -143,7 +143,7 @@ the hunk's first line, which is where it already was.
 
 ## Re-anchoring on regeneration
 
-When `current` advances, a migration pass visits every comment:
+When `current` advances, a migration pass visits every finding:
 
 1. **Exact**: a hunk with the same digest exists in the new plan → reattach.
 2. **Fuzzy**: no digest match, but the anchor's context lines match at some position in the
@@ -152,7 +152,7 @@ When `current` advances, a migration pass visits every comment:
    which is the only place an orphan can be read or deleted — it has no line and no hunk,
    so nothing in the diff pane can reach it.
 
-Orphaned comments are **never deleted** — the same philosophy as the grouping coverage
+Orphaned findings are **never deleted** — the same philosophy as the grouping coverage
 back-fill: detection and preservation, not silent loss.
 
 Review progress (`state.json`) carries "reviewed" marks keyed by **hunk digest**: a hunk

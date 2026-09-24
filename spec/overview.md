@@ -3,6 +3,8 @@
 `differential` turns a large diff into a grouped, ordered reading plan, so a reviewer reads
 what deserves reading and skips what has already been verified by shape.
 
+The words these specs use are defined in [terminology.md](terminology.md).
+
 ## The product
 
 The product is **one JSON document** (see [json-contract.md](json-contract.md)) describing:
@@ -21,7 +23,7 @@ must not influence its shape:
 1. **Shadow branch** ([stack.md](stack.md)) — the diff rewritten as a synthetic commit stack,
    reviewed natively in an IDE or `tig`. `git log --oneline` alone shows the shape of the change.
 2. **TUI** — a dedicated reviewer emitting structured findings keyed by hunk.
-3. **Forge review** ([forge.md](forge.md)) — the request's review threads shown under their
+3. **Forge consumer** ([forge.md](forge.md)) — the request's review threads shown under their
    lines, and findings published back as review comments.
 
 ## The two-layer architecture

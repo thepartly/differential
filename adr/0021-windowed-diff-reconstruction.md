@@ -126,7 +126,8 @@ crosses. Two properties are deliberate:
 A crossed hunk is drawn in a dashed box naming its owning group. `n`/`N` skip it — it is
 context the reviewer asked for, not an entry on this group's reading list — while `space`
 marks it like any other, because marks key on class content and are already shared across
-groups.
+groups. (Since [ADR 0025](0025-reviewed-marks-key-per-hunk.md) marks key per hunk digest; a
+crossed hunk's mark is still the same mark in every group.)
 
 ADR 0006's skim contract is unaffected and clarified there: deferring a remainder is an
 opinion about what is worth reading by default, not a rule that it stay unreachable.
