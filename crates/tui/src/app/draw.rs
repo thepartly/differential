@@ -310,7 +310,11 @@ impl App {
                         &self.theme,
                         // The keys are the table's too, drawn in the title
                         // because this box has no spare row for a footer.
-                        format!(" files — {} ", plain(&self.modal_hints())),
+                        format!(
+                            " files{}— {} ",
+                            self.skipped_note(),
+                            plain(&self.modal_hints())
+                        ),
                         true,
                     )),
                     area,
@@ -976,6 +980,15 @@ impl App {
         self.draw_file_list_in(frame, area);
     }
 
+    /// What a file list's title says about the files the fold holds back —
+    /// ` (13 safe to skip) ` — or a lone space when it holds none back.
+    fn skipped_note(&self) -> String {
+        match self.skipped_files {
+            0 => " ".to_string(),
+            n => format!(" ({n} safe to skip) "),
+        }
+    }
+
     pub(super) fn draw_file_list_in(&self, frame: &mut Frame, area: Rect) {
         let reviewed = &self.reviewed;
         let here = self.file_at_cursor();
@@ -1025,8 +1038,8 @@ impl App {
             )));
         }
         let title = match at {
-            Some(n) => format!(" file {} of {} ", n + 1, files.len()),
-            None => format!(" {} files ", files.len()),
+            Some(n) => format!(" file {} of {}{}", n + 1, files.len(), self.skipped_note()),
+            None => format!(" {} files{}", files.len(), self.skipped_note()),
         };
         frame.render_widget(
             Paragraph::new(lines).block(pane(&self.theme, title, true)),

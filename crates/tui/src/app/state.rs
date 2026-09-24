@@ -695,7 +695,10 @@ impl App {
             })
             .collect();
         if entries.is_empty() {
-            self.status = "no files listed here (unfold with z?)".into();
+            self.status = match self.skipped_files {
+                0 => "no files listed here (unfold with z?)".into(),
+                n => format!("{n} file{} folded, safe to skip — z to show", plural(n)),
+            };
             return;
         }
         self.mode = Mode::FileList {
@@ -887,6 +890,16 @@ impl App {
     pub(super) fn rebuild_overviews(&mut self) {
         self.listed_files = self.file_list();
         self.map_files = self.files_of_selected_group();
+        // The group map counts every file the group touches and the list only
+        // those the rows show, so without this the two disagree about one
+        // group and nothing says why (issue 151). The difference is the files
+        // wholly inside the fold.
+        self.skipped_files = if self.view_mode == ViewMode::Groups {
+            let listed: HashSet<usize> = self.listed_files.iter().copied().collect();
+            self.map_files.difference(&listed).count()
+        } else {
+            0
+        };
         // Third of the three, and the one that was left in `draw`. It reads
         // the two above and the tree, so this is the moment it can change.
         self.map_rows = self.compute_map_rows();
