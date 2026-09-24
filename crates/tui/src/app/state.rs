@@ -697,7 +697,7 @@ impl App {
         if entries.is_empty() {
             self.status = match self.skipped_files {
                 0 => "no files listed here (unfold with z?)".into(),
-                n => format!("{n} files folded, safe to skip — z to show"),
+                n => format!("{n} file{} folded, safe to skip — z to show", plural(n)),
             };
             return;
         }
