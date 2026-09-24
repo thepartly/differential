@@ -415,9 +415,13 @@ impl App {
         let published = self.published_count();
         match self.session.clear_findings() {
             Ok(n) if published > 0 => {
-                self.status = format!(
-                    "{n} note{} deleted · {published} on the request kept, dd deletes one there",
-                    plural(n)
+                self.status = self.then_says(
+                    &format!(
+                        "{n} note{} deleted · {published} on the request kept",
+                        plural(n)
+                    ),
+                    Action::Delete,
+                    "deletes one there",
                 )
             }
             Ok(n) => self.status = format!("{n} note{} deleted", plural(n)),
@@ -464,7 +468,7 @@ impl App {
             self.rows.get(self.cursor).map(|r| &r.kind),
             Some(RowKind::Thread { .. })
         ) {
-            self.status = NOT_YOURS.into();
+            self.status = self.not_yours();
             return;
         }
         if let Some(RowKind::Finding(id, _)) = self.rows.get(self.cursor).map(|r| r.kind.clone()) {
@@ -474,7 +478,7 @@ impl App {
             }
             self.rebuild_rows();
         } else {
-            self.status = "dd works on a finding line".into();
+            self.status = self.then_says("", Action::Delete, "works on a finding line");
         }
     }
 

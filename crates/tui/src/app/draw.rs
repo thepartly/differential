@@ -86,9 +86,14 @@ impl App {
             Mode::Help(_) => {
                 // As tall as its own table: a fixed height cut the footer off
                 // the first time the table grew a row.
-                let lines = help_lines(&self.theme, &self.help_sections());
+                let sections = self.help_sections();
+                let lines = help_lines(&self.theme, &sections);
                 let height = lines.len() as u16 + 2;
-                let area = centered_rect(panes.body, 74, height);
+                // Wider by exactly what the key column took past its floor,
+                // so a long key does not cost a row its words.
+                let grown = help_key_width(&sections) - HELP_KEY_FLOOR;
+                let width = 74 + u16::try_from(grown).unwrap_or(u16::MAX);
+                let area = centered_rect(panes.body, width, height);
                 self.float(frame, area, " help ", Paragraph::new(lines));
             }
             Mode::Notice { title, text } => {
@@ -1912,10 +1917,15 @@ impl App {
         // The pill carries the key that opens the list. A count with no way
         // to reach what it counts is a reader asking "and where are they?",
         // and `F` is not a key they can guess from a number.
+        let key = self
+            .keymap()
+            .first(Screen::Review, Action::Findings)
+            .map(|k| format!("({k})"))
+            .unwrap_or_default();
         left.extend(tally(
             open > 0,
             self.theme.finding_fg,
-            format!("{open} finding{}(F)", plural(open)),
+            format!("{open} finding{}{key}", plural(open)),
         ));
         // The forge's threads are a fact about the request, worn the same way
         // — and only on a review that is of a request, since a range has none.
@@ -2830,6 +2840,22 @@ pub(super) fn centered_rect(area: Rect, width: u16, height: u16) -> Rect {
     }
 }
 
+/// The help modal's key column, at its narrowest.
+const HELP_KEY_FLOOR: usize = 13;
+
+/// One key column for the whole box, as wide as its widest key and a gap:
+/// the keys are the reader's to bind, so the width cannot be known before
+/// the table is read.
+fn help_key_width(sections: &[HelpSection]) -> usize {
+    sections
+        .iter()
+        .flat_map(|s| &s.acts)
+        .map(|a| UnicodeWidthStr::width(a.key.as_str()) + 2)
+        .max()
+        .unwrap_or(0)
+        .max(HELP_KEY_FLOOR)
+}
+
 pub(super) fn help_lines(theme: &Theme, sections: &[HelpSection]) -> Vec<Line<'static>> {
     // The keys of where the reader is standing, and under a rule the keys
     // that mean the same thing anywhere (issue 30). A list of everything is
@@ -2839,9 +2865,10 @@ pub(super) fn help_lines(theme: &Theme, sections: &[HelpSection]) -> Vec<Line<'s
     let text = Style::default().fg(theme.context_fg);
     let dim = Style::default().fg(theme.gutter_fg);
 
+    let width = help_key_width(sections);
     let row = |k: &str, what: &str| {
         Line::from(vec![
-            Span::styled(format!("  {k:<13}"), key),
+            Span::styled(format!("  {k:<width$}"), key),
             Span::styled(what.to_string(), text),
         ])
     };

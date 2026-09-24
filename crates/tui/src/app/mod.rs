@@ -36,6 +36,7 @@ use ratatui::style::Style;
 use ratatui::widgets::{Block, Borders};
 use tui_textarea::TextArea;
 
+use crate::keymap::{Action, Keymap, Screen};
 use crate::rows::{
     DiffMode, GroupContext, RAIL, Row, RowContent, RowFactory, build_dir_rows, build_file_rows,
     build_group_rows, pill,
@@ -69,6 +70,10 @@ pub struct ReviewOptions {
     /// parses the syntax set, and this struct is plain data the app layer
     /// fills in from config.
     pub theme: ThemeName,
+    /// Which key does what. Built and checked by the application layer
+    /// before a terminal is touched, so a bad `[keys]` table is a usage
+    /// error rather than a reviewer that half works.
+    pub keymap: Keymap,
 }
 
 impl Default for ReviewOptions {
@@ -82,6 +87,7 @@ impl Default for ReviewOptions {
             split_diff: true,
             range: None,
             theme: ThemeName::default(),
+            keymap: Keymap::default(),
         }
     }
 }
@@ -587,7 +593,9 @@ pub struct App {
     split_offset: i16,
     /// What the pointer took hold of, while the button is still down.
     divider_grab: Option<Grab>,
-    pending_d: bool,
+    /// The presses of a binding begun and not finished — the first `d` of
+    /// `dd`. Taken by every key before anything reads it.
+    pending: Vec<crokey::KeyCombination>,
     /// The forge this review is of, when it is of a request (ADR 0029).
     forge: Option<forge::ForgeLink>,
     /// The one forge call that may be out. See `app::forge`.
@@ -670,7 +678,7 @@ impl App {
             tree_cols: DEFAULT_PLAN_COLS,
             split_offset: 0,
             divider_grab: None,
-            pending_d: false,
+            pending: Vec::new(),
             forge: None,
             inflight: None,
             last_query: String::new(),
@@ -756,8 +764,38 @@ pub use text::{Hint, Ink, hints_width};
 
 pub use forge::ForgeLink;
 
-/// What the footer says on a key aimed at someone else's comment.
-pub(super) const NOT_YOURS: &str = "not your comment · r replies · x resolves";
+impl App {
+    /// The keys, for a place that names one.
+    pub(super) fn keymap(&self) -> &Keymap {
+        &self.opts.keymap
+    }
+
+    /// `head`, then what the review's key for `action` does, as a message
+    /// writes it: `"soft wrap is on · w turns it off"`. A key the reader
+    /// unbound is left out rather than named, since pressing it does nothing.
+    pub(super) fn then_says(&self, head: &str, action: Action, what: &str) -> String {
+        self.then_say(head, &[(action, what)])
+    }
+
+    /// The same with several keys, as one clause: `"R to check, P to retry"`.
+    pub(super) fn then_say(&self, head: &str, hints: &[(Action, &str)]) -> String {
+        let hints: Vec<String> = hints
+            .iter()
+            .filter_map(|(a, what)| self.keymap().says(Screen::Review, *a, what))
+            .collect();
+        match (head.is_empty(), hints.is_empty()) {
+            (_, true) => head.to_string(),
+            (true, false) => hints.join(", "),
+            (false, false) => format!("{head} · {}", hints.join(", ")),
+        }
+    }
+
+    /// What the footer says on a key aimed at someone else's comment.
+    pub(super) fn not_yours(&self) -> String {
+        let reply = self.then_says("not your comment", Action::Reply, "replies");
+        self.then_says(&reply, Action::Resolve, "resolves")
+    }
+}
 
 /// The `s` a count takes, or not.
 pub(super) fn plural(n: usize) -> &'static str {

@@ -631,42 +631,75 @@ comes back when help closes, on the entry it was on.
 
 **One table feeds both lists.** The footer's short words and the modal's long ones are
 rows of the same table, chosen by the same question about where the reader is, so the two
-cannot drift the way a footer and a modal that each held their own list did.
+cannot drift the way a footer and a modal that each held their own list did. A row names
+actions, not keys. Its keys are read from the same keymap the handler dispatches on, so a
+rebound key is the key both lists name ([Rebinding](#rebinding)).
 
 ## Keys
 
 The full reference. `?` shows the subset that applies where the reader is standing.
 
-| key | action |
-|---|---|
-| `j`/`k`, `↓`/`↑` | move (groups pane: switch group · diff pane: move over rows) |
-| `J`/`K`, `{`/`}` | previous / next group |
-| `tab` | switch pane focus |
-| `enter` | plan pane only: open the group or file in the diff pane · file view, on a directory: fold or unfold it |
-| `ctrl-d`/`ctrl-u` | half page |
-| `g`/`G` | top / bottom |
-| `n`/`N` | next / previous hunk (skipping hunks crossed in from other groups) |
-| `z` | show what is being withheld, in the pane you are in — diff pane: on a `──` context boundary row, more of the file, or the hunk it names · on a resolved review thread, open or close it · **on a code row whose line uses a symbol the change declares, what declares it** (again for the next symbol on the line, once more to close; `esc` closes too) · elsewhere, the skim remainder or noise group · plan pane, file view: a directory |
-| `s` | toggle side-by-side / unified diff layout (persisted) |
-| `w` | soft wrap long lines (persisted) |
-| `alt--`/`alt-=` | move the divider four columns: narrow or widen the **diff** pane; `alt-+` is `alt-=` for a keyboard that puts `+` on the same key. From either pane — one of the two keys that do not act on the pane you are in. Neither pane goes below 20 columns, and the footer says which wall it is against. Transient: every review opens at 40, and the plan and the tree each keep their own |
-| `h`/`l`, `0` | shift the diff pane eight columns sideways · back to the left edge. Diff pane only; refused while `w` is on |
-| `/` | **search — a word, anywhere in the changed files.** The one key that does not act on the pane you are in: it opens from either pane, over a selection, and out of the file list and the findings list. The files as they are NOW, so a removed line is not found. Literal and smart case; `ctrl-r` reads the query as a regular expression instead. `enter` jumps to the line, opening a fold or a context gap to reach it · `↑`/`↓` move the list, the only arrows that are not the query's, and `ctrl-p`/`ctrl-n` do the same · `←`/`→` and `home`/`end` move the caret · `ctrl-u`/`ctrl-w` clear the query or the word before the caret · every other printable key types · `esc` closes, keeping the query selected for the next `/` |
-| `f` | files, in the pane you are in — plan pane: toggle reading plan ↔ file tree (persisted) · diff pane: the file-list modal (`enter` jumps to the file) |
-| `space` | mark reviewed — the whole selected group/file in the left pane, the **hunk** under the cursor in the diff pane |
-| `v` | start a line selection at the cursor · `j`/`k` extend it · `v` or `esc` drops it · `c` writes a finding over it |
-| `c` | write a finding — on the line under the cursor, on the lines `v` selected, or on the whole hunk from a row that is not a line; on a line that already carries one, rewrite that one |
-| `dd` | delete the finding under the cursor |
-| `y` | copy the summary of open findings not yet on the request — a markdown list of `file:lines: note`, and nothing about groups: a group is how this reviewer chose to READ the branch, and the summary is pasted somewhere that has no idea what `g7` was. `dfr findings <range> --summary` prints the same text |
-| `F` | every finding and every review thread in one list — `enter` jumps to one, `dd` deletes a note, `D` clears the notes not on the request (published notes and threads stay), `y` copies, `P` publishes, `esc` closes |
-| `r` on a review thread | draft a reply under it — the reader's own thread or anyone's — a finding carrying the thread's id until `P` publishes it ([forge.md](forge.md)) |
-| `c` on a comment of yours | rewrite it on the forge — yours by author, marker or address; on anyone else's, the footer says `not your comment` |
-| `dd` on a comment of yours | delete it on the forge and here — asks first, only `y` means yes; on anyone else's, the footer says `not your comment` |
-| `x` | resolve or reopen the review thread under the cursor, on the forge, at once |
-| `R` | fetch the request's review threads again |
-| `P` | publish the open findings to the request as one review — a float first says what goes and what stays and why; `y` sends, any other key keeps them local |
-| `?` | help — the keys of where the reader is standing, then the keys that work anywhere. Pressed in the file list or the findings list, it gives that list back |
-| `q`, `ctrl-c` | quit — state is saved on every change, quitting never loses anything. In the file list or the findings list `q` closes the list instead, as `esc` does. `ctrl-c` quits from every mode, the composer included, where it drops the draft in the box |
+| key | `[keys]` name | action |
+|---|---|---|
+| `j`/`k`, `↓`/`↑` | `down`/`up` | move (groups pane: switch group · diff pane: move over rows) |
+| `J`/`K`, `}`/`{` | `next-group`/`prev-group` | next / previous group |
+| `tab` | `toggle-focus` | switch pane focus |
+| `enter` | `open` | plan pane only: open the group or file in the diff pane · file view, on a directory: fold or unfold it |
+| `ctrl-d`/`ctrl-u` | `half-page-down`/`half-page-up` | half page |
+| `g`/`G` | `top`/`bottom` | top / bottom |
+| `n`/`N` | `next-hunk`/`prev-hunk` | next / previous hunk (skipping hunks crossed in from other groups) |
+| `z` | `fold` | show what is being withheld, in the pane you are in — diff pane: on a `──` context boundary row, more of the file, or the hunk it names · on a resolved review thread, open or close it · **on a code row whose line uses a symbol the change declares, what declares it** (again for the next symbol on the line, once more to close; `esc` closes too) · elsewhere, the skim remainder or noise group · plan pane, file view: a directory |
+| `s` | `toggle-split` | toggle side-by-side / unified diff layout (persisted) |
+| `w` | `toggle-wrap` | soft wrap long lines (persisted) |
+| `alt--`/`alt-=` | `shrink-diff`/`grow-diff` | move the divider four columns: narrow or widen the **diff** pane; `alt-+` is `alt-=` for a keyboard that puts `+` on the same key. From either pane — one of the two keys that do not act on the pane you are in. Neither pane goes below 20 columns, and the footer says which wall it is against. Transient: every review opens at 40, and the plan and the tree each keep their own |
+| `h`/`l`, `0` | `shift-left`/`shift-right`, `shift-reset` | shift the diff pane eight columns sideways · back to the left edge. Diff pane only; refused while `w` is on |
+| `/` | `search` | **search — a word, anywhere in the changed files.** The one key that does not act on the pane you are in: it opens from either pane, over a selection, and out of the file list and the findings list. The files as they are NOW, so a removed line is not found. Literal and smart case; `ctrl-r` reads the query as a regular expression instead. `enter` jumps to the line, opening a fold or a context gap to reach it · `↑`/`↓` move the list, the only arrows that are not the query's, and `ctrl-p`/`ctrl-n` do the same · `←`/`→` and `home`/`end` move the caret · `ctrl-u`/`ctrl-w` clear the query or the word before the caret · every other printable key types · `esc` closes, keeping the query selected for the next `/` |
+| `f` | `files` | files, in the pane you are in — plan pane: toggle reading plan ↔ file tree (persisted) · diff pane: the file-list modal (`enter` jumps to the file) |
+| `space` | `toggle-reviewed` | mark reviewed — the whole selected group/file in the left pane, the **hunk** under the cursor in the diff pane |
+| `v` | `select` | start a line selection at the cursor · `j`/`k` extend it · `v` or `esc` drops it · `c` writes a finding over it |
+| `c` | `comment` | write a finding — on the line under the cursor, on the lines `v` selected, or on the whole hunk from a row that is not a line; on a line that already carries one, rewrite that one |
+| `dd` | `delete` | delete the finding under the cursor |
+| `y` | `copy` | copy the summary of open findings not yet on the request — a markdown list of `file:lines: note`, and nothing about groups: a group is how this reviewer chose to READ the branch, and the summary is pasted somewhere that has no idea what `g7` was. `dfr findings <range> --summary` prints the same text |
+| `F` | `findings` | every finding and every review thread in one list — `enter` jumps to one, `dd` deletes a note, `D` (`clear-notes`) clears the notes not on the request (published notes and threads stay), `y` copies, `P` publishes, `esc` closes |
+| `r` on a review thread | `reply` | draft a reply under it — the reader's own thread or anyone's — a finding carrying the thread's id until `P` publishes it ([forge.md](forge.md)) |
+| `c` on a comment of yours | `comment` | rewrite it on the forge — yours by author, marker or address; on anyone else's, the footer says `not your comment` |
+| `dd` on a comment of yours | `delete` | delete it on the forge and here — asks first, only `y` means yes; on anyone else's, the footer says `not your comment` |
+| `x` | `resolve` | resolve or reopen the review thread under the cursor, on the forge, at once |
+| `R` | `refetch` | fetch the request's review threads again |
+| `P` | `publish` | publish the open findings to the request as one review — a float first says what goes and what stays and why; `y` sends, any other key keeps them local |
+| `?` | `help` | help — the keys of where the reader is standing, then the keys that work anywhere. Pressed in the file list or the findings list, it gives that list back |
+| `q`, `ctrl-c` | `quit` (`ctrl-c` is fixed) | quit — state is saved on every change, quitting never loses anything. In the file list or the findings list `q` closes the list instead, as `esc` does. `ctrl-c` quits from every mode, the composer included, where it drops the draft in the box |
+| `esc` | `close` | close the float, then drop a selection · in the file list or the findings list, close it — `q` does too there |
+
+### Rebinding
+
+The user file's `[keys]` table rebinds any key in the table above by its `[keys]` name
+(ADR 0036):
+
+```toml
+[keys]
+next-group = ["ctrl-j"]
+delete = ["d d"]     # a sequence is written with spaces
+publish = []         # unbound
+```
+
+- **A named action takes exactly the keys given.** Its defaults are dropped, and `[]`
+  unbinds it. An action not named keeps its defaults.
+- **A name means one thing everywhere it works.** `down` moves in the plan pane, the file
+  list and the findings list, and a rebinding holds in all three.
+- **A clash fails the load.** Two actions on one key are an error, and so is one action's
+  key starting another's sequence (`d` against `d d`). The check runs per screen — the
+  review, the file list, the findings list — so `f` may open the file list in the review and
+  close it in the list. The error names both actions and the screen, and lists every
+  problem in the table at once. `dfr review` exits 2 before the terminal opens.
+- **Keys are written as they are shown**: `j`, `J` (shift-j), `ctrl-d`, `alt-=`, `enter`,
+  `esc`, `tab`, `space`, `down`, `f5`. A letter's case is its shift.
+- **Some keys are not the reader's.** `ctrl-c` quits from everywhere and no action may take
+  it. The composer's keys, the search box's keys, and the bare `y` that answers a question
+  are fixed, and so are the picker's and the splash's.
+
+The footer, `?`, and every message and row that names a key name the bound one. A key the
+reader unbound is left out, never named.
 
 **The mouse acts on the pane under the pointer, and that pane takes focus.** The wheel is
 `j`/`k` there — one row per notch in the diff, one entry per notch in the plan — and the

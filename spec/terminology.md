@@ -211,6 +211,11 @@ A new term earns an entry only when it names a concept no existing entry covers.
 - **theme** / **seed** / **accent**. A theme declares a seed: a syntax theme and six accents,
   from which every other colour is derived.
   [ADR 0024](../adr/0024-palettes-are-derived-and-threaded.md).
+- **action** / **binding** (`config::Action`, `keymap::Binding`). An action is something the
+  reviewer does on a key, by the name `[keys]` uses: `down`, `delete`. A binding is the key,
+  or the sequence of keys, it answers to. A **screen** (`keymap::Screen`) is where a key is
+  looked up: the review, the file list, the findings list. Avoid: "shortcut", "command".
+  [ADR 0036](../adr/0036-keys-are-bound-by-action.md).
 - **projection**. A renderer-agnostic read model: `plan::ReviewView` over the document, and
   the findings a `ReviewSession` hands to `y` and `dfr findings`. Shared domain policy lives in
   `engine::plan`.

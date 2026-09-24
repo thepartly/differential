@@ -16,6 +16,9 @@ anyhow = { workspace = true }
 base64 = { workspace = true }
 ratatui = "0.30"
 crossterm = "0.29"
+# Parses a `[keys]` string into the combination crossterm reports. No serde:
+# the strings arrive as strings, and parsing them is `keymap`'s own step.
+crokey = { version = "1.5", default-features = false }
 similar = { version = "3", features = ["unicode"] }
 syntect = "5"
 two-face = { version = "0.5", default-features = false, features = ["syntect-default-fancy"] }

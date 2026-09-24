@@ -323,7 +323,8 @@ Config is optional. There are two config files, split by who owns the setting:
   everyone reviewing the repo. Which globs count as generated, and which never do. It
   honours GitHub's and GitLab's generated-file attributes by default.
 - **`~/.config/differential/config.toml`** — personal. Which agent to run, which theme to wear,
-  how much context the reviewer shows, and which diff layout it opens in.
+  how much context the reviewer shows, which diff layout it opens in, and which keys do
+  what.
 
 A missing file means defaults. A malformed file, or an unknown key, is a hard error.
 

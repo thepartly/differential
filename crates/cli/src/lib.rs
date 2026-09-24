@@ -14,7 +14,7 @@ use std::time::Duration;
 use anyhow::Context;
 use clap::{Args, Parser, Subcommand};
 use differential_engine::artefact::symbols::SymbolReaders;
-use differential_engine::config::{Agent, Config};
+use differential_engine::config::{Agent, Config, user_config_path};
 use differential_engine::forge::{self, Forge, ForgeKind, Request};
 use differential_engine::forgeio::{GhForge, GlabForge};
 use differential_engine::gitio::Repo;
@@ -240,6 +240,8 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
     };
     // Only `review` may omit the range (it opens the picker instead).
     let may_pick = matches!(cli.command, Command::Review { .. });
+    // Where a `[keys]` error points, read while `common` still borrows.
+    let user_config = common.user_config.clone();
     let resolved = match Resolved::of(common, may_pick, session_name) {
         Ok(r) => r,
         Err(msg) => return usage_error(&msg),
@@ -252,7 +254,21 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         Command::Stack {
             ref_name, no_cache, ..
         } => run_stack(&resolved, ref_name.as_deref(), no_cache),
-        Command::Review { no_cache, .. } => run_review(resolved, no_cache),
+        Command::Review { no_cache, .. } => {
+            // Checked before anything opens the terminal: a bad `[keys]`
+            // table is a usage error, not a reviewer that half works.
+            let keymap = match differential_tui::Keymap::new(&resolved.config.keys) {
+                Ok(k) => k,
+                Err(e) => {
+                    let path = user_config
+                        .or_else(|| user_config_path(&OsConfigSource))
+                        .map(|p| p.display().to_string())
+                        .unwrap_or_else(|| "the user config".into());
+                    return usage_error(&format!("config error in {path}: {e}"));
+                }
+            };
+            run_review(resolved, no_cache, keymap)
+        }
         Command::Findings {
             summary,
             post,
@@ -407,7 +423,11 @@ fn run_stack(r: &Resolved, ref_name: Option<&str>, no_cache: bool) -> anyhow::Re
 ///
 /// Takes `Resolved` by value: the config, languages and readers move into the
 /// pipeline closure, which runs on the renderer's worker thread.
-fn run_review(r: Resolved, no_cache: bool) -> anyhow::Result<ExitCode> {
+fn run_review(
+    r: Resolved,
+    no_cache: bool,
+    keymap: differential_tui::Keymap,
+) -> anyhow::Result<ExitCode> {
     let Resolved {
         repo,
         config,
@@ -432,6 +452,7 @@ fn run_review(r: Resolved, no_cache: bool) -> anyhow::Result<ExitCode> {
         context_step: config.review.context_step,
         split_diff: config.review.diff.is_split(),
         theme: config.review.theme,
+        keymap,
         // As TYPED, so the footer can hand it straight back. Empty when the
         // picker chose the source, which has no spelling.
         range: match &request {

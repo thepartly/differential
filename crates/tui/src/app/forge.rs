@@ -229,20 +229,33 @@ impl App {
                             "the forge stopped part-way",
                             outcome.failed.as_ref().expect("guarded"),
                         );
-                        format!(
-                            "published {} of {total} · the forge stopped part-way · R to check, P to send the rest",
-                            r.landed
+                        self.then_say(
+                            &format!(
+                                "published {} of {total} · the forge stopped part-way",
+                                r.landed
+                            ),
+                            &[
+                                (Action::Refetch, "to check"),
+                                (Action::Publish, "to send the rest"),
+                            ],
                         )
                     }
                     Ok(r) => {
                         let landed = r.landed;
                         match r.refetch_failed {
-                            Some(e) => format!(
-                                "published {landed} of {total} · the threads could not be fetched back ({e}) · R to retry"
+                            Some(e) => self.then_says(
+                                &format!(
+                                    "published {landed} of {total} · the threads could not be fetched back ({e})"
+                                ),
+                                Action::Refetch,
+                                "to retry",
                             ),
-                            None if landed < total => format!(
-                                "published {landed} of {total} · {} not confirmed by the forge, R to check, P to retry",
-                                total - landed
+                            None if landed < total => self.then_say(
+                                &format!(
+                                    "published {landed} of {total} · {} not confirmed by the forge",
+                                    total - landed
+                                ),
+                                &[(Action::Refetch, "to check"), (Action::Publish, "to retry")],
                             ),
                             None => format!("published {landed} comment{}", plural(landed)),
                         }
@@ -398,7 +411,11 @@ impl App {
     /// on a worker thread; the local copy changes when it has.
     pub(super) fn toggle_thread_resolved(&mut self) {
         let Some(t) = self.thread_at_cursor() else {
-            self.status = "x resolves the review thread under the cursor".into();
+            self.status = self.then_says(
+                "",
+                Action::Resolve,
+                "resolves the review thread under the cursor",
+            );
             return;
         };
         let (id, resolved) = (t.id.clone(), !t.resolved);
@@ -417,7 +434,7 @@ impl App {
     /// Save a reply drafted under a thread. Local until a publish sends it.
     pub(super) fn add_reply(&mut self, thread: &str, body: String) {
         match self.session.add_reply(thread, body) {
-            Ok(_) => self.status = "reply saved · P publishes".into(),
+            Ok(_) => self.status = self.then_says("reply saved", Action::Publish, "publishes"),
             Err(e) => self.status = format!("save failed: {e:#}"),
         }
         self.rebuild_rows();

@@ -115,7 +115,13 @@ tables below are the complete list, which is what `spec/tui.md` also carries.
 
 Every place with keys of its own is a row of one table in `crates/tui/src/app/help.rs`.
 The footer reads it for its short words and the help modal for its long ones, so a key
-added in one place appears in both.
+added in one place appears in both. A row names actions, not keys. Its keys come from the
+keymap in `crates/tui/src/keymap.rs`, which the handler dispatches on too, so a key the
+reader rebinds is the key the footer, the modal and every message name.
+
+Every key below is a default, and `[keys]` in the user config rebinds it by action
+([Config](#config)). The composer's and the search box's editing keys, a question's `y`,
+`ctrl-c`, and the picker's and the splash's keys are fixed.
 
 ### Normal mode — moving
 
@@ -476,6 +482,24 @@ diff = "split"
 These are presentation only. They widen what is **displayed** around a hunk, and what
 colour it is. They can never change which hunks exist.
 
+### Keys
+
+```toml
+[keys]
+next-group = ["ctrl-j"]
+delete = ["d d"]   # a sequence is written with spaces
+publish = []       # unbound
+```
+
+An action named here takes exactly the keys given: its defaults are dropped, in every
+screen it works in. Two actions on one key in one screen is an error naming both, and so
+is one key starting another's sequence. The action names are in
+[`spec/tui.md`](../../spec/tui.md#keys) (ADR 0036).
+
+The check is a library call, `Keymap::new(&config.keys)`, which returns the keymap or every
+problem with the table. It touches no terminal, so an application calls it before
+`review` and hands the result in `ReviewOptions::keymap`.
+
 ### Themes
 
 Eleven, each pairing the reviewer's own colours with the syntax theme the code is painted
@@ -586,12 +610,20 @@ a palette that does not hold up fails the build rather than someone's eyes.
 ## Using it as a library
 
 ```rust
-use differential_tui::{review, ReviewOptions, Prepared};
+use differential_engine::config::ThemeName;
+use differential_tui::{review, Keymap, Prepared, ReviewOptions};
 
 review(
     &repo,
     pick,          // true opens the picker first
-    ReviewOptions { context: 3, context_step: 10, split_diff: true, range: None },
+    ReviewOptions {
+        context: 3,
+        context_step: 10,
+        split_diff: true,
+        range: None,
+        theme: ThemeName::Dark,
+        keymap: Keymap::new(&config.keys)?,
+    },
     |picked, progress, cancel| {
         // Run the pipeline on a worker thread. Send Progress values down the
         // channel to drive the splash. Watch `cancel` and kill the subprocess.
