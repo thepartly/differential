@@ -763,7 +763,7 @@ fn file_view_is_a_collapsible_tree() {
     let dir_row = app
         .tree
         .iter()
-        .position(|e| matches!(&e.kind, TreeKind::Dir { path } if path == "src"))
+        .position(|e| matches!(&e.kind, TreeKind::Dir { path, .. } if path == "src"))
         .expect("src/ directory row");
     let files_visible = |a: &differential_tui::app::App| {
         a.tree
@@ -794,7 +794,7 @@ fn file_view_is_a_collapsible_tree() {
     assert!(
         app.tree
             .iter()
-            .any(|e| matches!(&e.kind, TreeKind::Dir { path } if path == "src"))
+            .any(|e| matches!(&e.kind, TreeKind::Dir { path, .. } if path == "src"))
     );
     app.handle_key(key('z'));
     assert_eq!(files_visible(&app), 4, "unfold restores them");
@@ -806,7 +806,7 @@ fn tree_paths(app: &App) -> Vec<String> {
     app.tree
         .iter()
         .map(|e| match &e.kind {
-            TreeKind::Dir { path } => format!("{path}/"),
+            TreeKind::Dir { path, .. } => format!("{path}/"),
             TreeKind::File { file_idx } => app.files()[*file_idx].path.clone(),
         })
         .collect()
@@ -11221,4 +11221,188 @@ fn clearing_the_editor_row_falls_back_to_the_environment() {
     // And `esc` puts back what the modal opened on, as it does for the theme.
     app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
     assert_eq!(app.options().editor.as_ref().unwrap().program(), "nvim");
+}
+
+// ------------------------------------------- joined directory chains (#155)
+
+/// The issue's shape: `root/parent1/parent2` holds nothing but one directory
+/// each, and branches only at `parent2`. `top.rs` sits beside `root/` so the
+/// chain is not the whole tree. Every file its own shape, so every file is its
+/// own group and the map can be drawn for exactly one of them.
+fn app_with_a_directory_chain(store: &str) -> (TestRepo, App) {
+    let r = TestRepo::new();
+    let files = [
+        (
+            "root/parent1/parent2/parent3/file1.rs",
+            "fn f() { g(); }\n",
+            "fn f() { h(); }\n",
+        ),
+        (
+            "root/parent1/parent2/parent3/file2.rs",
+            "let x = 1;\n",
+            "let x = 2;\n",
+        ),
+        (
+            "root/parent1/parent2/parent4/file3.rs",
+            "use a::b;\n",
+            "use a::c;\n",
+        ),
+        ("top.rs", "enum E { A, B }\n", "enum E { A, C }\n"),
+    ];
+    for (path, before, _) in files {
+        r.write(path, before.as_bytes());
+    }
+    r.commit_all("base");
+    for (path, _, after) in files {
+        r.write(path, after.as_bytes());
+    }
+    r.commit_all("head");
+    let app = open_app_with(&r, &one_group_per_class(), store);
+    (r, app)
+}
+
+/// The left `w` columns of the screen, trailing blanks trimmed.
+fn left_pane(app: &App, w: usize) -> Vec<String> {
+    screen(app, 100, 16)
+        .into_iter()
+        .map(|l| l.chars().take(w).collect::<String>().trim_end().to_string())
+        .collect()
+}
+
+/// Park the plan pane on the group that owns `file`, so the map is drawn for it.
+fn select_group_owning(app: &mut App, file: &str) {
+    app.focus = Focus::Groups;
+    for _ in 0..app.groups().len() {
+        if screen(app, 100, 16)
+            .iter()
+            .any(|l| l.contains(&format!("● {file}")))
+        {
+            return;
+        }
+        app.handle_key(key('j'));
+    }
+    panic!("no group lights {file}");
+}
+
+const CHAIN: &str = "root/parent1/parent2";
+
+/// A chain of directories that each hold one directory and nothing else is
+/// ONE row, keyed by its deepest directory; the level that branches nests
+/// beneath it as before, one step in (#155).
+#[test]
+fn a_chain_of_single_child_directories_is_one_row() {
+    use differential_tui::app::TreeKind;
+    let (_r, mut app) = app_with_a_directory_chain(".dfr-chain-row-store");
+    switch_left_pane(&mut app);
+    assert_eq!(
+        tree_paths(&app),
+        [
+            "root/parent1/parent2/",
+            "root/parent1/parent2/parent3/",
+            "root/parent1/parent2/parent3/file1.rs",
+            "root/parent1/parent2/parent3/file2.rs",
+            "root/parent1/parent2/parent4/",
+            "root/parent1/parent2/parent4/file3.rs",
+            "top.rs",
+        ]
+    );
+    let depths: Vec<usize> = app.tree.iter().map(|e| e.depth).collect();
+    assert_eq!(depths, [0, 1, 2, 2, 1, 2, 0]);
+    // A directory that holds files is never joined into them.
+    assert!(matches!(&app.tree[1].kind, TreeKind::Dir { name, .. } if name == "parent3"));
+
+    let pane = left_pane(&app, 40);
+    assert!(
+        pane.iter()
+            .any(|l| l.contains("├─▾ root/parent1/parent2/  +3 −3")),
+        "{pane:#?}"
+    );
+    assert!(
+        pane.iter().any(|l| l.contains("│ ├─▾ parent3/")),
+        "{pane:#?}"
+    );
+}
+
+/// The joined row folds as one: everything beneath the chain goes, and comes
+/// back, and selecting it shows every hunk under it.
+#[test]
+fn a_joined_row_folds_and_selects_as_one() {
+    let (_r, mut app) = app_with_a_directory_chain(".dfr-chain-fold-store");
+    switch_left_pane(&mut app);
+    let before = tree_paths(&app);
+
+    app.focus = Focus::Groups;
+    app.selected_file = 0;
+    app.handle_key(key('j'));
+    app.handle_key(key('k'));
+    let hunks = app
+        .rows
+        .iter()
+        .filter(|r| matches!(r.kind, RowKind::HunkHeader { .. }))
+        .count();
+    assert_eq!(hunks, 3, "the joined row spans all three files under it");
+
+    fold(&mut app, CHAIN);
+    assert_eq!(
+        tree_paths(&app),
+        [format!("{CHAIN}/"), "top.rs".to_string()]
+    );
+    fold(&mut app, CHAIN);
+    assert_eq!(tree_paths(&app), before, "unfold gives back the same rows");
+}
+
+/// The resume cursor keys on the joined row's path and comes back to it.
+#[test]
+fn the_resume_cursor_comes_back_to_a_joined_row() {
+    let (r, mut app) = app_with_a_directory_chain(".dfr-chain-resume-store");
+    switch_left_pane(&mut app);
+    app.focus = Focus::Groups;
+    app.handle_key(key('j'));
+    app.handle_key(key('k'));
+    assert_eq!(app.selected_path().as_deref(), Some(CHAIN));
+    app.handle_key(key('q'));
+    drop(app);
+
+    let app2 = open_app_with(&r, &one_group_per_class(), ".dfr-chain-resume-store");
+    assert_eq!(app2.selected_path().as_deref(), Some(CHAIN));
+}
+
+/// The group map reads the same joined tree: a chain the group DOES enter is
+/// one live row now, not one row per directory.
+#[test]
+fn the_group_map_joins_a_chain_the_group_enters() {
+    let (_r, mut app) = app_with_a_directory_chain(".dfr-chain-map-store");
+    select_group_owning(&mut app, "file3.rs");
+    let rows = screen(&app, 100, 16);
+    assert!(
+        rows.iter().any(|l| l.contains("├─root/parent1/parent2/ ")),
+        "{rows:#?}"
+    );
+    assert!(
+        !rows.iter().any(|l| l.contains("└─parent1/")),
+        "no row per directory in the chain: {rows:#?}"
+    );
+    assert!(
+        rows.iter().any(|l| l.contains("▸ parent3/  2 files")),
+        "{rows:#?}"
+    );
+}
+
+/// Eyes-only: the file view and the group map on the issue's shape.
+/// `cargo test -p differential-tui --test tui render_dump_joined_dirs -- --ignored --nocapture`
+#[test]
+#[ignore]
+fn render_dump_joined_dirs() {
+    let (_r, mut app) = app_with_a_directory_chain(".dfr-dump-chain-store");
+    select_group_owning(&mut app, "file3.rs");
+    println!("--- group map, on the group owning file3.rs");
+    for l in screen(&app, 100, 16) {
+        println!("{}", l.trim_end());
+    }
+    switch_left_pane(&mut app);
+    app.focus = Focus::Groups;
+    println!("--- file view");
+    for l in left_pane(&app, 44) {
+        println!("{l}");
+    }
 }

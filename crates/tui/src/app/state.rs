@@ -18,6 +18,12 @@ use super::*;
 /// to unfold otherwise — and everything beneath it, subdirectories included,
 /// loses one.
 ///
+/// A chain of directories that each hold nothing but one directory is joined
+/// into ONE row (`a/b/c/`), keyed by the deepest one's path (#155). The join
+/// is a fact about the file list, not about folds: it is decided before any
+/// fold is asked, so folding the joined row folds the whole chain, and the
+/// fold, the cursor and `files_under` all go on naming a real directory.
+///
 /// Free rather than a method because it is called with TWO fold sets: the
 /// reader's, for the file view's pane, and the empty one the group map reads.
 fn build_tree(files: &[plan::FileView], folded: &HashSet<String>) -> Vec<TreeEntry> {
@@ -28,45 +34,117 @@ fn build_tree(files: &[plan::FileView], folded: &HashSet<String>) -> Vec<TreeEnt
         .collect();
     paths.sort_by(|a, b| a.1.cmp(&b.1));
 
+    // What each directory directly holds, to answer "is this directory only a
+    // step on the way to one other directory?" before its row is emitted.
+    let mut entries: HashMap<String, HashSet<String>> = HashMap::new();
+    let mut holds_a_file: HashSet<String> = HashSet::new();
+    for (_, parts) in &paths {
+        let dirs = &parts[..parts.len() - 1];
+        for d in 0..dirs.len() {
+            let path = dirs[..=d].join("/");
+            match dirs.get(d + 1) {
+                Some(child) => {
+                    entries.entry(path).or_default().insert(child.clone());
+                }
+                None => {
+                    holds_a_file.insert(path);
+                }
+            }
+        }
+    }
+    let joins_its_child = |path: &str| {
+        !holds_a_file.contains(path) && entries.get(path).is_some_and(|e| e.len() == 1)
+    };
+
     let mut tree = Vec::new();
-    let mut open: Vec<String> = Vec::new(); // directory components in scope
-    // …and whether each of them is folded, carried alongside so that a
-    // directory the NEXT file does not re-enter still hides what is under it.
-    // Asking only the directories this file opens is what let a folded
-    // directory's second subdirectory draw a row while its first one, and
-    // every file, correctly disappeared.
-    let mut open_folded: Vec<bool> = Vec::new();
-    for (file_idx, parts) in paths {
+    // The directory components in scope, each with the depth of the row it is
+    // drawn on, and the label that row has accumulated so far.
+    let mut open: Vec<OpenDir> = Vec::new();
+    for (file_idx, parts) in &paths {
         let dirs = &parts[..parts.len() - 1];
         // Close directories we have left.
-        while open.len() > dirs.len() || (!open.is_empty() && open[..] != dirs[..open.len()]) {
+        while open.len() > dirs.len() || open.iter().zip(dirs).any(|(o, name)| o.component != *name)
+        {
             open.pop();
-            open_folded.pop();
         }
         // Open the ones we entered. One question answers for both row kinds:
-        // is anything ABOVE me folded?
-        for (d, name) in dirs.iter().enumerate() {
+        // is anything ABOVE me folded? — carried on the open stack, so that a
+        // directory the NEXT file does not re-enter still hides what is under
+        // it. Asking only the directories this file opens is what let a folded
+        // directory's second subdirectory draw a row while its first one, and
+        // every file, correctly disappeared.
+        for (d, component) in dirs.iter().enumerate() {
             if d < open.len() {
                 continue;
             }
-            open.push(name.clone());
-            let path = open.join("/");
-            if !open_folded.iter().any(|&f| f) {
+            let path = dirs[..=d].join("/");
+            let (depth, name) = match open.last() {
+                Some(parent) if parent.joined => {
+                    (parent.depth, format!("{}/{component}", parent.name))
+                }
+                Some(parent) => (parent.depth + 1, component.clone()),
+                None => (0, component.clone()),
+            };
+            let hidden = open.iter().any(|o| o.folded);
+            let joined = joins_its_child(&path);
+            if !joined && !hidden {
                 tree.push(TreeEntry {
-                    depth: d,
-                    kind: TreeKind::Dir { path: path.clone() },
+                    depth,
+                    kind: TreeKind::Dir {
+                        path: path.clone(),
+                        name: name.clone(),
+                    },
                 });
             }
-            open_folded.push(folded.contains(&path));
+            open.push(OpenDir {
+                component: component.clone(),
+                depth,
+                name,
+                joined,
+                folded: folded.contains(&path),
+            });
         }
-        if !open_folded.iter().any(|&f| f) {
+        if !open.iter().any(|o| o.folded) {
             tree.push(TreeEntry {
-                depth: dirs.len(),
-                kind: TreeKind::File { file_idx },
+                // A directory that holds a file is never joined, so the file
+                // sits one below its directory's row.
+                depth: open.last().map_or(0, |o| o.depth + 1),
+                kind: TreeKind::File {
+                    file_idx: *file_idx,
+                },
             });
         }
     }
     tree
+}
+
+/// Whether the directory row keyed `row_path` and labelled `name` stands for
+/// the directory `dir`: its own path, or a directory joined into it on the
+/// way down. A cursor saved on `a/b` before `a/b/c` was joined still lands on
+/// the row that now holds it, rather than falling back to the top.
+fn joined_row_covers(row_path: &str, name: &str, dir: &str) -> bool {
+    if row_path == dir {
+        return true;
+    }
+    let absorbed = name.matches('/').count();
+    let depth = |p: &str| p.matches('/').count();
+    row_path
+        .strip_prefix(dir)
+        .is_some_and(|rest| rest.starts_with('/'))
+        && depth(dir) + absorbed >= depth(row_path)
+}
+
+/// One directory component in scope while `build_tree` walks the sorted paths.
+struct OpenDir {
+    component: String,
+    /// The depth of the row this component is drawn on — its own, or the
+    /// deeper directory's it is joined into.
+    depth: usize,
+    /// The label so far: `a/b` for a component joined on from `a`.
+    name: String,
+    /// Absorbed into its only child: it draws no row of its own.
+    joined: bool,
+    folded: bool,
 }
 
 impl App {
@@ -103,7 +181,7 @@ impl App {
     fn files_under(&self, row: usize) -> Vec<usize> {
         match self.tree.get(row).map(|e| &e.kind) {
             Some(TreeKind::File { file_idx }) => vec![*file_idx],
-            Some(TreeKind::Dir { path }) => {
+            Some(TreeKind::Dir { path, .. }) => {
                 let prefix = format!("{path}/");
                 let mut under: Vec<usize> = self
                     .files()
@@ -134,7 +212,7 @@ impl App {
     pub(super) fn tree_row_path(&self, row: usize) -> Option<String> {
         match self.tree.get(row).map(|e| &e.kind) {
             Some(TreeKind::File { file_idx }) => Some(self.files()[*file_idx].path.clone()),
-            Some(TreeKind::Dir { path }) => Some(path.clone()),
+            Some(TreeKind::Dir { path, .. }) => Some(path.clone()),
             None => None,
         }
     }
@@ -149,13 +227,13 @@ impl App {
         self.rebuild_tree();
         self.tree.iter().position(|e| match &e.kind {
             TreeKind::File { file_idx } => self.files()[*file_idx].path == path,
-            TreeKind::Dir { path: p } => p == path,
+            TreeKind::Dir { path: p, name } => joined_row_covers(p, name, path),
         })
     }
 
     /// Fold or unfold the selected directory.
     pub(super) fn toggle_dir(&mut self) -> bool {
-        let Some(TreeKind::Dir { path }) = self.tree.get(self.selected_file).map(|e| &e.kind)
+        let Some(TreeKind::Dir { path, .. }) = self.tree.get(self.selected_file).map(|e| &e.kind)
         else {
             return false;
         };
@@ -167,7 +245,7 @@ impl App {
         self.selected_file = self
             .tree
             .iter()
-            .position(|e| matches!(&e.kind, TreeKind::Dir { path: p } if *p == path))
+            .position(|e| matches!(&e.kind, TreeKind::Dir { path: p, .. } if *p == path))
             .unwrap_or(0);
         self.follow_plan_scroll();
         self.rebuild_rows();
@@ -1156,5 +1234,27 @@ impl App {
         if let Err(e) = self.session.save_cursor(id, self.cursor) {
             self.status = format!("save failed: {e:#}");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::joined_row_covers;
+
+    #[test]
+    fn a_joined_row_covers_the_directories_joined_into_it() {
+        // `a/b/c`, drawn as `b/c` under `a/`: it stands for `a/b` and `a/b/c`.
+        assert!(joined_row_covers("a/b/c", "b/c", "a/b/c"));
+        assert!(joined_row_covers("a/b/c", "b/c", "a/b"));
+        assert!(
+            !joined_row_covers("a/b/c", "b/c", "a"),
+            "`a` has its own row"
+        );
+        assert!(!joined_row_covers("a/b/c", "c", "a/b"), "nothing joined");
+        assert!(
+            !joined_row_covers("a/bc", "a/bc", "a/b"),
+            "a prefix, not a directory"
+        );
+        assert!(joined_row_covers("a/b/c", "a/b/c", "a"));
     }
 }
