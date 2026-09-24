@@ -83,6 +83,7 @@ const DEFAULTS: &[(Action, &[Screen], &[&str])] = {
         (Action::ShrinkDiff, &[Review], &["alt--"]),
         (Action::Fold, &[Review], &["z"]),
         (Action::Files, &[Review, FileList], &["f"]),
+        (Action::ExternalEditor, &[Review], &["e"]),
         (Action::Findings, &[Review, Findings], &["F"]),
         (Action::Search, ALL, &["/"]),
         (Action::ToggleReviewed, &[Review], &["space"]),
@@ -620,9 +621,12 @@ mod tests {
 
     #[test]
     fn a_rebinding_holds_in_every_screen_the_action_works_in() {
-        let map = Keymap::new(&keys(&[(Action::Down, &["e"])])).unwrap();
+        // `m` rather than `e`: `e` is `external-editor`'s default in the
+        // review, so binding `down` to it is a clash — which is the next
+        // test's subject, not this one's.
+        let map = Keymap::new(&keys(&[(Action::Down, &["m"])])).unwrap();
         for screen in Screen::ALL {
-            assert_eq!(act(&map, screen, ch('e')), Lookup::Act(Action::Down));
+            assert_eq!(act(&map, screen, ch('m')), Lookup::Act(Action::Down));
             assert_eq!(act(&map, screen, ch('j')), Lookup::Nothing);
         }
     }

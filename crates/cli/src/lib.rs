@@ -14,7 +14,7 @@ use std::time::Duration;
 use anyhow::Context;
 use clap::{Args, Parser, Subcommand};
 use differential_engine::artefact::symbols::SymbolReaders;
-use differential_engine::config::{Agent, Config, UserConfig, user_config_path};
+use differential_engine::config::{Agent, Config, EditorCommand, UserConfig, user_config_path};
 use differential_engine::forge::{self, Forge, ForgeKind, Request};
 use differential_engine::forgeio::{GhForge, GlabForge};
 use differential_engine::gitio::Repo;
@@ -463,6 +463,8 @@ fn run_review(
             keys: config.keys.clone(),
         },
         user_config_path,
+        editor: editor_command(config.review.editor.as_deref())?,
+        editor_env: editor_from_env(),
         // As TYPED, so the footer can hand it straight back. Empty when the
         // picker chose the source, which has no spelling.
         range: match &request {
@@ -857,6 +859,51 @@ fn artefact_store(repo: &Repo, no_cache: bool) -> anyhow::Result<FsArtefactStore
 ///
 /// The default backend's tool allowlist is derived from this same string, so
 /// the prompt can never name a command the model is not allowed to run.
+/// The command `e` opens a file with: `[review].editor`, then `$VISUAL`, then
+/// `$EDITOR`.
+///
+/// The environment is read HERE because this is the application layer. The
+/// engine owns the format of the value and the renderer owns the key press;
+/// neither may name `std::env`, and the layering test holds the engine to it.
+///
+/// **The two sources fail differently, on purpose.** A `[review].editor` that
+/// cannot be split is a hard error, like every other malformed config value:
+/// the reader wrote it for this tool and wants to hear that it is wrong. A
+/// `$VISUAL` or `$EDITOR` that cannot be split is treated as unset, because it
+/// was written for every program on the machine and stopping `dfr review` from
+/// opening over it would punish a reader who never asked for this key. `e`
+/// then says there is no editor, which is true.
+fn editor_command(configured: Option<&str>) -> anyhow::Result<Option<EditorCommand>> {
+    match configured {
+        Some(text) => Ok(Some(EditorCommand::parse(text, "[review].editor")?)),
+        None => Ok(editor_from_env()),
+    }
+}
+
+/// `$VISUAL`, then `$EDITOR`, and nothing else.
+///
+/// Passed to the renderer on its own as well, because the config modal can
+/// CLEAR `[review].editor` while the reviewer runs. Clearing it means "use the
+/// environment", and the renderer may not read one — so what the environment
+/// says has to be handed over before the terminal opens, or a reader who
+/// cleared the row would find `e` dead until the next start.
+fn editor_from_env() -> Option<EditorCommand> {
+    for var in ["VISUAL", "EDITOR"] {
+        let Ok(text) = std::env::var(var) else {
+            continue;
+        };
+        if text.trim().is_empty() {
+            continue;
+        }
+        // A variable that splits is used; one that does not is skipped, and
+        // the next source gets its turn.
+        if let Ok(cmd) = EditorCommand::parse(&text, var) {
+            return Some(cmd);
+        }
+    }
+    None
+}
+
 fn fetch_command() -> String {
     std::env::current_exe()
         .ok()

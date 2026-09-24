@@ -10042,7 +10042,9 @@ fn with_keys(pairs: &[(Action, &[&str])]) -> ReviewOptions {
 #[test]
 fn back_and_the_floats_keys_follow_the_keys_table() {
     let opts = ReviewOptions {
-        keymap: with_keys(&[(Action::Back, &["backspace"]), (Action::Close, &["e"])]).keymap,
+        // `m`, not `e`: `e` is `external-editor`'s default, so binding
+        // `close` to it would be a clash rather than a rebinding.
+        keymap: with_keys(&[(Action::Back, &["backspace"]), (Action::Close, &["m"])]).keymap,
         ..laid_out(false)
     };
     let (_r, mut app) = app_with_symbols_and(opts);
@@ -10054,7 +10056,7 @@ fn back_and_the_floats_keys_follow_the_keys_table() {
         .expect("the float has a home");
     let edge = &screen(&app, SCREEN.width, SCREEN.height)[(area.bottom() - 1) as usize];
     assert!(
-        edge.trim_end().ends_with("enter go to  ·  e close ┘"),
+        edge.trim_end().ends_with("enter go to  ·  m close ┘"),
         "the edge names the bound close key: {edge:?}"
     );
 
@@ -10066,14 +10068,28 @@ fn back_and_the_floats_keys_follow_the_keys_table() {
     assert_eq!(app.cursor, call, "backspace is");
 }
 
+/// An `e` that lands somewhere, from every kind of row.
+///
+/// The key's whole promise is that it always has an answer in the diff pane,
+/// so each narrowing step of `editor_target` gets a row that reaches it.
+fn with_editor() -> ReviewOptions {
+    ReviewOptions {
+        editor: Some(
+            differential_engine::config::EditorCommand::parse("nvim +{line} {file}", "test")
+                .unwrap(),
+        ),
+        ..ReviewOptions::default()
+    }
+}
+
 #[test]
 fn a_rebound_key_does_the_action_and_the_old_one_does_nothing() {
-    let (_r, mut app) = make_app_with(with_keys(&[(Action::Down, &["e"])]));
+    let (_r, mut app) = make_app_with(with_keys(&[(Action::Down, &["m"])]));
     assert_eq!(app.selected_group, 0);
     app.handle_key(key('j'));
     assert_eq!(app.selected_group, 0, "j is not down any more");
-    app.handle_key(key('e'));
-    assert_eq!(app.selected_group, 1, "e is");
+    app.handle_key(key('m'));
+    assert_eq!(app.selected_group, 1, "m is");
 
     // The same action in a list: the rebinding holds wherever `down` works.
     // Unfolded first, so the list has more than the one exemplar's file.
@@ -10087,7 +10103,7 @@ fn a_rebound_key_does_the_action_and_the_old_one_does_nothing() {
     assert_eq!(selected(&app), 0);
     app.handle_key(key('j'));
     assert_eq!(selected(&app), 0, "j does nothing in the list either");
-    app.handle_key(key('e'));
+    app.handle_key(key('m'));
     assert_eq!(selected(&app), 1);
 }
 
@@ -10237,7 +10253,7 @@ fn render_dump_keys() {
     dump(
         "rebound",
         with_keys(&[
-            (Action::Down, &["e", "down"]),
+            (Action::Down, &["m", "down"]),
             (Action::Up, &["u", "up"]),
             (Action::NextGroup, &["ctrl-n"]),
             (Action::PrevGroup, &["ctrl-p"]),
@@ -10485,7 +10501,9 @@ fn saving_writes_the_whole_file_and_applies_it_at_once() {
     app.handle_key(key('l'));
     let theme = app.options().theme;
     select_config_row(&mut app, "down");
-    retype_config_row(&mut app, "[\"e\", \"down\"]");
+    // `m`, not `e`: `e` is `external-editor`'s default, and binding `down`
+    // to it would be a clash — which is a different test's subject.
+    retype_config_row(&mut app, "[\"m\", \"down\"]");
     // `j` is free now, but nothing else asks for it: no clash.
     assert!(app.config_edit().unwrap().problems.is_empty());
     app.handle_key(ctrl('s'));
@@ -10495,12 +10513,12 @@ fn saving_writes_the_whole_file_and_applies_it_at_once() {
     let saved = Config::load_user(&OsConfigSource, Some(&path)).unwrap();
     assert_eq!(saved.review.theme, theme);
     assert_ne!(theme, ThemeName::Dark);
-    assert_eq!(saved.keys.0[&Action::Down], ["e", "down"]);
+    assert_eq!(saved.keys.0[&Action::Down], ["m", "down"]);
     assert_eq!(&saved, &app.options().user_config);
 
     // The keys apply now, not next time.
     assert_eq!(app.selected_group, 0);
-    app.handle_key(key('e'));
+    app.handle_key(key('m'));
     assert_eq!(app.selected_group, 1);
 }
 
@@ -10700,7 +10718,7 @@ fn r_puts_any_setting_back_to_its_default() {
         assert!(default, "r reset {label}");
     }
     select_config_row(&mut app, "down");
-    retype_config_row(&mut app, "[\"e\"]");
+    retype_config_row(&mut app, "[\"m\"]");
     app.handle_key(key('r'));
     let edit = app.config_edit().unwrap();
     assert!(edit.draft.keys.is_empty(), "r drops a key override");
@@ -10751,6 +10769,198 @@ fn the_config_modals_errors_wrap_and_are_read_to_the_end() {
         assert!(
             flat.contains(&words.join(" ")),
             "{p:?} is not on screen in full:\n{flat}"
+        );
+    }
+}
+
+/// The path and the line an `e` press asks for, or nothing.
+fn pressed_e(app: &mut App) -> Option<(String, u32)> {
+    match app.handle_key(key('e')).as_slice() {
+        [Effect::OpenInEditor { path, line }] => Some((path.clone(), *line)),
+        [] => None,
+        other => panic!("e produced {} effects", other.len()),
+    }
+}
+
+#[test]
+fn e_opens_the_new_side_line_under_the_cursor() {
+    let (_r, mut app) = make_app_with(with_editor());
+    app.focus = Focus::Detail;
+    // Walk to a row that IS a line, which is the common case and the only one
+    // that can answer exactly.
+    let row = app
+        .rows
+        .iter()
+        .position(|r| {
+            r.line
+                .as_ref()
+                .is_some_and(|l| l.side == "new" || l.other.is_some_and(|(s, _)| s == "new"))
+        })
+        .expect("a fixture with no new-side row tests nothing");
+    app.cursor = row;
+    let want = app.rows[row]
+        .line
+        .as_ref()
+        .and_then(|l| l.line_on("new"))
+        .unwrap();
+    let (path, line) = pressed_e(&mut app).expect("a code row must open");
+    assert_eq!(line, want, "e must take the row's own new-side line");
+    assert!(app.files().iter().any(|f| f.path == path), "{path}");
+}
+
+#[test]
+fn e_on_a_row_that_is_not_a_line_falls_back_to_the_hunk_then_the_file() {
+    let (_r, mut app) = make_app_with(with_editor());
+    app.focus = Focus::Detail;
+
+    // A hunk header is not a line. It is inside a hunk, so the hunk's first
+    // new-side line is the answer.
+    let header = app
+        .rows
+        .iter()
+        .position(|r| matches!(r.kind, RowKind::HunkHeader { .. }))
+        .expect("every fixture file has a hunk header");
+    app.cursor = header;
+    let RowKind::HunkHeader { hunk, .. } = app.rows[header].kind else {
+        unreachable!()
+    };
+    let want = {
+        let h = &app.session.doc().hunks[hunk];
+        (h.file.clone(), h.new_start.max(1))
+    };
+    assert_eq!(
+        pressed_e(&mut app),
+        Some(want),
+        "a hunk header must open its hunk's first new-side line"
+    );
+
+    // A file header is inside no hunk at all, so the file opens at the top.
+    let file_row = app
+        .rows
+        .iter()
+        .position(|r| matches!(r.kind, RowKind::FileHeader(_)))
+        .expect("every fixture file has a file header");
+    app.cursor = file_row;
+    let RowKind::FileHeader(ref path) = app.rows[file_row].kind else {
+        unreachable!()
+    };
+    let path = path.clone();
+    assert_eq!(
+        pressed_e(&mut app),
+        Some((path, 1)),
+        "a row under no hunk must open the file at the top"
+    );
+}
+
+#[test]
+fn e_in_the_plan_pane_opens_the_selected_file_and_refuses_a_group() {
+    let (_r, mut app) = make_app_with(with_editor());
+    app.focus = Focus::Groups;
+
+    // The reading plan lists groups. A group is not a file, and saying so is
+    // better than opening whatever the diff cursor happens to sit on.
+    app.view_mode = ViewMode::Groups;
+    assert_eq!(pressed_e(&mut app), None, "a group is not a file");
+    assert_eq!(app.status, "no file here");
+
+    // The file tree lists files. The selected one opens at the top: the plan
+    // pane has no line to offer.
+    app.handle_key(key('f'));
+    assert_eq!(app.view_mode, ViewMode::Files);
+    app.focus = Focus::Groups;
+    let file = app
+        .tree
+        .iter()
+        .position(|e| matches!(e.kind, differential_tui::app::TreeKind::File { .. }))
+        .expect("the tree must hold a file");
+    app.selected_file = file;
+    let differential_tui::app::TreeKind::File { file_idx } = app.tree[file].kind else {
+        unreachable!()
+    };
+    assert_eq!(
+        pressed_e(&mut app),
+        Some((app.files()[file_idx].path.clone(), 1)),
+        "the plan pane opens the selected file at the top"
+    );
+}
+
+/// With no editor resolved the key must say so. It is the one case where the
+/// reader has done nothing wrong and the feature still cannot run, so a silent
+/// no-op would read as a broken key.
+#[test]
+fn e_with_no_editor_configured_says_so_and_spawns_nothing() {
+    let (_r, mut app) = make_app();
+    app.focus = Focus::Detail;
+    let row = app
+        .rows
+        .iter()
+        .position(|r| r.line.is_some())
+        .expect("a fixture with no line row tests nothing");
+    app.cursor = row;
+    assert_eq!(pressed_e(&mut app), None);
+    assert!(app.status.contains("no editor"), "{}", app.status);
+    assert!(app.status.contains("$EDITOR"), "{}", app.status);
+}
+
+/// `e` is an action like any other, so a reader may put it elsewhere. The
+/// whole point of ADR 0036 is that nothing else has to be told.
+#[test]
+fn the_external_editor_key_is_rebindable() {
+    let mut opts = with_keys(&[(Action::ExternalEditor, &["ctrl-o"])]);
+    opts.editor = with_editor().editor;
+    let (_r, mut app) = make_app_with(opts);
+    app.focus = Focus::Detail;
+    let row = app
+        .rows
+        .iter()
+        .position(|r| r.line.is_some())
+        .expect("a fixture with no line row tests nothing");
+    app.cursor = row;
+
+    assert!(app.handle_key(key('e')).is_empty(), "e is not bound now");
+    let pressed = app.handle_key(KeyEvent::new(KeyCode::Char('o'), KeyModifiers::CONTROL));
+    assert!(
+        matches!(pressed.as_slice(), [Effect::OpenInEditor { .. }]),
+        "ctrl-o is"
+    );
+
+    // And the help names the bound key rather than the default, because the
+    // row names the action and the keymap answers.
+    sized(&mut app);
+    app.handle_key(key('?'));
+    let text = screen(&app, SCREEN.width, SCREEN.height);
+    let row = text
+        .iter()
+        .find(|r| r.contains("open this line in your editor"))
+        .expect("the help must name the action");
+    assert!(row.contains("ctrl-o"), "{row:?}");
+}
+
+/// An action nobody can reach is a key that quietly does nothing, so an
+/// unbound `external-editor` must leave `e` free rather than half-work.
+#[test]
+fn the_external_editor_key_can_be_unbound() {
+    let mut opts = with_keys(&[(Action::ExternalEditor, &[])]);
+    opts.editor = with_editor().editor;
+    let (_r, mut app) = make_app_with(opts);
+    app.focus = Focus::Detail;
+    app.cursor = app.rows.iter().position(|r| r.line.is_some()).unwrap();
+    assert!(app.handle_key(key('e')).is_empty());
+    assert!(app.status.is_empty(), "an unbound key says nothing");
+}
+
+/// `?` must name the key, or a reader only finds it in the spec. The help
+/// table is the one place the footer and the modal both read.
+#[test]
+fn the_help_table_names_e_in_both_panes() {
+    let (_r, mut app) = make_app();
+    for focus in [Focus::Groups, Focus::Detail] {
+        app.focus = focus;
+        let acts = app.acts();
+        assert!(
+            acts.iter().any(|a| a.key == "e"),
+            "e missing from {focus:?}: {:?}",
+            acts.iter().map(|a| a.key.clone()).collect::<Vec<_>>()
         );
     }
 }
@@ -10814,4 +11024,179 @@ fn every_multiple_choice_row_opens_a_list() {
     app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     let edit = app.config_edit().unwrap();
     assert!(edit.dropdown.is_none() && edit.editing.is_some());
+}
+
+/// A removed line is the case the fallback exists for. In the unified layout
+/// it carries no new-side number at all — the line is not in the file any
+/// more — so the hunk's first new-side line is what `e` can honestly offer.
+#[test]
+fn e_on_a_removed_line_opens_the_hunk_it_was_cut_from() {
+    let (_r, mut app) = make_app_with(ReviewOptions {
+        split_diff: false,
+        ..with_editor()
+    });
+    app.focus = Focus::Detail;
+    let removed = app
+        .rows
+        .iter()
+        .position(|r| {
+            r.line
+                .as_ref()
+                .is_some_and(|l| l.side == "old" && l.other.is_none())
+        })
+        .expect("a unified fixture with no removed row tests nothing");
+    app.cursor = removed;
+    let hunk = app.rows[removed]
+        .kind
+        .hunk()
+        .expect("a diff row has a hunk");
+    let want = {
+        let h = &app.session.doc().hunks[hunk];
+        (h.file.clone(), h.new_start.max(1))
+    };
+    assert_eq!(
+        pressed_e(&mut app),
+        Some(want),
+        "a removed line must open the hunk that cut it"
+    );
+}
+
+/// `cargo test -p differential-tui --test tui -- --ignored --nocapture render_dump_editor_key`
+#[ignore = "a dump for the author's eyes, not an assertion"]
+#[test]
+fn render_dump_editor_key() {
+    let (_r, mut app) = make_app_with(with_editor());
+    sized(&mut app);
+    app.focus = Focus::Detail;
+    app.handle_key(key('?'));
+    println!("\n=== ? in the diff pane — the new `e` row ===");
+    for row in screen(&app, 100, 40) {
+        println!("{row}");
+    }
+    app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    app.focus = Focus::Groups;
+    app.handle_key(key('?'));
+    println!("\n=== ? in the plan pane — the same key, the other words ===");
+    for row in screen(&app, 100, 40) {
+        println!("{row}");
+    }
+    app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+
+    // Rebound: the row names the action, so the help follows the keymap.
+    let mut rebound = with_keys(&[(Action::ExternalEditor, &["ctrl-e"])]);
+    rebound.editor = with_editor().editor;
+    let mut app = make_app_with(rebound).1;
+    sized(&mut app);
+    app.focus = Focus::Detail;
+    app.handle_key(key('?'));
+    println!("\n=== external-editor = [\"ctrl-e\"] — the help follows ===");
+    for row in screen(&app, 100, 40) {
+        println!("{row}");
+    }
+    app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+
+    // The status the key writes when no editor is resolved. The rest of the
+    // footer strings are the loop's, after a spawn a test cannot make; they
+    // are pinned in `launch.rs`'s own unit test instead.
+    app.focus = Focus::Detail;
+    let mut bare = make_app_with(ReviewOptions::default()).1;
+    sized(&mut bare);
+    bare.focus = Focus::Detail;
+    bare.handle_key(key('e'));
+    println!("\n=== e with no editor resolved ===");
+    println!("  {}", bare.status);
+}
+
+/// `:config` edits `[review].editor` like any other row: typed, validated on
+/// enter, reset by `r`, saved with the rest of the file — and the command it
+/// saves is the one `e` uses at once, not at the next start.
+#[test]
+fn the_config_modal_edits_the_editor_command() {
+    use differential_engine::config::Config;
+    use differential_engine::store::OsConfigSource;
+    let tmp = tempfile::TempDir::new().unwrap();
+    let path = tmp.path().join("differential").join("config.toml");
+    let (_r, mut app) = make_app_with(ReviewOptions {
+        user_config_path: Some(path.clone()),
+        ..ReviewOptions::default()
+    });
+    sized(&mut app);
+    command(&mut app, "config");
+
+    // Unset, the row is empty and marked as the default, and the screen says
+    // what unset MEANS — an empty row would read as "no editor at all".
+    select_config_row(&mut app, "editor");
+    let (value, default) = {
+        let e = app.config_edit().unwrap();
+        e.value(e.field())
+    };
+    assert_eq!(value, "");
+    assert!(default);
+    let text = screen(&app, SCREEN.width, SCREEN.height).join("\n");
+    assert!(text.contains("$VISUAL, then $EDITOR"), "{text}");
+
+    // A value the crate could not run is refused, in the modal, with the box
+    // still open on what was typed.
+    retype_config_row(&mut app, "{file}");
+    let e = app.config_edit().unwrap();
+    assert!(e.editing.is_some(), "the box stays open on a refusal");
+    assert!(
+        e.error.as_deref().is_some_and(|m| m.contains("first word")),
+        "{:?}",
+        e.error
+    );
+    app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+
+    // A good one takes, and saves with the rest of the file.
+    retype_config_row(&mut app, "nvim +{line} {file}");
+    assert_eq!(
+        app.config_edit().unwrap().draft.review.editor.as_deref(),
+        Some("nvim +{line} {file}")
+    );
+    app.handle_key(ctrl('s'));
+    assert!(app.status.starts_with("saved"), "{}", app.status);
+    let saved = Config::load_user(&OsConfigSource, Some(&path)).unwrap();
+    assert_eq!(saved.review.editor.as_deref(), Some("nvim +{line} {file}"));
+
+    // And `e` uses it NOW. Before this row existed the reviewer held the
+    // command the application layer resolved at start.
+    app.focus = Focus::Detail;
+    app.cursor = app.rows.iter().position(|r| r.line.is_some()).unwrap();
+    assert!(
+        matches!(
+            app.handle_key(key('e')).as_slice(),
+            [Effect::OpenInEditor { .. }]
+        ),
+        "the saved command is the one e uses"
+    );
+}
+
+/// Clearing the row means "use the environment", not "no editor". The
+/// application layer hands the environment's own answer over for this.
+#[test]
+fn clearing_the_editor_row_falls_back_to_the_environment() {
+    let env = differential_engine::config::EditorCommand::parse("vi", "test").unwrap();
+    let (_r, mut app) = make_app_with(ReviewOptions {
+        editor: Some(
+            differential_engine::config::EditorCommand::parse("nvim {file}", "test").unwrap(),
+        ),
+        editor_env: Some(env.clone()),
+        ..ReviewOptions::default()
+    });
+    sized(&mut app);
+    command(&mut app, "config");
+    select_config_row(&mut app, "editor");
+    retype_config_row(&mut app, "hx {file}:{line}");
+    assert_eq!(app.options().editor.as_ref().unwrap().program(), "hx");
+
+    // `r` is the reset, and the row's default is the environment's command —
+    // not nothing, which would leave `e` dead for a reader who never wrote
+    // `[review].editor` in the first place.
+    app.handle_key(key('r'));
+    assert_eq!(app.config_edit().unwrap().draft.review.editor, None);
+    assert_eq!(app.options().editor.as_ref().unwrap().program(), "vi");
+
+    // And `esc` puts back what the modal opened on, as it does for the theme.
+    app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    assert_eq!(app.options().editor.as_ref().unwrap().program(), "nvim");
 }

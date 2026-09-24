@@ -559,6 +559,11 @@ impl App {
                     if field == Field::Diff && self.layout_is_recorded() {
                         row.push(Span::styled("  · this review keeps its own (s)", dim));
                     }
+                    // An empty row says nothing, and unset here does not mean
+                    // "no editor" — it means the environment's.
+                    if field == Field::Editor && default {
+                        row.push(Span::styled("$VISUAL, then $EDITOR", dim));
+                    }
                 }
             }
             let mut line = Line::from(row);

@@ -573,6 +573,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha1",
+ "shlex",
  "tempfile",
  "thiserror 2.0.20",
  "toml",

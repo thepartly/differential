@@ -286,6 +286,15 @@ pub struct ReviewConfig {
     /// Which palette to wear. Default: `dark`.
     #[serde(default)]
     pub theme: ThemeName,
+    /// The command that opens a file at a line when the reader presses `e`.
+    ///
+    /// `{file}` and `{line}` say where the path and the line go. A command
+    /// naming neither gets the path appended and opens the file at the top.
+    /// Unset falls back to `$VISUAL` and then `$EDITOR`, which the application
+    /// layer reads — the environment is an adapter's to touch, not this
+    /// module's (ADR 0038).
+    #[serde(default)]
+    pub editor: Option<String>,
 }
 
 /// How the reviewer lays a hunk out.
@@ -354,6 +363,101 @@ impl ThemeName {
     }
 }
 
+/// The placeholder standing for the path to open.
+pub const EDITOR_FILE: &str = "{file}";
+/// The placeholder standing for the line to open it at.
+pub const EDITOR_LINE: &str = "{line}";
+
+/// A parsed `[review].editor` — the command that opens a file at a line.
+///
+/// **A command, not a name**, and the only key in this module that is. `agent`
+/// and `theme` are names because the invocation behind each carries more than
+/// an argv: an agent is handed a tool allowlist and a prompt written for what
+/// it can do (ADR 0022, 0033), and a palette is thirty-odd values derived
+/// together so the chrome and the code cannot disagree (ADR 0024). In both, a
+/// free-form value would have been a knob that looked like it worked.
+///
+/// Neither reason reaches an editor. The invocation carries a path and a line
+/// and nothing else, every editor spells the line differently, and a name
+/// would have frozen the list of editors a reader may use into an enum in this
+/// crate. So the reader writes the command (ADR 0038).
+///
+/// Parsed once, at load, so a command that cannot be split is an error the
+/// reader sees when they start rather than when they press the key.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EditorCommand {
+    argv: Vec<String>,
+    carries_line: bool,
+    carries_file: bool,
+}
+
+impl EditorCommand {
+    /// Split the command into words. `origin` names the file or the variable
+    /// it came from, for the error.
+    ///
+    /// `shlex` does the splitting rather than a hand-rolled scanner (design
+    /// rule 5): quoting is the whole of the problem here, and a path with a
+    /// space in it is the case that would have found a hand-rolled bug.
+    pub fn parse(text: &str, origin: &str) -> Result<EditorCommand, EngineError> {
+        let fail = |msg: String| EngineError::Config {
+            path: origin.to_string(),
+            msg,
+        };
+        let argv = shlex::split(text).ok_or_else(|| {
+            fail(format!(
+                "editor command does not split into words \
+                 (an unbalanced quote?): {text:?}"
+            ))
+        })?;
+        if argv.is_empty() {
+            return Err(fail("editor command is empty".to_string()));
+        }
+        Ok(EditorCommand {
+            carries_line: argv.iter().any(|w| w.contains(EDITOR_LINE)),
+            carries_file: argv.iter().any(|w| w.contains(EDITOR_FILE)),
+            argv,
+        })
+    }
+
+    /// The argv that opens `file` at `line`.
+    ///
+    /// A command naming no `{file}` gets the path appended, which is what
+    /// makes a bare `$EDITOR` work; it opens the file at the top, and
+    /// [`carries_line`](Self::carries_line) is what lets the caller say so.
+    ///
+    /// **`{line}` is substituted before `{file}`.** A path holding the literal
+    /// text `{line}` would otherwise be read as a placeholder by the second
+    /// pass. `str::replace` never re-scans what it inserts, so one order is
+    /// all it takes.
+    ///
+    /// The path is rendered lossily, as every path in the renderer above this
+    /// already is — `schema::FileEntry::path` is a `String`.
+    pub fn argv(&self, file: &Path, line: u32) -> Vec<String> {
+        let path = file.to_string_lossy();
+        let line = line.to_string();
+        let mut argv: Vec<String> = self
+            .argv
+            .iter()
+            .map(|w| w.replace(EDITOR_LINE, &line).replace(EDITOR_FILE, &path))
+            .collect();
+        if !self.carries_file {
+            argv.push(path.into_owned());
+        }
+        argv
+    }
+
+    /// Whether the command says where the line goes. `false` means the editor
+    /// opens the file at the top, which the reader is owed a word about.
+    pub fn carries_line(&self) -> bool {
+        self.carries_line
+    }
+
+    /// The program, for an error message that names what failed.
+    pub fn program(&self) -> &str {
+        &self.argv[0]
+    }
+}
+
 const fn default_context() -> usize {
     3
 }
@@ -369,6 +473,7 @@ impl Default for ReviewConfig {
             context_step: default_context_step(),
             diff: DiffLayout::default(),
             theme: ThemeName::default(),
+            editor: None,
         }
     }
 }
@@ -409,6 +514,10 @@ pub enum Action {
     ShrinkDiff,
     Fold,
     Files,
+    /// Hand the terminal to the reader's own editor, on the line under the
+    /// cursor. The command it runs is `[review].editor` (ADR 0038); this is
+    /// only the key that asks for it.
+    ExternalEditor,
     Findings,
     Search,
     ToggleReviewed,
@@ -428,7 +537,7 @@ impl Action {
     /// Every action, so a lister does not keep its own copy of the list.
     /// `all_actions_are_listed` in this module is the check a `match` would
     /// have been.
-    pub const ALL: [Action; 35] = [
+    pub const ALL: [Action; 36] = [
         Action::ToggleFocus,
         Action::Open,
         Action::Close,
@@ -451,6 +560,7 @@ impl Action {
         Action::ShrinkDiff,
         Action::Fold,
         Action::Files,
+        Action::ExternalEditor,
         Action::Findings,
         Action::Search,
         Action::ToggleReviewed,
@@ -492,6 +602,7 @@ impl Action {
             Action::ShrinkDiff => "shrink-diff",
             Action::Fold => "fold",
             Action::Files => "files",
+            Action::ExternalEditor => "external-editor",
             Action::Findings => "findings",
             Action::Search => "search",
             Action::ToggleReviewed => "toggle-reviewed",
@@ -1015,6 +1126,118 @@ attributes = ["linguist-generated", "custom-generated"]
         }
     }
 
+    /// The editor is a COMMAND where `agent` and `theme` are names, so the
+    /// thing to pin is that the command survives splitting and that the two
+    /// placeholders land where the reader put them.
+    #[test]
+    fn the_editor_command_puts_the_path_and_the_line_where_the_reader_said() {
+        let u = Config::parse_user("[review]\neditor = \"nvim +{line} {file}\"", "test").unwrap();
+        let cmd = EditorCommand::parse(u.review.editor.as_deref().unwrap(), "test").unwrap();
+        assert_eq!(
+            cmd.argv(Path::new("/w/src/x.rs"), 42),
+            ["nvim", "+42", "/w/src/x.rs"]
+        );
+        assert!(cmd.carries_line());
+        assert_eq!(cmd.program(), "nvim");
+
+        // Both placeholders in ONE word, which is how several editors spell it.
+        // Splitting has to happen before substitution or this becomes three.
+        let cmd = EditorCommand::parse("code -g {file}:{line}", "test").unwrap();
+        assert_eq!(
+            cmd.argv(Path::new("/w/src/x.rs"), 7),
+            ["code", "-g", "/w/src/x.rs:7"]
+        );
+
+        // A quoted program with a space stays one word. This is the case a
+        // hand-rolled splitter gets wrong, and why `shlex` does it.
+        let cmd =
+            EditorCommand::parse("\"/Applications/My Editor\" --at {line} {file}", "test").unwrap();
+        assert_eq!(
+            cmd.argv(Path::new("/w/x.rs"), 3),
+            ["/Applications/My Editor", "--at", "3", "/w/x.rs"]
+        );
+    }
+
+    /// A bare `$EDITOR` is the common case and names no placeholder at all.
+    /// It must still open the file — at the top, and `carries_line` is what
+    /// lets the caller say so rather than leave the reader wondering.
+    #[test]
+    fn a_command_naming_no_placeholder_still_gets_the_path() {
+        let cmd = EditorCommand::parse("vim", "test").unwrap();
+        assert_eq!(cmd.argv(Path::new("/w/x.rs"), 42), ["vim", "/w/x.rs"]);
+        assert!(!cmd.carries_line());
+
+        // Flags are kept, and the path still lands last.
+        let cmd = EditorCommand::parse("emacsclient -nw", "test").unwrap();
+        assert_eq!(
+            cmd.argv(Path::new("/w/x.rs"), 42),
+            ["emacsclient", "-nw", "/w/x.rs"]
+        );
+        assert!(!cmd.carries_line());
+
+        // `{line}` without `{file}`: the line is honoured and the path is
+        // still appended, so `+42` in front of it is the vim spelling.
+        let cmd = EditorCommand::parse("vim +{line}", "test").unwrap();
+        assert_eq!(
+            cmd.argv(Path::new("/w/x.rs"), 42),
+            ["vim", "+42", "/w/x.rs"]
+        );
+        assert!(cmd.carries_line());
+    }
+
+    /// Order is load-bearing: `{line}` goes first, so a path that happens to
+    /// hold the text `{line}` is inserted and never read again.
+    #[test]
+    fn a_path_holding_a_placeholder_is_not_read_as_one() {
+        let cmd = EditorCommand::parse("nvim +{line} {file}", "test").unwrap();
+        assert_eq!(
+            cmd.argv(Path::new("/w/{line}/x.rs"), 9),
+            ["nvim", "+9", "/w/{line}/x.rs"]
+        );
+        // And the other way: a path holding `{file}` is not re-expanded
+        // either, because `str::replace` does not re-scan what it inserts.
+        assert_eq!(
+            cmd.argv(Path::new("/w/{file}/x.rs"), 9),
+            ["nvim", "+9", "/w/{file}/x.rs"]
+        );
+    }
+
+    /// A command that cannot be run is an error at load, not a key that does
+    /// nothing when it is pressed.
+    #[test]
+    fn an_unrunnable_editor_command_is_an_error() {
+        let err = EditorCommand::parse("", "test").unwrap_err();
+        assert!(err.to_string().contains("empty"), "{err}");
+        // Whitespace alone splits to nothing, which is the same emptiness.
+        assert!(EditorCommand::parse("   ", "test").is_err());
+        // An unbalanced quote: `shlex` refuses, and so do we.
+        let err = EditorCommand::parse("vim \"unclosed", "test").unwrap_err();
+        assert!(err.to_string().contains("quote"), "{err}");
+    }
+
+    /// The house rule for every key in this table: setting one must not zero
+    /// another, and the key is absent by default.
+    #[test]
+    fn the_editor_key_is_optional_and_independent() {
+        let u = Config::parse_user("[review]\ncontext = 8", "test").unwrap();
+        assert_eq!(u.review.editor, None);
+
+        let u = Config::parse_user("[review]\neditor = \"hx {file}:{line}\"", "test").unwrap();
+        assert_eq!(u.review.editor.as_deref(), Some("hx {file}:{line}"));
+        assert_eq!(u.review.context, 3);
+        assert_eq!(u.review.context_step, 10);
+        assert_eq!(u.review.theme, ThemeName::Dark);
+        assert_eq!(u.review.diff, DiffLayout::Split);
+    }
+
+    /// An editor is the reader's, not the repository's — the same reason a
+    /// palette is. Nothing enforces it by hand; the repo file has no
+    /// `[review]` field and denies unknown ones.
+    #[test]
+    fn an_editor_in_the_repo_config_is_rejected() {
+        assert!(Config::parse("[review]\neditor = \"vim\"", "test").is_err());
+    }
+
     /// The repo file cannot set it: a palette is the reader's, not the
     /// repository's. Nothing enforces this by hand — `RawConfig` has no
     /// `[review]` and denies unknown fields.
@@ -1135,6 +1358,7 @@ attributes = ["linguist-generated", "custom-generated"]
                 | Action::ShrinkDiff
                 | Action::Fold
                 | Action::Files
+                | Action::ExternalEditor
                 | Action::Findings
                 | Action::Search
                 | Action::ToggleReviewed

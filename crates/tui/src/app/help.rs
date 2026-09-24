@@ -429,6 +429,10 @@ impl App {
                     &[Action::Fold],
                     "unfold a skim remainder, a noise group or a directory",
                 ),
+                quiet(
+                    &[Action::ExternalEditor],
+                    "open the selected file in your editor",
+                ),
             ],
             Area::Diff => vec![
                 on(
@@ -455,6 +459,7 @@ impl App {
                         None => "the file list".to_string(),
                     },
                 ),
+                quiet(&[Action::ExternalEditor], "open this line in your editor"),
             ],
             Area::Peeking => {
                 let mut rows = vec![on(Action::Fold, "next", "the next symbol on this line")];

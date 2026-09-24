@@ -208,6 +208,10 @@ A new term earns an entry only when it names a concept no existing entry covers.
   window. A foreign hunk is any hunk not on the current group's reading list. [tui.md](tui.md).
 - **picker**. What `dfr review` opens with no range: a base and an uncommitted checkbox.
   [tui.md](tui.md).
+- **external editor** (`[review].editor`, `crates/tui/src/launch.rs`). The program `e` hands
+  the terminal to, on the line under the cursor. Its command is the reader's, with `{file}`
+  and `{line}` placeholders. Always qualified, because the **finding composer** is an editor
+  too. [tui.md](tui.md), [ADR 0038](../adr/0038-the-reviewer-hands-the-terminal-to-an-editor.md).
 - **theme** / **seed** / **accent**. A theme declares a seed: a syntax theme and six accents,
   from which every other colour is derived.
   [ADR 0024](../adr/0024-palettes-are-derived-and-threaded.md).
@@ -328,3 +332,4 @@ Each word below has one canonical meaning. Say the others another way, or qualif
 | read-only | the pipeline, which carries no write port | how an agent's read-only is enforced (`config::ReadOnly`) |
 | comment | a forge comment | the reader's is a **finding** |
 | backend | `LlmBackend` | the library is the **engine** |
+| editor | the reader's own, that `e` opens — the **external editor** | the in-reviewer one is the **finding composer** |

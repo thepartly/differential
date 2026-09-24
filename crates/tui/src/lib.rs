@@ -8,6 +8,9 @@
 
 pub mod app;
 pub mod keymap;
+/// `e`'s foreground handoff. PRIVATE: it takes the terminal session, which
+/// is this crate's own, and only the run loop below has one to give it.
+mod launch;
 pub mod markdown;
 pub mod osc;
 pub mod picker;
@@ -171,7 +174,7 @@ where
             wrap,
         ));
     }
-    run_app(terminal, app?, range.as_deref(), wrap)
+    run_app(terminal, app?, repo.root(), range.as_deref(), wrap)
 }
 
 /// Everything between a finished pipeline and a reviewer ready to draw.
@@ -255,6 +258,7 @@ fn measure() -> anyhow::Result<Rect> {
 fn run_app(
     terminal: &mut Session,
     mut app: App,
+    root: &std::path::Path,
     range: Option<&str>,
     wrap: osc::Wrap,
 ) -> anyhow::Result<()> {
@@ -325,6 +329,33 @@ fn run_app(
                     } else {
                         summary_fallback(&text, wrap, range)
                     };
+                }
+                // The one effect that gives the terminal away. The model
+                // decided WHICH line; everything from here is the loop's,
+                // because the loop is what holds the session (ADR 0038).
+                Effect::OpenInEditor { path, line } => {
+                    // The key is refused when no editor is resolved, so this
+                    // is the model and the loop disagreeing rather than a
+                    // reader to apologise to.
+                    let Some(cmd) = app.editor().cloned() else {
+                        continue;
+                    };
+                    let outcome = launch::open(terminal, root, &cmd, &path, line)?;
+                    app.status = outcome.message(&path, cmd.carries_line());
+                    // Three things the handoff leaves behind, and all three
+                    // are wrong if they are skipped:
+                    //
+                    // - keys the reader pressed AT THE EDITOR that it did not
+                    //   consume are still queued, and replaying them at the
+                    //   reviewer is a `dd` nobody meant;
+                    // - the terminal can be resized while the editor holds
+                    //   it, and the model's geometry is now a lie;
+                    // - the screen is cleared, so every cell must be redrawn.
+                    while event::poll(Duration::ZERO)? {
+                        let _ = event::read()?;
+                    }
+                    app.set_area(measure()?);
+                    dirty = true;
                 }
             }
         }

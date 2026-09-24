@@ -88,6 +88,7 @@ The engine and the application:
 | [`thiserror`](https://crates.io/crates/thiserror) and [`anyhow`](https://crates.io/crates/anyhow) | Error types and error context. |
 | [`tempfile`](https://crates.io/crates/tempfile) | Temporary index files for git plumbing. |
 | [`etcetera`](https://crates.io/crates/etcetera) | Finding the user config directory. |
+| [`shlex`](https://crates.io/crates/shlex) | Splitting `[review].editor` into words the way a shell would. |
 | [`clap`](https://crates.io/crates/clap) | Argument parsing. |
 
 The symbol readers:
