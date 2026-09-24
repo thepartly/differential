@@ -11226,8 +11226,9 @@ fn clearing_the_editor_row_falls_back_to_the_environment() {
 // ------------------------------------------- joined directory chains (#155)
 
 /// The issue's shape: `root/parent1/parent2` holds nothing but one directory
-/// each, and branches only at `parent2`. `top.rs` sits beside `root/` so the
-/// chain is not the whole tree. Every file its own shape, so every file is its
+/// each, and branches only at `parent2`. `lib.rs` and `top.rs` sit beside
+/// `root/`, so the chain is not the whole tree and not its first row — a
+/// cursor that fell back to row 0 would not pass for one that found it. Every file its own shape, so every file is its
 /// own group and the map can be drawn for exactly one of them.
 fn app_with_a_directory_chain(store: &str) -> (TestRepo, App) {
     let r = TestRepo::new();
@@ -11248,6 +11249,7 @@ fn app_with_a_directory_chain(store: &str) -> (TestRepo, App) {
             "use a::c;\n",
         ),
         ("top.rs", "enum E { A, B }\n", "enum E { A, C }\n"),
+        ("lib.rs", "const K: u8 = 1;\n", "const K: u8 = 2;\n"),
     ];
     for (path, before, _) in files {
         r.write(path, before.as_bytes());
@@ -11297,6 +11299,7 @@ fn a_chain_of_single_child_directories_is_one_row() {
     assert_eq!(
         tree_paths(&app),
         [
+            "lib.rs",
             "root/parent1/parent2/",
             "root/parent1/parent2/parent3/",
             "root/parent1/parent2/parent3/file1.rs",
@@ -11307,9 +11310,9 @@ fn a_chain_of_single_child_directories_is_one_row() {
         ]
     );
     let depths: Vec<usize> = app.tree.iter().map(|e| e.depth).collect();
-    assert_eq!(depths, [0, 1, 2, 2, 1, 2, 0]);
+    assert_eq!(depths, [0, 0, 1, 2, 2, 1, 2, 0]);
     // A directory that holds files is never joined into them.
-    assert!(matches!(&app.tree[1].kind, TreeKind::Dir { name, .. } if name == "parent3"));
+    assert!(matches!(&app.tree[2].kind, TreeKind::Dir { name, .. } if name == "parent3"));
 
     let pane = left_pane(&app, 40);
     assert!(
@@ -11334,7 +11337,7 @@ fn a_joined_row_folds_and_selects_as_one() {
     app.focus = Focus::Groups;
     app.selected_file = 0;
     app.handle_key(key('j'));
-    app.handle_key(key('k'));
+    assert_eq!(app.selected_path().as_deref(), Some(CHAIN));
     let hunks = app
         .rows
         .iter()
@@ -11345,7 +11348,11 @@ fn a_joined_row_folds_and_selects_as_one() {
     fold(&mut app, CHAIN);
     assert_eq!(
         tree_paths(&app),
-        [format!("{CHAIN}/"), "top.rs".to_string()]
+        [
+            "lib.rs".to_string(),
+            format!("{CHAIN}/"),
+            "top.rs".to_string()
+        ]
     );
     fold(&mut app, CHAIN);
     assert_eq!(tree_paths(&app), before, "unfold gives back the same rows");
@@ -11358,13 +11365,27 @@ fn the_resume_cursor_comes_back_to_a_joined_row() {
     switch_left_pane(&mut app);
     app.focus = Focus::Groups;
     app.handle_key(key('j'));
-    app.handle_key(key('k'));
     assert_eq!(app.selected_path().as_deref(), Some(CHAIN));
     app.handle_key(key('q'));
     drop(app);
 
     let app2 = open_app_with(&r, &one_group_per_class(), ".dfr-chain-resume-store");
     assert_eq!(app2.selected_path().as_deref(), Some(CHAIN));
+    drop(app2);
+
+    // A cursor saved on a directory the chain now absorbs — as one written
+    // before the join would be — lands on the joined row, not on the top.
+    let state_path = r.root.join(".dfr-chain-resume-store/state.json");
+    let state = std::fs::read_to_string(&state_path).unwrap();
+    let quoted = format!("\"{CHAIN}\"");
+    assert!(
+        state.contains(&quoted),
+        "the cursor names the chain: {state}"
+    );
+    std::fs::write(&state_path, state.replace(&quoted, "\"root/parent1\"")).unwrap();
+
+    let app3 = open_app_with(&r, &one_group_per_class(), ".dfr-chain-resume-store");
+    assert_eq!(app3.selected_path().as_deref(), Some(CHAIN));
 }
 
 /// The group map reads the same joined tree: a chain the group DOES enter is
