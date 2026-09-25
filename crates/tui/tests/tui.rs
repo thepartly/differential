@@ -9803,3 +9803,540 @@ fn render_dump_keys() {
         KeyEvent::new(KeyCode::F(1), KeyModifiers::NONE),
     );
 }
+
+/// Type `text` on whatever has the keyboard, then `enter`.
+fn type_and_enter(app: &mut App, text: &str) -> Vec<Effect> {
+    for c in text.chars() {
+        app.handle_key(key(c));
+    }
+    app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE))
+}
+
+/// `:` then a command, run.
+fn command(app: &mut App, text: &str) -> Vec<Effect> {
+    app.handle_key(key(':'));
+    assert!(matches!(app.mode, Mode::Command(_)), "`:` opens the line");
+    type_and_enter(app, text)
+}
+
+#[test]
+fn colon_opens_the_command_line_and_esc_drops_it() {
+    let (_r, mut app) = make_app();
+    app.handle_key(key(':'));
+    assert!(matches!(app.mode, Mode::Command(_)));
+    // `?` and `q` are characters on the line, not help and quit.
+    assert!(app.handle_key(key('q')).is_empty());
+    assert!(matches!(app.mode, Mode::Command(_)));
+    app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    assert!(matches!(app.mode, Mode::Normal));
+    // Backspace on an empty line leaves it, as vim's does.
+    app.handle_key(key(':'));
+    app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+    assert!(matches!(app.mode, Mode::Normal));
+}
+
+#[test]
+fn every_command_goes_where_its_key_does() {
+    let (_r, mut app) = make_app();
+    command(&mut app, "help");
+    assert!(matches!(app.mode, Mode::Help(_)));
+    app.handle_key(key('x'));
+
+    command(&mut app, "config");
+    assert!(matches!(app.mode, Mode::Config(_)));
+    app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+
+    command(&mut app, "search helper");
+    assert_eq!(app.search().expect("the search is open").query(), "helper");
+    app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+
+    app.focus = Focus::Detail;
+    command(&mut app, "files");
+    assert!(matches!(app.mode, Mode::FileList { .. }));
+    app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+
+    // A refusal is the key's own refusal, in the key's own words.
+    command(&mut app, "findings");
+    assert!(matches!(app.mode, Mode::Normal));
+    assert!(app.status.contains("no findings yet"), "{}", app.status);
+    command(&mut app, "publish");
+    assert!(
+        matches!(app.mode, Mode::Normal),
+        "not a request: nothing to publish to"
+    );
+
+    command(&mut app, "nope");
+    assert_eq!(app.status, "no command :nope · :help lists them");
+
+    assert!(matches!(
+        command(&mut app, "copy")[..],
+        [Effect::CopySummary(_)]
+    ));
+
+    assert!(matches!(command(&mut app, "q")[..], [Effect::Quit]));
+    assert!(matches!(command(&mut app, "quit")[..], [Effect::Quit]));
+}
+
+#[test]
+fn tab_completes_a_commands_name() {
+    let (_r, mut app) = make_app();
+    app.handle_key(key(':'));
+    app.handle_key(key('c'));
+    app.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(
+        matches!(app.mode, Mode::Config(_)),
+        "`c` completed to config"
+    );
+}
+
+#[test]
+fn the_command_key_is_fixed_and_opens_from_a_list() {
+    use differential_tui::keymap::KeyProblem;
+    // `:` reaches `:config`, where a keymap is repaired: no table may take it.
+    let taken = KeysConfig(
+        [(Action::Search, vec![":".to_string()])]
+            .into_iter()
+            .collect(),
+    );
+    let err = Keymap::new(&taken).unwrap_err();
+    assert!(matches!(err.0[..], [KeyProblem::Reserved { .. }]), "{err}");
+    assert!(err.to_string().contains("command line"), "{err}");
+
+    let (_r, mut app) = make_app();
+    app.focus = Focus::Detail;
+    app.handle_key(key('f'));
+    assert!(matches!(app.mode, Mode::FileList { .. }));
+    // A terminal reports `:` with its shift; it is the same key.
+    app.handle_key(KeyEvent::new(KeyCode::Char(':'), KeyModifiers::SHIFT));
+    assert!(
+        matches!(app.mode, Mode::Command(_)),
+        "the line takes the list's place"
+    );
+}
+
+/// Move the config modal's selection onto the row named `label`.
+fn select_config_row(app: &mut App, label: &str) {
+    app.handle_key(key('g'));
+    for _ in 0..80 {
+        if app
+            .config_edit()
+            .expect("the modal is open")
+            .field()
+            .label()
+            == label
+        {
+            return;
+        }
+        app.handle_key(key('j'));
+    }
+    panic!("no config row {label}");
+}
+
+#[test]
+fn the_config_modal_previews_and_esc_puts_it_back() {
+    use differential_engine::config::ThemeName;
+    let (_r, mut app) = make_app();
+    command(&mut app, "config");
+    select_config_row(&mut app, "theme");
+    app.handle_key(key('l'));
+    let previewed = app.options().theme;
+    assert_ne!(
+        previewed,
+        ThemeName::Dark,
+        "the theme changed under the modal"
+    );
+    select_config_row(&mut app, "context");
+    app.handle_key(key('l'));
+    assert_eq!(app.options().context, 4, "context previews too");
+
+    app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    assert!(matches!(app.mode, Mode::Normal));
+    assert_eq!(
+        app.options().theme,
+        ThemeName::Dark,
+        "esc restores the theme"
+    );
+    assert_eq!(app.options().context, 3, "and the context");
+    assert!(app.status.contains("nothing was saved"), "{}", app.status);
+}
+
+/// Retype the selected config row as `text`.
+fn retype_config_row(app: &mut App, text: &str) {
+    app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    for _ in 0..60 {
+        app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+    }
+    type_and_enter(app, text);
+}
+
+#[test]
+fn a_clashing_key_blocks_the_save_and_says_why() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let path = tmp.path().join("config.toml");
+    let (_r, mut app) = make_app_with(ReviewOptions {
+        user_config_path: Some(path.clone()),
+        ..ReviewOptions::default()
+    });
+    command(&mut app, "config");
+    select_config_row(&mut app, "delete");
+    retype_config_row(&mut app, "[\"j\"]");
+    let edit = app.config_edit().unwrap();
+    assert!(
+        edit.problems
+            .iter()
+            .any(|p| p.contains("down") && p.contains("delete")),
+        "{:?}",
+        edit.problems
+    );
+    app.handle_key(ctrl('s'));
+    assert!(matches!(app.mode, Mode::Config(_)), "still open");
+    assert!(app.status.starts_with("not saved"), "{}", app.status);
+    assert!(!path.exists(), "nothing was written");
+}
+
+#[test]
+fn saving_writes_the_whole_file_and_applies_it_at_once() {
+    use differential_engine::config::{Config, ThemeName};
+    use differential_engine::store::OsConfigSource;
+    let tmp = tempfile::TempDir::new().unwrap();
+    let path = tmp.path().join("differential").join("config.toml");
+    let (_r, mut app) = make_app_with(ReviewOptions {
+        user_config_path: Some(path.clone()),
+        ..ReviewOptions::default()
+    });
+    command(&mut app, "config");
+    select_config_row(&mut app, "theme");
+    app.handle_key(key('l'));
+    let theme = app.options().theme;
+    select_config_row(&mut app, "down");
+    retype_config_row(&mut app, "[\"e\", \"down\"]");
+    // `j` is free now, but nothing else asks for it: no clash.
+    assert!(app.config_edit().unwrap().problems.is_empty());
+    app.handle_key(ctrl('s'));
+    assert!(matches!(app.mode, Mode::Normal), "{}", app.status);
+    assert!(app.status.starts_with("saved"), "{}", app.status);
+
+    let saved = Config::load_user(&OsConfigSource, Some(&path)).unwrap();
+    assert_eq!(saved.review.theme, theme);
+    assert_ne!(theme, ThemeName::Dark);
+    assert_eq!(saved.keys.0[&Action::Down], ["e", "down"]);
+    assert_eq!(&saved, &app.options().user_config);
+
+    // The keys apply now, not next time.
+    assert_eq!(app.selected_group, 0);
+    app.handle_key(key('e'));
+    assert_eq!(app.selected_group, 1);
+}
+
+#[test]
+fn saving_with_nowhere_to_save_is_refused() {
+    let (_r, mut app) = make_app();
+    command(&mut app, "config");
+    select_config_row(&mut app, "context");
+    app.handle_key(key('l'));
+    app.handle_key(ctrl('s'));
+    assert!(matches!(app.mode, Mode::Config(_)));
+    assert!(app.status.contains("no config directory"), "{}", app.status);
+}
+
+/// `cargo test -p differential-tui --test tui -- --ignored --nocapture render_dump_command_line`
+#[ignore = "a dump for the author's eyes, not an assertion"]
+#[test]
+fn render_dump_command_line() {
+    let (_r, mut app) = make_app();
+    sized(&mut app);
+    let bottom = |app: &App, n: usize| {
+        let rows = screen(app, SCREEN.width, SCREEN.height);
+        for row in &rows[rows.len() - n..] {
+            println!("{row}");
+        }
+    };
+    app.handle_key(key(':'));
+    println!("── the command line, empty ──");
+    bottom(&app, 12);
+    app.handle_key(key('f'));
+    println!("── typed `f` ──");
+    bottom(&app, 6);
+    app.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    app.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    println!("── `f`, tab, tab ──");
+    bottom(&app, 6);
+    app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    app.handle_key(key('?'));
+    println!("── help, with the commands row ──");
+    for row in screen(&app, SCREEN.width, SCREEN.height) {
+        println!("{row}");
+    }
+}
+
+/// `cargo test -p differential-tui --test tui -- --ignored --nocapture render_dump_config_modal`
+#[ignore = "a dump for the author's eyes, not an assertion"]
+#[test]
+fn render_dump_config_modal() {
+    let (_r, mut app) = make_app_with(ReviewOptions {
+        user_config_path: Some("/home/reader/.config/differential/config.toml".into()),
+        ..ReviewOptions::default()
+    });
+    sized(&mut app);
+    command(&mut app, "config");
+    println!("── opened ──");
+    for row in screen(&app, SCREEN.width, SCREEN.height) {
+        println!("{row}");
+    }
+    select_config_row(&mut app, "theme");
+    app.handle_key(key('l'));
+    println!("── theme cycled once ──");
+    for row in screen(&app, SCREEN.width, SCREEN.height) {
+        println!("{row}");
+    }
+    app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    app.handle_key(key('j'));
+    app.handle_key(key('j'));
+    println!("── the theme list, two down ──");
+    for row in screen(&app, SCREEN.width, SCREEN.height) {
+        println!("{row}");
+    }
+    app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    select_config_row(&mut app, "delete");
+    app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    println!("── typing a key row ──");
+    for row in screen(&app, SCREEN.width, SCREEN.height) {
+        println!("{row}");
+    }
+    for _ in 0..60 {
+        app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+    }
+    type_and_enter(&mut app, "[\"j\"]");
+    println!("── a clash, wrapped ──");
+    for row in screen(&app, SCREEN.width, SCREEN.height) {
+        println!("{row}");
+    }
+}
+
+#[test]
+fn the_command_line_lists_what_the_name_could_become() {
+    let (_r, mut app) = make_app();
+    sized(&mut app);
+    app.handle_key(key(':'));
+    let listed = |app: &App| -> Vec<&'static str> {
+        app.command()
+            .unwrap()
+            .candidates()
+            .iter()
+            .map(|c| c.name)
+            .collect()
+    };
+    assert_eq!(listed(&app).len(), 9, "an empty line lists every command");
+    app.handle_key(key('f'));
+    assert_eq!(listed(&app), ["findings", "files"]);
+    let text = screen(&app, SCREEN.width, SCREEN.height).join("\n");
+    assert!(
+        text.contains(":findings") && text.contains("every finding and thread"),
+        "{text}"
+    );
+    assert!(
+        text.contains(":f▏indings"),
+        "the dim rest follows the caret:\n{text}"
+    );
+
+    // Tab walks what `f` matched, filling the line; the list stays.
+    app.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    app.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+    assert_eq!(app.command().unwrap().input.value(), "files");
+    assert_eq!(listed(&app), ["findings", "files"]);
+    app.handle_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
+    assert_eq!(app.command().unwrap().input.value(), "findings");
+
+    // `→` takes the dim rest.
+    app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    app.handle_key(key(':'));
+    app.handle_key(key('c'));
+    app.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
+    assert_eq!(app.command().unwrap().input.value(), "config");
+
+    // An argument ends the list: it is the reader's own text.
+    app.handle_key(key(' '));
+    assert!(listed(&app).is_empty());
+}
+
+#[test]
+fn the_theme_list_wears_each_theme_and_esc_goes_back() {
+    use differential_engine::config::ThemeName;
+    let (_r, mut app) = make_app();
+    command(&mut app, "config");
+    select_config_row(&mut app, "theme");
+    app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(
+        app.config_edit().unwrap().dropdown.is_some(),
+        "enter opens the list"
+    );
+    app.handle_key(key('j'));
+    assert_eq!(app.options().theme, ThemeName::ALL[1], "a step wears it");
+    app.handle_key(key('j'));
+    assert_eq!(app.options().theme, ThemeName::ALL[2]);
+    app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    assert!(
+        app.config_edit().unwrap().dropdown.is_none(),
+        "esc closes the list only"
+    );
+    assert_eq!(
+        app.options().theme,
+        ThemeName::Dark,
+        "and goes back to the theme before"
+    );
+
+    app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    app.handle_key(key('G'));
+    app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert!(app.config_edit().unwrap().dropdown.is_none());
+    assert_eq!(
+        app.config_edit().unwrap().draft.review.theme,
+        ThemeName::Monokai,
+        "enter keeps it"
+    );
+    assert_eq!(app.options().theme, ThemeName::Monokai);
+}
+
+#[test]
+fn r_puts_any_setting_back_to_its_default() {
+    let (_r, mut app) = make_app();
+    command(&mut app, "config");
+    for label in [
+        "agent",
+        "timeout_secs",
+        "theme",
+        "diff",
+        "context",
+        "context_step",
+    ] {
+        select_config_row(&mut app, label);
+        app.handle_key(key('l'));
+        let (_, default) = app
+            .config_edit()
+            .unwrap()
+            .value(app.config_edit().unwrap().field());
+        assert!(!default, "{label} changed");
+        app.handle_key(key('r'));
+        let (_, default) = app
+            .config_edit()
+            .unwrap()
+            .value(app.config_edit().unwrap().field());
+        assert!(default, "r reset {label}");
+    }
+    select_config_row(&mut app, "down");
+    retype_config_row(&mut app, "[\"e\"]");
+    app.handle_key(key('r'));
+    let edit = app.config_edit().unwrap();
+    assert!(edit.draft.keys.is_empty(), "r drops a key override");
+    assert!(!edit.dirty(), "every row is back where it started");
+}
+
+#[test]
+fn the_config_modals_errors_wrap_and_are_read_to_the_end() {
+    let (_r, mut app) = make_app();
+    sized(&mut app);
+    command(&mut app, "config");
+    // A value the row refuses: said in the modal, whole, and the box stays
+    // open on what was typed.
+    select_config_row(&mut app, "down");
+    retype_config_row(&mut app, "ctrl-j");
+    let edit = app.config_edit().unwrap();
+    assert!(edit.editing.is_some(), "the box stays open");
+    assert!(edit.error.is_some());
+    let text = screen(&app, SCREEN.width, SCREEN.height).join("\n");
+    assert!(
+        text.contains("[\"j\", \"down\"]"),
+        "the whole hint is on screen:\n{text}"
+    );
+    app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    assert!(
+        app.config_edit().unwrap().error.is_none(),
+        "esc drops it with the edit"
+    );
+
+    // A clash in two screens: both messages, every word of them — and the
+    // row that caused it still in view above them.
+    select_config_row(&mut app, "delete");
+    retype_config_row(&mut app, "[\"j\"]");
+    let rows = screen(&app, SCREEN.width, SCREEN.height);
+    assert!(
+        rows.iter()
+            .any(|r| r.contains("delete") && r.contains("[\"j\"]")),
+        "the selected row scrolled away:\n{}",
+        rows.join("\n")
+    );
+    let flat = screen(&app, SCREEN.width, SCREEN.height)
+        .iter()
+        .map(|r| r.split('│').nth(1).unwrap_or_default().trim().to_string())
+        .collect::<Vec<_>>()
+        .join(" ");
+    for p in &app.config_edit().unwrap().problems {
+        let words: Vec<&str> = p.split_whitespace().collect();
+        assert!(
+            flat.contains(&words.join(" ")),
+            "{p:?} is not on screen in full:\n{flat}"
+        );
+    }
+}
+
+#[test]
+fn the_config_modal_names_its_whole_file() {
+    let long =
+        "/Users/someone-with-a-long-name/Library/Application Support/differential/config.toml";
+    let (_r, mut app) = make_app_with(ReviewOptions {
+        user_config_path: Some(long.into()),
+        ..ReviewOptions::default()
+    });
+    sized(&mut app);
+    command(&mut app, "config");
+    let flat: String = screen(&app, SCREEN.width, SCREEN.height)
+        .iter()
+        .map(|r| r.split('│').nth(1).unwrap_or_default().trim().to_string())
+        .collect();
+    let squeezed: String = flat.split_whitespace().collect();
+    assert!(
+        squeezed.contains(&long.split_whitespace().collect::<String>()),
+        "{flat}"
+    );
+    // The rows still answer clicks on the right line under a taller header.
+    select_config_row(&mut app, "agent");
+    assert_eq!(app.config_edit().unwrap().field().label(), "agent");
+}
+
+#[test]
+fn every_multiple_choice_row_opens_a_list() {
+    use differential_engine::config::Agent;
+    let (_r, mut app) = make_app();
+    sized(&mut app);
+    command(&mut app, "config");
+
+    select_config_row(&mut app, "agent");
+    app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    let edit = app.config_edit().unwrap();
+    assert!(edit.dropdown.is_some(), "enter on the agent opens its list");
+    let text = screen(&app, SCREEN.width, SCREEN.height).join("\n");
+    for a in Agent::ALL {
+        assert!(text.contains(a.key()), "{} is listed:\n{text}", a.key());
+    }
+    app.handle_key(key('j'));
+    app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(
+        app.config_edit().unwrap().draft.grouping.agent,
+        Some(Agent::ALL[1])
+    );
+
+    // The diff layout too, previewed as it is passed and put back by esc.
+    select_config_row(&mut app, "diff");
+    app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    app.handle_key(key('j'));
+    assert!(!app.options().split_diff, "unified is worn while it is on");
+    app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    assert!(app.options().split_diff, "esc goes back to split");
+
+    // A typed row still types.
+    select_config_row(&mut app, "context");
+    app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    let edit = app.config_edit().unwrap();
+    assert!(edit.dropdown.is_none() && edit.editing.is_some());
+}

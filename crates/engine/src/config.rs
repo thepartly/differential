@@ -18,7 +18,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use globset::{Glob, GlobSet, GlobSetBuilder};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::EngineError;
 
@@ -62,10 +62,14 @@ struct RawUserConfig {
 
 /// Everything `parse_user` reads, so `load` assigns one value rather than
 /// growing a second assignment every time the user file gains a table.
-#[derive(Debug, Default)]
+///
+/// Serialisable, because the reviewer's config modal writes it back whole
+/// ([`Config::save_user`]).
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
 pub struct UserConfig {
     pub grouping: GroupingConfig,
     pub review: ReviewConfig,
+    #[serde(skip_serializing_if = "KeysConfig::is_empty")]
     pub keys: KeysConfig,
 }
 
@@ -83,7 +87,7 @@ pub struct UserConfig {
 ///
 /// **Four of the five keep the model read-only; `Pi` does not** (ADR 0033).
 /// Read [`Agent::read_only`] and [`ReadOnly::is_enforced`] before choosing one.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Agent {
     /// Headless `claude`, read-only by tool allowlist (ADR 0022).
@@ -212,19 +216,23 @@ impl ReadOnly {
 
 /// `[grouping]` — pure data; the application layer turns it into an LLM
 /// backend (ADR 0018, 0020).
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct GroupingConfig {
     /// Which agent runs the grouping call. Default: `claude-code`.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent: Option<Agent>,
-    /// How long to wait for it. Default: 1200 seconds.
+    /// How long to wait for it. Default: [`DEFAULT_TIMEOUT_SECS`].
     ///
     /// This one stays a number because it tunes the agent rather than replacing
     /// it: a slow machine or a large change may genuinely need longer.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timeout_secs: Option<u64>,
 }
+
+/// How long a grouping call may run when `[grouping].timeout_secs` is unset.
+/// Every agent's backend starts from it.
+pub const DEFAULT_TIMEOUT_SECS: u64 = 1200;
 
 /// Which palette the terminal reviewer wears, by name.
 ///
@@ -235,7 +243,7 @@ pub struct GroupingConfig {
 /// colour list would be a knob that looked like it worked.
 ///
 /// Adding a theme is adding a variant here and a seed in the renderer.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ThemeName {
     /// The original palette: a dark slate ground with a cyan accent.
@@ -259,7 +267,7 @@ pub enum ThemeName {
 /// Presentation only: it can widen what is *displayed* around a hunk and can
 /// never change which hunks exist. Enumeration is total and runs before any of
 /// this (ADR 0005, 0012).
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ReviewConfig {
     /// Context lines shown either side of a hunk before any expansion.
@@ -284,7 +292,7 @@ pub struct ReviewConfig {
 ///
 /// An enum rather than a bool because a config key is permanent, and a third
 /// layout would otherwise need a second key contradicting the first.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum DiffLayout {
     /// Old and new side by side.
@@ -295,8 +303,54 @@ pub enum DiffLayout {
 }
 
 impl DiffLayout {
+    pub const ALL: [DiffLayout; 2] = [DiffLayout::Split, DiffLayout::Unified];
+
     pub fn is_split(self) -> bool {
         matches!(self, DiffLayout::Split)
+    }
+
+    /// The name this layout answers to in `[review].diff`.
+    pub fn key(self) -> &'static str {
+        match self {
+            DiffLayout::Split => "split",
+            DiffLayout::Unified => "unified",
+        }
+    }
+}
+
+impl ThemeName {
+    /// Every palette, in the order the config modal cycles through them.
+    /// `every_theme_name_round_trips` is the exhaustiveness check.
+    pub const ALL: [ThemeName; 11] = [
+        ThemeName::Dark,
+        ThemeName::OneDark,
+        ThemeName::OneLight,
+        ThemeName::GruvboxDark,
+        ThemeName::GruvboxLight,
+        ThemeName::SolarizedDark,
+        ThemeName::SolarizedLight,
+        ThemeName::CatppuccinMocha,
+        ThemeName::CatppuccinLatte,
+        ThemeName::Dracula,
+        ThemeName::Monokai,
+    ];
+
+    /// The name this palette answers to in `[review].theme`. Hand-written for
+    /// the reason [`Agent::key`] is.
+    pub fn key(self) -> &'static str {
+        match self {
+            ThemeName::Dark => "dark",
+            ThemeName::OneDark => "one-dark",
+            ThemeName::OneLight => "one-light",
+            ThemeName::GruvboxDark => "gruvbox-dark",
+            ThemeName::GruvboxLight => "gruvbox-light",
+            ThemeName::SolarizedDark => "solarized-dark",
+            ThemeName::SolarizedLight => "solarized-light",
+            ThemeName::CatppuccinMocha => "catppuccin-mocha",
+            ThemeName::CatppuccinLatte => "catppuccin-latte",
+            ThemeName::Dracula => "dracula",
+            ThemeName::Monokai => "monokai",
+        }
     }
 }
 
@@ -330,7 +384,7 @@ impl Default for ReviewConfig {
 ///
 /// Adding an action is adding a variant here, its name in [`Action::key`],
 /// and its default keys and its arm in the renderer.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Action {
     Quit,
@@ -468,9 +522,36 @@ impl Action {
 /// parses, and whether two actions now share a key are the renderer's
 /// questions, answered by one library call before a terminal is touched
 /// (ADR 0036).
-#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(transparent)]
 pub struct KeysConfig(pub BTreeMap<Action, Vec<String>>);
+
+impl KeysConfig {
+    /// No action rebound: the file needs no `[keys]` table at all.
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// One action's keys as `[keys]` writes them: `["ctrl-j", "d d"]`. The
+    /// config modal shows and edits a row in exactly the file's syntax, so
+    /// nothing a reader types there means something else in the file.
+    pub fn render_list(keys: &[String]) -> String {
+        let list = keys.iter().cloned().map(toml::Value::String).collect();
+        toml::Value::Array(list).to_string()
+    }
+
+    /// The inverse of [`render_list`](Self::render_list), with TOML's own
+    /// error when the text is not a list of strings.
+    pub fn parse_list(text: &str) -> Result<Vec<String>, String> {
+        #[derive(Deserialize)]
+        struct One {
+            v: Vec<String>,
+        }
+        toml::from_str::<One>(&format!("v = {text}"))
+            .map(|one| one.v)
+            .map_err(|e| e.message().to_string())
+    }
+}
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -630,6 +711,42 @@ impl Config {
             review: raw.review,
             keys: raw.keys,
         })
+    }
+}
+
+impl Config {
+    /// The user file as TOML, whole. What [`save_user`](Self::save_user)
+    /// writes: every `[review]` value, the `[grouping]` values that are set,
+    /// and `[keys]` only when an action is rebound.
+    pub fn render_user(user: &UserConfig) -> String {
+        toml::to_string_pretty(user).expect("the user config is plain data and always serialises")
+    }
+
+    /// Write the user file at `path`, REPLACING it (ADR 0037).
+    ///
+    /// Whole-file on purpose: the reviewer's config modal edits every
+    /// setting, and a rewrite is the one form that cannot disagree with what
+    /// it shows. The cost is the file's comments and layout, which the modal
+    /// says before it saves.
+    ///
+    /// The text is parsed back before it is written, so the file on disk is
+    /// always one [`parse_user`](Self::parse_user) accepts, and accepts as
+    /// this value.
+    pub fn save_user<S: crate::ports::ConfigSource>(
+        src: &S,
+        path: &Path,
+        user: &UserConfig,
+    ) -> Result<(), EngineError> {
+        let text = Self::render_user(user);
+        let origin = path.display().to_string();
+        let back = Self::parse_user(&text, &origin)?;
+        if &back != user {
+            return Err(EngineError::Config {
+                path: origin,
+                msg: "the config did not read back as it was written".into(),
+            });
+        }
+        src.save(path, &text)
     }
 }
 
@@ -1037,5 +1154,79 @@ attributes = ["linguist-generated", "custom-generated"]
                 | Action::Publish => assert!(listed(a)),
             }
         }
+    }
+
+    #[test]
+    fn a_rendered_user_config_reads_back_as_itself() {
+        let full = Config::parse_user(
+            "[grouping]\nagent = \"codex\"\ntimeout_secs = 60\n\
+             [review]\ntheme = \"gruvbox-light\"\ncontext = 8\ncontext_step = 4\ndiff = \"unified\"\n\
+             [keys]\nnext-group = [\"ctrl-j\"]\npublish = []",
+            "test",
+        )
+        .unwrap();
+        for user in [full, UserConfig::default()] {
+            let text = Config::render_user(&user);
+            assert_eq!(Config::parse_user(&text, "test").unwrap(), user, "{text}");
+        }
+        // Nothing rebound, nothing about agents: no table for either.
+        let text = Config::render_user(&UserConfig::default());
+        assert!(
+            !text.contains("[keys]") && !text.contains("agent"),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn save_user_writes_the_file_and_its_directory() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let path = tmp.path().join("differential").join("config.toml");
+        let mut user = UserConfig::default();
+        user.review.theme = ThemeName::Dracula;
+        Config::save_user(&SRC, &path, &user).unwrap();
+        let back = Config::load_user(&SRC, Some(&path)).unwrap();
+        assert_eq!(back, user);
+    }
+
+    #[test]
+    fn every_theme_and_layout_name_round_trips() {
+        for theme in ThemeName::ALL {
+            // The `match` is the exhaustiveness guard `ALL` cannot be.
+            match theme {
+                ThemeName::Dark
+                | ThemeName::OneDark
+                | ThemeName::OneLight
+                | ThemeName::GruvboxDark
+                | ThemeName::GruvboxLight
+                | ThemeName::SolarizedDark
+                | ThemeName::SolarizedLight
+                | ThemeName::CatppuccinMocha
+                | ThemeName::CatppuccinLatte
+                | ThemeName::Dracula
+                | ThemeName::Monokai => {}
+            }
+            let text = format!("[review]\ntheme = \"{}\"", theme.key());
+            assert_eq!(
+                Config::parse_user(&text, "test").unwrap().review.theme,
+                theme
+            );
+        }
+        for diff in DiffLayout::ALL {
+            match diff {
+                DiffLayout::Split | DiffLayout::Unified => {}
+            }
+            let text = format!("[review]\ndiff = \"{}\"", diff.key());
+            assert_eq!(Config::parse_user(&text, "test").unwrap().review.diff, diff);
+        }
+    }
+
+    #[test]
+    fn a_key_list_round_trips_in_the_files_syntax() {
+        let keys = vec!["ctrl-j".to_string(), "d d".to_string(), "\"".to_string()];
+        let text = KeysConfig::render_list(&keys);
+        assert_eq!(KeysConfig::parse_list(&text).unwrap(), keys, "{text}");
+        assert_eq!(KeysConfig::parse_list("[]").unwrap(), Vec::<String>::new());
+        assert!(KeysConfig::parse_list("ctrl-j").is_err());
+        assert!(KeysConfig::parse_list("[1]").is_err());
     }
 }

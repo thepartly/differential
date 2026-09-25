@@ -103,8 +103,10 @@ const DEFAULTS: &[(Action, &[Screen], &[&str])] = {
 
 /// Keys no action may take. `ctrl-c` quits from everywhere, the composer
 /// included, and it is the one way out a lost reader can always find — a
-/// `[keys]` table that took it would take that away.
-const RESERVED: &[&str] = &["ctrl-c"];
+/// `[keys]` table that took it would take that away. `:` opens the command
+/// line from every screen, and the command line is how `:config` is reached
+/// to repair a table — so it cannot be a key the table moves (ADR 0037).
+pub const RESERVED: &[&str] = &["ctrl-c", ":"];
 
 /// One binding: the presses that make it, in order. Almost always one; `dd`
 /// is two.
@@ -261,8 +263,12 @@ impl fmt::Display for KeyProblem {
             KeyProblem::Unparsed { action, why } => write!(f, "{}: {why}", action.key()),
             KeyProblem::Reserved { action, key } => write!(
                 f,
-                "{}: {key:?} is reserved — it quits from everywhere",
-                action.key()
+                "{}: {key:?} is reserved — {}",
+                action.key(),
+                match Binding::parse(key).ok().map(|b| b.to_string()).as_deref() {
+                    Some(":") => "it opens the command line from everywhere",
+                    _ => "it quits from everywhere",
+                }
             ),
             KeyProblem::Clash {
                 screen,
@@ -324,6 +330,16 @@ impl Default for Keymap {
     fn default() -> Self {
         Keymap::new(&KeysConfig::default()).expect("the default keys have no problems")
     }
+}
+
+/// An action's default keys, as `[keys]` writes them. The config modal shows
+/// them for an action the reader has not rebound, and resets a row to them.
+pub fn defaults(action: Action) -> Vec<String> {
+    DEFAULTS
+        .iter()
+        .find(|(a, ..)| *a == action)
+        .map(|(.., keys)| keys.iter().map(|k| k.to_string()).collect())
+        .unwrap_or_default()
 }
 
 impl Keymap {

@@ -10,7 +10,7 @@ use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, Paragraph};
+use ratatui::widgets::{Block, Borders, Clear, List, ListItem, Paragraph};
 use unicode_width::UnicodeWidthStr;
 
 use differential_engine::plan::{self, LineCounts};
@@ -92,7 +92,11 @@ impl App {
                 // Wider by exactly what the key column took past its floor,
                 // so a long key does not cost a row its words.
                 let grown = help_key_width(&sections) - HELP_KEY_FLOOR;
-                let width = 74 + u16::try_from(grown).unwrap_or(u16::MAX);
+                // And never narrower than its widest row plus the frame, so
+                // the commands row is read to its end.
+                let widest = lines.iter().map(Line::width).max().unwrap_or(0) + 4;
+                let width = (74 + grown).max(widest);
+                let width = u16::try_from(width).unwrap_or(u16::MAX);
                 let area = centered_rect(panes.body, width, height);
                 self.float(frame, area, " help ", Paragraph::new(lines));
             }
@@ -326,6 +330,11 @@ impl App {
                 );
             }
             Mode::Search(s) => self.draw_search(frame, panes.body, s),
+            Mode::Command(line) => {
+                self.draw_command_popup(frame, panes.body, line);
+                self.draw_command_line(frame, panes.status, line);
+            }
+            Mode::Config(edit) => self.draw_config(frame, panes.body, edit),
             Mode::Normal => {}
         }
     }
@@ -369,6 +378,271 @@ impl App {
         frame.render_widget(
             Paragraph::new(footer_line(&self.theme, &self.modal_footer())),
             footer_row(area),
+        );
+    }
+
+    /// The command line, over the status row where vim puts it: a `:`, the
+    /// text with its caret, and its keys against the right edge.
+    fn draw_command_line(&self, frame: &mut Frame, area: Rect, line: &super::command::CommandLine) {
+        let bar = Style::default().bg(self.theme.status_bg);
+        let typed = Style::default()
+            .fg(self.theme.header_fg)
+            .bg(self.theme.status_bg)
+            .add_modifier(Modifier::BOLD);
+        let hints: Vec<Span> = footer_line(&self.theme, &joined(&self.modal_hints()))
+            .spans
+            .into_iter()
+            .map(|s| Span::styled(s.content, s.style.bg(self.theme.status_bg)))
+            .collect();
+        let hints_w: usize = hints
+            .iter()
+            .map(|s| UnicodeWidthStr::width(s.content.as_ref()))
+            .sum();
+        let room = usize::from(area.width).saturating_sub(hints_w + 4);
+        let mut spans = vec![Span::styled(" :", typed)];
+        spans.extend(caret_spans(&line.input, typed, typed, room));
+        // The rest of the first candidate, dim after the caret: what `→`
+        // would add, said before it is pressed.
+        if let Some(rest) = line.ghost() {
+            spans.push(Span::styled(
+                rest.to_string(),
+                Style::default()
+                    .fg(self.theme.gutter_fg)
+                    .bg(self.theme.status_bg),
+            ));
+        }
+        let used: usize = spans
+            .iter()
+            .map(|s| UnicodeWidthStr::width(s.content.as_ref()))
+            .sum();
+        let gap = usize::from(area.width).saturating_sub(used + hints_w);
+        spans.push(Span::styled(" ".repeat(gap), bar));
+        spans.extend(hints);
+        frame.render_widget(Paragraph::new(Line::from(spans)).style(bar), area);
+    }
+
+    /// What the line could still become, in a box just above it: each
+    /// command with what it does, the one `tab` last filled in on the
+    /// selected band. Gone once the line has an argument or matches nothing.
+    fn draw_command_popup(
+        &self,
+        frame: &mut Frame,
+        body: Rect,
+        line: &super::command::CommandLine,
+    ) {
+        let found = line.candidates();
+        if found.is_empty() {
+            return;
+        }
+        let names: Vec<String> = found
+            .iter()
+            .map(|c| {
+                let mut name = format!(":{}", c.name);
+                for a in c.aliases {
+                    name.push_str(&format!(" · :{a}"));
+                }
+                name
+            })
+            .collect();
+        let name_w = names
+            .iter()
+            .map(|n| UnicodeWidthStr::width(n.as_str()))
+            .max()
+            .unwrap_or(0);
+        let what_w = found
+            .iter()
+            .map(|c| UnicodeWidthStr::width(c.what))
+            .max()
+            .unwrap_or(0);
+        let width = u16::try_from(name_w + what_w + 7)
+            .unwrap_or(u16::MAX)
+            .min(body.width);
+        let height = u16::try_from(found.len() + 2)
+            .unwrap_or(u16::MAX)
+            .min(body.height);
+        let area = Rect {
+            x: body.x,
+            y: body.bottom().saturating_sub(height),
+            width,
+            height,
+        };
+        let key = Style::default().fg(self.theme.header_fg);
+        let dim = Style::default().fg(self.theme.gutter_fg);
+        let items: Vec<ListItem> = found
+            .iter()
+            .zip(&names)
+            .map(|(c, name)| {
+                ListItem::new(Line::from(vec![
+                    Span::styled(format!(" {name:<name_w$}  "), key),
+                    Span::styled(c.what.to_string(), dim),
+                ]))
+            })
+            .collect();
+        clear_to_ground(frame, &self.theme, area);
+        // A clone: drawing is a pure function of the model, and the state's
+        // scroll offset has nothing to remember in a list this short.
+        frame.render_stateful_widget(
+            List::new(items)
+                .block(pane(&self.theme, " commands ".into(), false))
+                .highlight_style(Style::default().bg(self.theme.selected_bg)),
+            area,
+            &mut line.pick.clone(),
+        );
+    }
+
+    /// The config modal: the file it writes, the settings by table, what is
+    /// wrong with the draft, and its keys. Anchored to the left, so the diff
+    /// the preview is changing stays in view beside it.
+    fn draw_config(&self, frame: &mut Frame, body: Rect, edit: &super::config::ConfigEdit) {
+        use super::config::{ConfigLine, Field, config_lines};
+        let area = config_modal_area(body);
+        let inner_w = usize::from(area.width.saturating_sub(2));
+        let dim = Style::default().fg(self.theme.gutter_fg);
+        let text = Style::default().fg(self.theme.context_fg);
+        let key = Style::default().fg(self.theme.header_fg);
+        let warn = Style::default()
+            .fg(self.theme.finding_fg)
+            .add_modifier(Modifier::BOLD);
+
+        let mut lines: Vec<Line> = self
+            .config_header()
+            .into_iter()
+            .map(|l| Line::from(Span::styled(l, dim)))
+            .collect();
+        lines.push(Line::from(""));
+        let fields = Field::all();
+        // Where the open list's row landed, for the list to drop from.
+        let mut list_line = None;
+        for entry in config_lines(edit, self.config_rows()) {
+            let i = match entry {
+                ConfigLine::Section(name) => {
+                    lines.push(Line::from(Span::styled(
+                        format!(" {name}"),
+                        dim.add_modifier(Modifier::ITALIC),
+                    )));
+                    continue;
+                }
+                ConfigLine::Row(i) => i,
+            };
+            let field = fields[i];
+            if edit.dropdown.as_ref().is_some_and(|l| l.field == field) {
+                list_line = Some(lines.len());
+            }
+            let selected = i == edit.selected;
+            let (value, default) = edit.value(field);
+            let mut row = vec![Span::styled(
+                format!("   {:<16}", field.label()),
+                if selected {
+                    key.add_modifier(Modifier::BOLD)
+                } else {
+                    text
+                },
+            )];
+            match (&edit.editing, selected) {
+                (Some(input), true) => {
+                    let room = inner_w.saturating_sub(20);
+                    row.extend(caret_spans(
+                        input,
+                        key.add_modifier(Modifier::BOLD),
+                        key,
+                        room,
+                    ));
+                }
+                _ => {
+                    row.push(Span::styled(value, if default { dim } else { key }));
+                    if default {
+                        row.push(Span::styled(
+                            "  default",
+                            dim.add_modifier(Modifier::ITALIC),
+                        ));
+                    }
+                    if field == Field::Diff && self.layout_is_recorded() {
+                        row.push(Span::styled("  · this review keeps its own (s)", dim));
+                    }
+                }
+            }
+            let mut line = Line::from(row);
+            if selected {
+                line = Line::from(
+                    line.spans
+                        .into_iter()
+                        .map(|s| Span::styled(s.content, s.style.bg(self.theme.selected_bg)))
+                        .collect::<Vec<_>>(),
+                );
+                pad_to_width(&mut line, inner_w, self.theme.selected_bg);
+            }
+            lines.push(line);
+        }
+        let notes = self.config_notes(edit);
+        if !notes.is_empty() {
+            lines.push(Line::from(""));
+            lines.extend(notes.into_iter().map(|n| Line::from(Span::styled(n, warn))));
+        }
+        let title = match edit.dirty() {
+            true => " config · changed ",
+            false => " config ",
+        };
+        clear_to_ground(frame, &self.theme, area);
+        frame.render_widget(
+            Paragraph::new(lines).block(pane(&self.theme, title.into(), true)),
+            area,
+        );
+        frame.render_widget(
+            Paragraph::new(footer_line(&self.theme, &self.modal_footer())),
+            footer_row(area),
+        );
+        if let (Some(list), Some(row)) = (&edit.dropdown, list_line) {
+            self.draw_choice_list(frame, area, row, list);
+        }
+    }
+
+    /// A row's list of choices, dropped from its value column. The choice on
+    /// the band is the one the draft holds — for a theme or a layout, the
+    /// whole screen is its preview — and `•` marks the one `esc` goes back to.
+    fn draw_choice_list(
+        &self,
+        frame: &mut Frame,
+        modal: Rect,
+        row: usize,
+        list: &super::config::Dropdown,
+    ) {
+        let names = list.field.choices();
+        let width = names.iter().map(|n| n.len()).max().unwrap_or(0) as u16 + 6;
+        let height = names.len() as u16 + 2;
+        // Under the row, in the value column; lifted when the modal's bottom
+        // would cut it.
+        let x = (modal.x + 20).min(modal.right().saturating_sub(width));
+        let below = modal.y + 1 + row as u16 + 1;
+        let y = below.min(modal.bottom().saturating_sub(height));
+        let area = Rect {
+            x,
+            y,
+            width,
+            height,
+        }
+        .intersection(modal);
+        let items: Vec<ListItem> = names
+            .iter()
+            .enumerate()
+            .map(|(i, name)| {
+                let mark = if i == list.before() { "•" } else { " " };
+                ListItem::new(format!(" {mark} {name}"))
+            })
+            .collect();
+        clear_to_ground(frame, &self.theme, area);
+        // A clone, as the command popup's is: `draw` does not mutate, and the
+        // list fits its box, so there is no offset worth keeping.
+        frame.render_stateful_widget(
+            List::new(items)
+                .style(Style::default().fg(self.theme.header_fg))
+                .block(pane(&self.theme, format!(" {} ", list.field.label()), true))
+                .highlight_style(
+                    Style::default()
+                        .bg(self.theme.selected_bg)
+                        .add_modifier(Modifier::BOLD),
+                ),
+            area,
+            &mut list.state.clone(),
         );
     }
 
@@ -421,38 +695,8 @@ impl App {
         // what it scrolls sideways against.
         let room = inner_w.saturating_sub(badge_w + 3);
 
-        // Split at the caret first, on the WHOLE query and by char index,
-        // which is what `Input::cursor` counts. Doing it after the window was
-        // cut meant splitting a display column count on a char boundary, and
-        // the two are the same number only until the query holds a wide
-        // character.
-        let value = s.query();
-        let cut = value
-            .char_indices()
-            .nth(s.input.cursor())
-            .map_or(value.len(), |(i, _)| i);
-        let (before, rest) = value.split_at(cut);
-        let mut pairs = vec![(typed, before.to_string())];
-        match rest.chars().next() {
-            // The caret is drawn ON the character it sits on, reversed, so a
-            // caret inside a word reads as a caret and not as a gap in it.
-            Some(c) => {
-                pairs.push((typed.add_modifier(Modifier::REVERSED), c.to_string()));
-                pairs.push((typed, rest[c.len_utf8()..].to_string()));
-            }
-            // Past the last character, so the caret is a block of its own.
-            None => pairs.push((accent, "▏".to_string())),
-        }
-
-        // The window, in display columns both ends, from the pair the diff
-        // pane's own sideways shift is cut with.
         let mut row = vec![Span::styled(" ", dim)];
-        let scrolled = drop_columns(&pairs, s.input.visual_scroll(room));
-        row.extend(
-            take_columns(&scrolled, room)
-                .into_iter()
-                .map(|(st, t)| Span::styled(t, st)),
-        );
+        row.extend(caret_spans(&s.input, typed, accent, room));
 
         if !badge.is_empty() {
             let used: usize = row
@@ -2838,6 +3082,55 @@ pub(super) fn centered_rect(area: Rect, width: u16, height: u16) -> Rect {
         width: w,
         height: h,
     }
+}
+
+/// A one-line field as spans: its text in `typed`, the caret drawn ON the
+/// character it sits on (reversed) or as a `▏` in `past` after the last one,
+/// and the whole scrolled sideways to keep the caret inside `room` columns.
+///
+/// The search box, the command line and the config modal's text edit all
+/// draw a `tui_input` field; one function is why their carets agree.
+pub(super) fn caret_spans(
+    input: &tui_input::Input,
+    typed: Style,
+    past: Style,
+    room: usize,
+) -> Vec<Span<'static>> {
+    // Split at the caret first, on the WHOLE text and by char index, which is
+    // what `Input::cursor` counts. Doing it after the window was cut meant
+    // splitting a display column count on a char boundary, and the two are
+    // the same number only until the text holds a wide character.
+    let value = input.value();
+    let cut = value
+        .char_indices()
+        .nth(input.cursor())
+        .map_or(value.len(), |(i, _)| i);
+    let (before, rest) = value.split_at(cut);
+    let mut pairs = vec![(typed, before.to_string())];
+    match rest.chars().next() {
+        // The caret is drawn ON the character it sits on, reversed, so a
+        // caret inside a word reads as a caret and not as a gap in it.
+        Some(c) => {
+            pairs.push((typed.add_modifier(Modifier::REVERSED), c.to_string()));
+            pairs.push((typed, rest[c.len_utf8()..].to_string()));
+        }
+        // Past the last character, so the caret is a block of its own.
+        None => pairs.push((past, "▏".to_string())),
+    }
+    // The window, in display columns both ends, from the pair the diff pane's
+    // own sideways shift is cut with.
+    let scrolled = drop_columns(&pairs, input.visual_scroll(room));
+    take_columns(&scrolled, room)
+        .into_iter()
+        .map(|(st, t)| Span::styled(t, st))
+        .collect()
+}
+
+/// The config modal: the left of the body, full height, wide enough for a
+/// key row and narrow enough that the diff beside it shows the preview.
+pub fn config_modal_area(body: Rect) -> Rect {
+    let width = body.width.min(72).max(body.width.min(40));
+    Rect { width, ..body }
 }
 
 /// The help modal's key column, at its narrowest.
