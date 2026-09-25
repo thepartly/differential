@@ -121,7 +121,7 @@ reader rebinds is the key the footer, the modal and every message name.
 
 Every key below is a default, and `[keys]` in the user config rebinds it by action
 ([Config](#config)). The composer's and the search box's editing keys, a question's `y`,
-`ctrl-c`, and the picker's and the splash's keys are fixed.
+`ctrl-c`, `q`, `?`, and the picker's and the splash's keys are fixed.
 
 ### Normal mode — moving
 

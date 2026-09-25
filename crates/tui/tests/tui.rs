@@ -9677,7 +9677,7 @@ fn a_rebound_key_does_the_action_and_the_old_one_does_nothing() {
 
 #[test]
 fn the_footer_and_the_help_name_the_rebound_key() {
-    let (_r, mut app) = make_app_with(with_keys(&[(Action::Open, &["o"]), (Action::Help, &["H"])]));
+    let (_r, mut app) = make_app_with(with_keys(&[(Action::Open, &["o"])]));
     sized(&mut app);
     let footer = screen(&app, SCREEN.width, SCREEN.height)
         .last()
@@ -9688,11 +9688,9 @@ fn the_footer_and_the_help_name_the_rebound_key() {
         "the plan pane's footer: {footer:?}"
     );
     assert!(!footer.contains("enter open"), "{footer:?}");
-    assert!(footer.trim_end().ends_with("H help"), "{footer:?}");
+    assert!(footer.trim_end().ends_with("? help"), "{footer:?}");
 
     app.handle_key(key('?'));
-    assert!(matches!(app.mode, Mode::Normal), "? is not help any more");
-    app.handle_key(key('H'));
     assert!(matches!(app.mode, Mode::Help(_)));
     let text = screen(&app, SCREEN.width, SCREEN.height);
     let key_of = |words: &str| {
@@ -9701,20 +9699,52 @@ fn the_footer_and_the_help_name_the_rebound_key() {
         inside.split_whitespace().next().unwrap().to_string()
     };
     assert_eq!(key_of("open the group or file"), "o", "{text:#?}");
-    assert_eq!(key_of("these keys"), "H");
+    assert_eq!(key_of("these keys"), "?", "help is fixed");
 }
 
 #[test]
 fn a_click_on_a_footer_button_presses_the_rebound_key() {
-    let (_r, mut app) = make_app_with(with_keys(&[(Action::Help, &["H"])]));
+    let (_r, mut app) = make_app_with(with_keys(&[(Action::Open, &["o"])]));
     sized(&mut app);
     let panes = layout(SCREEN, DEFAULT_PLAN_COLS);
     let (hints, x0) = app.status_hints(panes.status);
-    let help = hints.last().expect("`H help` is there");
-    assert_eq!(help.presses, vec![key('H')]);
-    let x = x0 + u16::try_from(hints_width(&hints[..hints.len() - 1])).unwrap();
-    app.handle_mouse(click(x, panes.status.y));
-    assert!(matches!(app.mode, Mode::Help(_)), "the click pressed H");
+    let open = hints.first().expect("`o open` leads the plan pane's keys");
+    assert_eq!(open.presses, vec![key('o')]);
+    assert_eq!(app.focus, Focus::Groups);
+    app.handle_mouse(click(x0, panes.status.y));
+    assert_eq!(app.focus, Focus::Detail, "the click pressed o");
+}
+
+#[test]
+fn q_and_question_mark_are_the_reviewers_own() {
+    use differential_tui::keymap::KeyProblem;
+    for key in ["q", "?"] {
+        let taken = KeysConfig(
+            [(Action::Copy, vec![key.to_string()])]
+                .into_iter()
+                .collect(),
+        );
+        let err = Keymap::new(&taken).unwrap_err();
+        assert!(matches!(err.0[..], [KeyProblem::Reserved { .. }]), "{err}");
+    }
+    let (_r, mut app) = make_app();
+    // `q` closes a list, and quits from the review.
+    app.focus = Focus::Detail;
+    app.handle_key(key('f'));
+    assert!(matches!(app.mode, Mode::FileList { .. }));
+    assert!(app.handle_key(key('q')).is_empty());
+    assert!(matches!(app.mode, Mode::Normal), "q closed the list");
+    // `?` opens help from a list too, with the shift a terminal sends.
+    app.handle_key(key('f'));
+    app.handle_key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::SHIFT));
+    assert!(matches!(app.mode, Mode::Help(_)));
+    app.handle_key(key('x'));
+    assert!(
+        matches!(app.mode, Mode::FileList { .. }),
+        "and gives it back"
+    );
+    app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    assert!(matches!(app.handle_key(key('q'))[..], [Effect::Quit]));
 }
 
 #[test]
@@ -9798,8 +9828,7 @@ fn render_dump_keys() {
             (Action::Delete, &["X"]),
             (Action::Findings, &["ctrl-f"]),
             (Action::Close, &["esc", "ctrl-g"]),
-            (Action::Help, &["f1"]),
         ]),
-        KeyEvent::new(KeyCode::F(1), KeyModifiers::NONE),
+        key('?'),
     );
 }

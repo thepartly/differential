@@ -60,12 +60,9 @@ const DEFAULTS: &[(Action, &[Screen], &[&str])] = {
     use Screen::*;
     const ALL: &[Screen] = &[Review, FileList, Findings];
     &[
-        (Action::Quit, &[Review], &["q"]),
-        (Action::Help, ALL, &["?"]),
         (Action::ToggleFocus, &[Review], &["tab"]),
         (Action::Open, ALL, &["enter"]),
-        (Action::Close, &[Review], &["esc"]),
-        (Action::Close, &[FileList, Findings], &["esc", "q"]),
+        (Action::Close, ALL, &["esc"]),
         (Action::Down, ALL, &["j", "down"]),
         (Action::Up, ALL, &["k", "up"]),
         (Action::NextGroup, &[Review], &["J", "}"]),
@@ -101,10 +98,26 @@ const DEFAULTS: &[(Action, &[Screen], &[&str])] = {
     ]
 };
 
-/// Keys no action may take. `ctrl-c` quits from everywhere, the composer
-/// included, and it is the one way out a lost reader can always find — a
-/// `[keys]` table that took it would take that away.
-const RESERVED: &[&str] = &["ctrl-c"];
+/// Keys no action may take, and why. Each is a way out or a way to the
+/// answer, and a reader who is lost is exactly the reader a moved one fails:
+///
+/// - `ctrl-c` quits from everywhere, the composer included.
+/// - `q` quits the review, and closes a list back to it.
+/// - `?` opens the keys of where the reader is standing — the one place a
+///   reader who rebound something can find out what they did.
+pub const RESERVED: &[(&str, &str)] = &[
+    ("ctrl-c", "it quits from everywhere"),
+    ("q", "it quits the review and closes a list"),
+    ("?", "it opens help from everywhere"),
+];
+
+/// The reserved key `binding` is, and why, if it is one.
+pub fn reserved(binding: &Binding) -> Option<(&'static str, &'static str)> {
+    RESERVED
+        .iter()
+        .copied()
+        .find(|(key, _)| Binding::parse(key).as_ref() == Ok(binding))
+}
 
 /// One binding: the presses that make it, in order. Almost always one; `dd`
 /// is two.
@@ -245,7 +258,11 @@ pub enum KeyProblem {
     /// A key string that is not a key.
     Unparsed { action: Action, why: String },
     /// A key no action may take.
-    Reserved { action: Action, key: String },
+    Reserved {
+        action: Action,
+        key: String,
+        why: &'static str,
+    },
     /// Two actions answer to one key in one screen — or one's key is the
     /// start of the other's, so the longer one could never be pressed.
     Clash {
@@ -259,11 +276,9 @@ impl fmt::Display for KeyProblem {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             KeyProblem::Unparsed { action, why } => write!(f, "{}: {why}", action.key()),
-            KeyProblem::Reserved { action, key } => write!(
-                f,
-                "{}: {key:?} is reserved — it quits from everywhere",
-                action.key()
-            ),
+            KeyProblem::Reserved { action, key, why } => {
+                write!(f, "{}: {key:?} is reserved — {why}", action.key())
+            }
             KeyProblem::Clash {
                 screen,
                 first: (a, ka),
@@ -340,18 +355,15 @@ impl Keymap {
             let mut out: Vec<Binding> = Vec::new();
             for text in texts {
                 match Binding::parse(text) {
-                    Ok(b)
-                        if RESERVED
-                            .iter()
-                            .any(|r| Binding::parse(r).as_ref() == Ok(&b)) =>
-                    {
-                        problems.push(KeyProblem::Reserved {
+                    Ok(b) => match reserved(&b) {
+                        Some((_, why)) => problems.push(KeyProblem::Reserved {
                             action,
                             key: text.to_string(),
-                        })
-                    }
-                    Ok(b) if !out.contains(&b) => out.push(b),
-                    Ok(_) => {}
+                            why,
+                        }),
+                        None if !out.contains(&b) => out.push(b),
+                        None => {}
+                    },
                     Err(why) => problems.push(KeyProblem::Unparsed { action, why }),
                 }
             }
@@ -366,9 +378,17 @@ impl Keymap {
             let keys = parsed(*action, own.as_deref().unwrap_or(defaults));
             bound.extend(screens.iter().map(|s| (*s, *action, keys.clone())));
         }
-        // An action overridden on two rows (`close`) was parsed twice; its
-        // problems are the same problems.
-        problems.dedup();
+        // An action on two rows of the table is parsed twice, and its
+        // problems are the same problems. Kept once each, in order, wherever
+        // the rows sit — `dedup` alone would only merge neighbours.
+        let mut seen = Vec::new();
+        problems.retain(|p| {
+            let new = !seen.contains(p);
+            if new {
+                seen.push(p.clone());
+            }
+            new
+        });
         for screen in Screen::ALL {
             let here: Vec<(Action, &Binding)> = bound
                 .iter()
@@ -526,7 +546,6 @@ mod tests {
                 press(KeyCode::Char('-'), KeyModifiers::ALT),
                 Action::ShrinkDiff,
             ),
-            (press(KeyCode::Char('?'), KeyModifiers::SHIFT), Action::Help),
             (ch(' '), Action::ToggleReviewed),
             (press(KeyCode::Tab, KeyModifiers::NONE), Action::ToggleFocus),
         ];
@@ -541,10 +560,12 @@ mod tests {
         // One key, a different action per screen.
         assert_eq!(act(&map, r, ch('f')), Lookup::Act(Action::Files));
         assert_eq!(
-            act(&map, Screen::FileList, ch('q')),
-            Lookup::Act(Action::Close)
+            act(&map, Screen::FileList, ch('f')),
+            Lookup::Act(Action::Files)
         );
-        assert_eq!(act(&map, r, ch('q')), Lookup::Act(Action::Quit));
+        // `q` and `?` are no action's: the reviewer answers them itself.
+        assert_eq!(act(&map, r, ch('q')), Lookup::Nothing);
+        assert_eq!(act(&map, r, ch('?')), Lookup::Nothing);
     }
 
     #[test]
@@ -623,16 +644,19 @@ mod tests {
     }
 
     #[test]
-    fn ctrl_c_is_nobodys() {
-        let err = Keymap::new(&keys(&[(Action::Copy, &["ctrl-c"])])).unwrap_err();
-        assert!(matches!(err.0[..], [KeyProblem::Reserved { .. }]), "{err}");
+    fn the_reserved_keys_are_nobodys() {
+        for (key, why) in RESERVED {
+            let err = Keymap::new(&keys(&[(Action::Copy, &[key])])).unwrap_err();
+            assert!(matches!(err.0[..], [KeyProblem::Reserved { .. }]), "{err}");
+            assert!(err.to_string().contains(why), "{err}");
+        }
     }
 
     #[test]
     fn every_problem_is_reported_at_once() {
         let err = Keymap::new(&keys(&[
             (Action::Copy, &["ctrl-c"]),
-            (Action::Quit, &["nope"]),
+            (Action::Top, &["nope"]),
             (Action::Reply, &["j"]),
         ]))
         .unwrap_err();

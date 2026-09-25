@@ -50,9 +50,11 @@ Seven things follow.
    the plan pane too, although it only moves the diff. A key that meant one thing on one row
    and another on the next is a key nobody could rebind with confidence.
 5. **Fixed keys stay fixed.** The composer's and the search box's editing keys belong to
-   their text widgets. A `y` question's `y` is deliberately the one answer. `ctrl-c` quits
-   from everywhere and no action may take it: it is the way out a lost reader can always
-   find.
+   their text widgets. A `y` question's `y` is deliberately the one answer. And three keys
+   are reserved (`keymap::RESERVED`), so no action may take them: `ctrl-c` quits from
+   everywhere, `q` quits the review and closes a list, and `?` opens help. They are the
+   way out and the way to the answer. A reader who has rebound something is exactly the
+   reader who needs to find both, so there are no `quit` or `help` actions to bind.
 6. **The check is a library call.** `differential_tui::Keymap::new(&KeysConfig)` touches no
    terminal and no file, and returns the keymap or every problem. `dfr review` calls it
    before the terminal opens, so a bad table is a usage error (exit 2) naming the file, not a

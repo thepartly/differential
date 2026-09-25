@@ -528,6 +528,26 @@ impl App {
         // help closes. It is NOT a key in the composer, where it is a
         // character, nor in a question, where every key but `y` is the no.
         if let Some(screen) = self.screen() {
+            // `q` and `?` are the reviewer's own, as `ctrl-c` is: the way out
+            // and the way to the answer, and no `[keys]` table may move
+            // either (`keymap::RESERVED`). `q` quits the review and closes a
+            // list back to it; `?` opens help over the place it is pressed.
+            match key.code {
+                KeyCode::Char('q') if key.modifiers.is_empty() => {
+                    if screen == Screen::Review {
+                        self.save_cursor();
+                        return vec![Effect::Quit];
+                    }
+                    self.mode = Mode::Normal;
+                    return Vec::new();
+                }
+                // With or without the shift a terminal reports it with.
+                KeyCode::Char('?') if (key.modifiers - KeyModifiers::SHIFT).is_empty() => {
+                    self.open_help();
+                    return Vec::new();
+                }
+                _ => {}
+            }
             let action = match self.keymap().lookup(screen, &pending, key) {
                 Lookup::Act(action) => action,
                 Lookup::Pending(presses) => {
@@ -536,10 +556,6 @@ impl App {
                 }
                 Lookup::Nothing => return Vec::new(),
             };
-            if action == Action::Help {
-                self.open_help();
-                return Vec::new();
-            }
             return match screen {
                 Screen::Review => self.normal_action(action),
                 Screen::FileList => self.file_list_action(action),
@@ -815,10 +831,6 @@ impl App {
     fn normal_action(&mut self, action: Action) -> Vec<Effect> {
         let detail = self.focus == Focus::Detail;
         match action {
-            Action::Quit => {
-                self.save_cursor();
-                return vec![Effect::Quit];
-            }
             Action::ToggleFocus => {
                 self.focus = match self.focus {
                     Focus::Groups => Focus::Detail,
