@@ -102,13 +102,11 @@ impl App {
             }
             Mode::Notice { title, text } => {
                 // Wrapped, and as tall as it needs: an error is read once and
-                // in full, or it is not read at all. The rows are counted with
-                // the same word wrap the paragraph draws with, so the box and
-                // its text cannot disagree; borders, two blank rows and the
-                // footer make five more.
+                // in full, or it is not read at all. The rows are counted BY
+                // the paragraph that draws them (`line_count`), so the box and
+                // its text cannot disagree — a second wrapper counting them
+                // broke at hyphens this one does not, and cut the last line.
                 let width = panes.body.width.saturating_sub(6).clamp(20, 100);
-                let rows = wrapped_rows(text.lines(), usize::from(width.saturating_sub(4)));
-                let height = u16::try_from(rows + 5).unwrap_or(u16::MAX);
                 let mut lines: Vec<Line> = vec![Line::from("")];
                 lines.extend(text.lines().map(|l| {
                     Line::from(Span::styled(
@@ -121,11 +119,17 @@ impl App {
                     " press any key to close",
                     Style::default().fg(self.theme.gutter_fg),
                 )));
+                let paragraph = Paragraph::new(lines).wrap(ratatui::widgets::Wrap { trim: false });
+                // The frame is the other two rows.
+                let rows = paragraph.line_count(width.saturating_sub(FRAME_ROWS));
+                let height = u16::try_from(rows)
+                    .unwrap_or(u16::MAX)
+                    .saturating_add(FRAME_ROWS);
                 self.float(
                     frame,
                     centered_rect(panes.body, width, height),
                     &format!(" {title} "),
-                    Paragraph::new(lines).wrap(ratatui::widgets::Wrap { trim: false }),
+                    paragraph,
                 );
             }
             Mode::DeleteComment { own } => {
@@ -2862,14 +2866,6 @@ pub(super) fn pane(theme: &Theme, title: String, focused: bool) -> Block<'static
         ))
 }
 
-/// Rows `lines` take when word-wrapped inside `inner` columns, one at least
-/// per line. The same wrap the paragraphs draw with, so a box sized by it
-/// holds its text.
-fn wrapped_rows<'a>(lines: impl Iterator<Item = &'a str>, inner: usize) -> usize {
-    let inner = inner.max(1);
-    lines.map(|l| textwrap::wrap(l, inner).len().max(1)).sum()
-}
-
 /// The composer's box: three fifths of the body wide, and as tall as its
 /// text — the frame, the footer and a spare row on top of the lines — up to
 /// the body, beyond which the text area scrolls. A float over the diff, not a
@@ -2877,16 +2873,13 @@ fn wrapped_rows<'a>(lines: impl Iterator<Item = &'a str>, inner: usize) -> usize
 /// around it. Shared with the hit test.
 pub fn composer_area(body: Rect, textarea: &TextArea<'_>) -> Rect {
     let width = body.width * 3 / 5;
-    // Rows as wrapped, not lines as typed; the text area scrolls beyond the
-    // body anyway.
-    let rows = wrapped_rows(
-        textarea.lines().iter().map(String::as_str),
-        usize::from(width.saturating_sub(FRAME_ROWS)),
-    );
+    // Rows as wrapped, not lines as typed — counted by the text area that
+    // wraps them. `measure` takes `&mut` for its cache alone, and a note is a
+    // few lines, so a clone is the price of keeping this a pure function of
+    // what is drawn. The text area scrolls beyond the body anyway.
+    let rows = textarea.clone().measure(width).content_rows;
     // The frame, the footer and the spare row: that is the four.
-    let wanted = u16::try_from(rows)
-        .unwrap_or(u16::MAX)
-        .saturating_add(FRAME_ROWS + 2);
+    let wanted = rows.saturating_add(FRAME_ROWS + 2);
     let height = wanted.clamp(10, body.height.max(10));
     centered_rect(body, width, height)
 }
