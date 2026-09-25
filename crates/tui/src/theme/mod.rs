@@ -688,19 +688,7 @@ mod tests {
     /// Every shipped palette. The legibility, chroma and distinctness tests
     /// below all run over this, which is what makes adding a theme cheap: a
     /// seed that does not hold up fails here rather than in someone's terminal.
-    const ALL: [ThemeName; 11] = [
-        ThemeName::Dark,
-        ThemeName::OneDark,
-        ThemeName::OneLight,
-        ThemeName::GruvboxDark,
-        ThemeName::GruvboxLight,
-        ThemeName::SolarizedDark,
-        ThemeName::SolarizedLight,
-        ThemeName::CatppuccinMocha,
-        ThemeName::CatppuccinLatte,
-        ThemeName::Dracula,
-        ThemeName::Monokai,
-    ];
+    const ALL: [ThemeName; 11] = ThemeName::ALL;
 
     fn must_rgb(c: Color) -> Rgb {
         rgb_of(c).unwrap_or_else(|| panic!("{c:?} is not an Rgb — a palette may not use ANSI"))

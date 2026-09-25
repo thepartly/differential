@@ -28,7 +28,7 @@
 use std::collections::{HashMap, HashSet};
 
 use differential_engine::FsReviewSession;
-use differential_engine::config::ThemeName;
+use differential_engine::config::{ThemeName, UserConfig};
 use differential_engine::plan::LineCounts;
 use differential_engine::review_state::{FindingStatus, Lines};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
@@ -74,6 +74,13 @@ pub struct ReviewOptions {
     /// before a terminal is touched, so a bad `[keys]` table is a usage
     /// error rather than a reviewer that half works.
     pub keymap: Keymap,
+    /// The whole personal config as it was loaded — what the config modal
+    /// (`:config`) opens on and edits. The fields above are the values drawn
+    /// from it; this is the file, so a save writes back what it did not show.
+    pub user_config: UserConfig,
+    /// Where the config modal saves. `None` when no config directory can be
+    /// found, and then saving says so rather than writing somewhere else.
+    pub user_config_path: Option<std::path::PathBuf>,
 }
 
 impl Default for ReviewOptions {
@@ -88,6 +95,8 @@ impl Default for ReviewOptions {
             range: None,
             theme: ThemeName::default(),
             keymap: Keymap::default(),
+            user_config: UserConfig::default(),
+            user_config_path: None,
         }
     }
 }
@@ -329,6 +338,11 @@ pub enum Mode {
     /// reader is in that — seven fields, and naming them here would be seven
     /// places outside the module that know its shape.
     Search(search::Search),
+    /// `:` — one line that names a command (see [`command`]).
+    Command(command::CommandLine),
+    /// `:config` — the personal config, edited in place and saved whole (see
+    /// [`config`]). Boxed: it carries two whole configs.
+    Config(Box<config::ConfigEdit>),
 }
 
 pub struct FindingEntry {
@@ -612,14 +626,16 @@ pub struct App {
 }
 
 impl App {
-    /// Swap the palette. Rows bake their colours in at build time, so this
-    /// rebuilds them rather than leaving the old ink on screen.
-    ///
-    /// Test-only: the float-ground assertion is the caller. A running reviewer
-    /// picks its palette from config once, at startup, and never swaps it.
-    #[doc(hidden)]
+    /// Swap the palette. Rows bake their colours in at build time, and the
+    /// factory caches highlighted lines, so both are rebuilt rather than
+    /// leaving the old ink on screen. The config modal previews a theme
+    /// through here.
     pub fn set_theme(&mut self, theme: Theme) {
         self.theme = theme;
+        self.factory.forget_highlights();
+        // Both hold spans painted in the old palette, and each is rebuilt
+        // from its source the next time it is opened.
+        self.peek = None;
         self.rebuild_rows();
     }
 
@@ -739,6 +755,8 @@ impl App {
     }
 }
 
+mod command;
+mod config;
 mod draw;
 mod findings;
 mod forge;
@@ -765,6 +783,12 @@ pub use text::{Hint, Ink, hints_width};
 pub use forge::ForgeLink;
 
 impl App {
+    /// The presentation options in effect — what `:config` previews and saves
+    /// into.
+    pub fn options(&self) -> &ReviewOptions {
+        &self.opts
+    }
+
     /// The keys, for a place that names one.
     pub(super) fn keymap(&self) -> &Keymap {
         &self.opts.keymap

@@ -64,6 +64,10 @@ pub enum Area {
     Composer,
     /// A question only `y` answers: a publish, a comment's deletion.
     Question,
+    /// `:` — the command line. Every printable key types into it.
+    Command,
+    /// `:config` — editing the personal config.
+    Config,
     /// Help itself, and a notice. Any key closes them, and that is the
     /// whole list.
     Reading,
@@ -93,6 +97,8 @@ impl Area {
             Area::Search => "the search",
             Area::Composer => "writing a finding",
             Area::Question => "the question",
+            Area::Command => "the command line",
+            Area::Config => "the config",
             Area::Reading => "here",
         }
     }
@@ -223,7 +229,12 @@ impl Area {
             }
             Area::FileList => Some(Screen::FileList),
             Area::Findings => Some(Screen::Findings),
-            Area::Search | Area::Composer | Area::Question | Area::Reading => None,
+            Area::Search
+            | Area::Composer
+            | Area::Question
+            | Area::Command
+            | Area::Config
+            | Area::Reading => None,
         }
     }
 }
@@ -296,6 +307,24 @@ fn everywhere(keys: &Keymap) -> Vec<Act> {
     .collect()
 }
 
+/// The command line, as one row: its key, which is fixed (ADR 0037), and
+/// every command by name. One row because `?` has to fit a forty-row
+/// terminal, and the names say what they open — `:config` is the one without
+/// a key of its own.
+fn commands() -> Vec<Act> {
+    let names: Vec<String> = super::command::COMMANDS
+        .iter()
+        .map(|c| format!(":{}", c.aliases.first().unwrap_or(&c.name)))
+        .collect();
+    vec![
+        Keys::fixed(
+            ":",
+            vec![KeyEvent::new(KeyCode::Char(':'), KeyModifiers::NONE)],
+        )
+        .quiet(&names.join(" ")),
+    ]
+}
+
 impl App {
     /// Where the reader is standing.
     pub fn area(&self) -> Area {
@@ -318,6 +347,8 @@ impl App {
             Mode::FileList { .. } => Area::FileList,
             Mode::Findings { .. } => Area::Findings,
             Mode::Search(_) => Area::Search,
+            Mode::Command(_) => Area::Command,
+            Mode::Config(_) => Area::Config,
             Mode::Editing { .. } => Area::Composer,
             Mode::Publish { .. } | Mode::DeleteComment { .. } => Area::Question,
             Mode::Normal => match self.focus {
@@ -579,6 +610,58 @@ impl App {
                 Some(Keys::fixed("y", Vec::new()).quiet("yes, and only y does")),
                 Some(Keys::fixed("any other key", Vec::new()).quiet("no — nothing happens")),
             ],
+            // Fixed keys, both: every printable key types on the line, and the
+            // config modal must work whatever `[keys]` says (ADR 0037).
+            Area::Command => vec![
+                Some(Keys::fixed("enter", bare(KeyCode::Enter)).footer("run", "run the command")),
+                Some(
+                    Keys::fixed("tab", bare(KeyCode::Tab))
+                        .footer("next", "the next command it could be"),
+                ),
+                Some(Keys::fixed("esc", bare(KeyCode::Esc)).footer("cancel", "drop the line")),
+                Some(Keys::fixed("shift-tab · up", Vec::new()).quiet("the previous one")),
+                Some(Keys::fixed("right", Vec::new()).quiet("take the dim rest of the name")),
+            ],
+            Area::Config if self.config_edit().is_some_and(|e| e.dropdown.is_some()) => vec![
+                Some(
+                    Keys::fixed("j/k", Vec::new())
+                        .footer("try", "the next or previous choice, shown as it is passed"),
+                ),
+                Some(Keys::fixed("enter", bare(KeyCode::Enter)).footer("pick", "keep the one on")),
+                Some(
+                    Keys::fixed("esc", bare(KeyCode::Esc))
+                        .footer("back", "the choice before the list"),
+                ),
+            ],
+            Area::Config => match self.config_edit().is_some_and(|e| e.editing.is_some()) {
+                true => vec![
+                    Some(Keys::fixed("enter", bare(KeyCode::Enter)).footer("set", "set the value")),
+                    Some(
+                        Keys::fixed("esc", bare(KeyCode::Esc))
+                            .footer("cancel", "keep the old value"),
+                    ),
+                ],
+                false => vec![
+                    Some(Keys::fixed("h/l", Vec::new()).quiet("the next or previous value")),
+                    Some(Keys::fixed("enter", bare(KeyCode::Enter)).quiet("type a value")),
+                    Some(
+                        Keys::fixed("r", bare(KeyCode::Char('r')))
+                            .footer("reset", "this setting back to its default"),
+                    ),
+                    Some(
+                        Keys::fixed(
+                            "ctrl-s",
+                            vec![KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL)],
+                        )
+                        .footer("save", "write the file and apply it"),
+                    ),
+                    Some(
+                        Keys::fixed("esc", bare(KeyCode::Esc))
+                            .footer("cancel", "put everything back, save nothing"),
+                    ),
+                    Some(Keys::fixed("j/k", Vec::new()).quiet("move over the settings")),
+                ],
+            },
             Area::Reading => vec![Some(Keys::fixed("any key", Vec::new()).quiet("close this"))],
         };
         rows.into_iter().flatten().collect()
@@ -644,6 +727,10 @@ impl App {
             sections.push(HelpSection {
                 title: "moving",
                 acts: moving(self.keymap(), area),
+            });
+            sections.push(HelpSection {
+                title: "commands",
+                acts: commands(),
             });
         }
         sections

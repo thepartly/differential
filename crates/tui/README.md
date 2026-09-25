@@ -121,7 +121,7 @@ reader rebinds is the key the footer, the modal and every message name.
 
 Every key below is a default, and `[keys]` in the user config rebinds it by action
 ([Config](#config)). The composer's and the search box's editing keys, a question's `y`,
-`ctrl-c`, `q`, `?`, and the picker's and the splash's keys are fixed.
+`ctrl-c`, `q`, `?`, `:`, and the picker's and the splash's keys are fixed.
 
 ### Normal mode — moving
 
@@ -496,6 +496,12 @@ screen it works in. Two actions on one key in one screen is an error naming both
 is one key starting another's sequence. The action names are in
 [`spec/tui.md`](../../spec/tui.md#keys) (ADR 0036).
 
+`:config` in the reviewer edits all of this in a modal and saves it back, previewing the
+theme, layout and context as they change. Saving rewrites the file whole, so its comments
+are not kept ([`spec/tui.md`](../../spec/tui.md#config-modal), ADR 0037). An application
+that wants the modal to save hands `ReviewOptions` the loaded `user_config` and the
+`user_config_path` to write.
+
 The check is a library call, `Keymap::new(&config.keys)`, which returns the keymap or every
 problem with the table. It touches no terminal, so an application calls it before
 `review` and hands the result in `ReviewOptions::keymap`.
@@ -623,6 +629,9 @@ review(
         range: None,
         theme: ThemeName::Dark,
         keymap: Keymap::new(&config.keys)?,
+        // What `:config` edits, and where it saves. `None` turns saving off.
+        user_config: user,
+        user_config_path: Some(path),
     },
     |picked, progress, cancel| {
         // Run the pipeline on a worker thread. Send Progress values down the
