@@ -20,8 +20,8 @@ use super::draw::{
     search_modal_area,
 };
 use super::text::{
-    Hint, basename, file_list_rows, findings_entry_at_line, findings_rows, findings_skip, hint_at,
-    hints_width, step_list,
+    Hint, basename, file_list_rows, findings_entry_at_line, findings_rows, findings_skip,
+    findings_step, hint_at, hints_width, step_list,
 };
 use super::*;
 
@@ -397,7 +397,7 @@ impl App {
         }
         if step != 0 {
             let rows = findings_rows(entries.len(), rules.len(), self.viewport.body_rows);
-            step_list(selected, scroll, entries.len(), rows, step > 0);
+            findings_step(selected, scroll, entries.len(), rows, &rules, step > 0);
             return;
         }
         if !click {
@@ -770,11 +770,11 @@ impl App {
         else {
             return Vec::new();
         };
-        let rules = section_rules(entries).len();
-        let rows = findings_rows(entries.len(), rules, self.viewport.body_rows);
+        let rules = section_rules(entries);
+        let rows = findings_rows(entries.len(), rules.len(), self.viewport.body_rows);
         match action {
-            Action::Down => step_list(selected, scroll, entries.len(), rows, true),
-            Action::Up => step_list(selected, scroll, entries.len(), rows, false),
+            Action::Down => findings_step(selected, scroll, entries.len(), rows, &rules, true),
+            Action::Up => findings_step(selected, scroll, entries.len(), rows, &rules, false),
             // Only the local notes are up for this: a published note is
             // the request's, and a thread is somebody else's.
             Action::ClearNotes => {
