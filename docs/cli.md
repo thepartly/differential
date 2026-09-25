@@ -371,6 +371,10 @@ The command is split into words the way a shell would, so a program whose path h
 space is quoted: `editor = "'/Applications/My Editor' {file}"`. An unbalanced quote is a
 hard error at startup, like any other malformed config value.
 
+**The first word is the program, and it may not be a placeholder.** `editor = "{file}"`
+is refused at startup, because it would make the program the file you are reviewing — and
+a file carrying the executable bit would then be run by `e`, not merely fail to start.
+
 **A command naming no `{file}` gets the path appended.** That is what makes a bare
 `editor = "vim"` work, and it is why `$EDITOR` is a usable fallback. Such a command names
 no line either, so the file opens at the top and the reviewer's footer says

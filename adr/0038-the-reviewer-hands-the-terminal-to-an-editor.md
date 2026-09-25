@@ -66,6 +66,13 @@ no editor, which is true.
 the whole of the problem, and a program path with a space in it is the case a hand-rolled
 splitter gets wrong.
 
+**A placeholder may not be the first word.** Substitution reaches every word, so
+`editor = "{file}"` would make the program the file under the cursor. The tempting reading
+is that the spawn simply fails and the footer says so — but on a source file carrying the
+executable bit it does not fail, it RUNS. A key for reading a diff must not be one keystroke
+from executing what it is reading, so the command is refused at load, where every other
+malformed config value is.
+
 **2. The handoff is not `engine::subprocess`, and the reason is the terminal.**
 
 Every other child in this workspace goes through `engine::subprocess::run`: the agent

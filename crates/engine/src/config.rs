@@ -412,6 +412,17 @@ impl EditorCommand {
         if argv.is_empty() {
             return Err(fail("editor command is empty".to_string()));
         }
+        // The first word is the program, and a placeholder there would make
+        // the program the FILE. On a source file carrying the executable bit
+        // that is not a failed spawn to shrug at — it is `e` running the file
+        // under the cursor. Caught here, where every other malformed value is.
+        if argv[0].contains(EDITOR_FILE) || argv[0].contains(EDITOR_LINE) {
+            return Err(fail(format!(
+                "the first word is the program to run, and it may not be a \
+                 placeholder: {:?}",
+                argv[0]
+            )));
+        }
         Ok(EditorCommand {
             carries_line: argv.iter().any(|w| w.contains(EDITOR_LINE)),
             carries_file: argv.iter().any(|w| w.contains(EDITOR_FILE)),
@@ -432,6 +443,9 @@ impl EditorCommand {
     ///
     /// The path is rendered lossily, as every path in the renderer above this
     /// already is — `schema::FileEntry::path` is a `String`.
+    ///
+    /// Substitution reaches every word but the first, which [`parse`](Self::parse)
+    /// has already refused to let hold a placeholder.
     pub fn argv(&self, file: &Path, line: u32) -> Vec<String> {
         let path = file.to_string_lossy();
         let line = line.to_string();
@@ -1213,6 +1227,21 @@ attributes = ["linguist-generated", "custom-generated"]
         // An unbalanced quote: `shlex` refuses, and so do we.
         let err = EditorCommand::parse("vim \"unclosed", "test").unwrap_err();
         assert!(err.to_string().contains("quote"), "{err}");
+    }
+
+    /// A placeholder in the FIRST word would make the program the file. A
+    /// source file with the executable bit set would then be run by `e`, so
+    /// this is refused at load rather than left to the operating system —
+    /// which, for that file, would not refuse it at all.
+    #[test]
+    fn the_program_word_may_not_be_a_placeholder() {
+        for bad in ["{file}", "{file} {line}", "{line}", "pre{file}post vim"] {
+            let err = EditorCommand::parse(bad, "test").unwrap_err().to_string();
+            assert!(err.contains("first word"), "{bad:?} gave {err}");
+        }
+        // A placeholder anywhere else is the whole point of the feature.
+        assert!(EditorCommand::parse("vim +{line} {file}", "test").is_ok());
+        assert!(EditorCommand::parse("code -g {file}:{line}", "test").is_ok());
     }
 
     /// The house rule for every key in this table: setting one must not zero
