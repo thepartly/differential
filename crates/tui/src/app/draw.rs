@@ -3127,10 +3127,13 @@ pub(super) fn caret_spans(
 }
 
 /// The config modal: the left of the body, full height, wide enough for a
-/// key row and narrow enough that the diff beside it shows the preview.
+/// key row and narrow enough that the diff beside it shows the preview. On a
+/// body narrower than that it takes the whole width, which is all there is.
 pub fn config_modal_area(body: Rect) -> Rect {
-    let width = body.width.min(72).max(body.width.min(40));
-    Rect { width, ..body }
+    Rect {
+        width: body.width.min(72),
+        ..body
+    }
 }
 
 /// The help modal's key column, at its narrowest.
