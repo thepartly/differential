@@ -96,12 +96,16 @@ changes contribute zero and a rename counts as two files (the canonical view is
 `--no-renames`). Skim groups show one exemplar per shape class with the remainder folded
 behind a single line; noise groups are folded entirely.
 
-**File view.** `f`, in the left pane, switches it to a **tree** of every file in the document
-(including binary/submodule changes the group view cannot surface). Directories nest,
-show their aggregate counts, and fold with `z`/`enter`; selecting a directory shows every
-hunk beneath it, selecting a file shows that file's hunks in position order regardless of
-grouping, each hunk header carrying its group's label. Reviewed marks are shared between
-the views — they key on hunk content either way.
+**File view.** `f`, in the left pane, switches it to a **tree** of every file in the
+document (including binary/submodule changes the group view cannot surface). Directories
+nest, show their aggregate counts, and fold with `z`/`enter`. A chain of directories that
+each hold nothing but one directory is **one row** (`a/b/c/`), and the level that branches
+nests beneath it, so a deep path costs a line where it branches rather than a line per
+directory. The joined row folds and is selected as one, and it is keyed by its deepest
+directory; selecting a directory shows every hunk beneath it, selecting a file shows that
+file's hunks in position order regardless of grouping, each hunk header carrying its
+group's label. Reviewed marks are shared between the views — they key on hunk content
+either way.
 
 **Focus floats a map of the other pane.** Each side keeps its own job; what changes is what
 is laid over it, so an unfocused pane earns its space without either pane losing any.
@@ -121,15 +125,15 @@ thing to explain and to get wrong.
 
 **The map folds on the group.** A document of any size otherwise runs past the bottom of
 the float. A directory the group never enters is **one row** with a `▸` and the number of
-files under it, and a chain of such directories is joined into that row (`▸ a/b/c/`), so a
-deep path the reader is not going into costs one line rather than four. Inside a directory
-the group does enter, the files it does not touch fold to a count (`… 6 more`). What
-remains is exactly the group's own files, each lit, in the tree that holds them — which is
-the question the float is asked. The fold is the map's own, and the independence runs
-both ways: it never touches the file view's folds, whose state belongs to the reader's
-`z` and to that pane's cursor, and those folds never reach it — the map folds the
-document's whole tree, so a directory the reader put away in the file view still shows
-the group's files lit here.
+files under it. The map reads the same tree as the file view, so a chain is already joined
+(`▸ a/b/c/`, or an open `a/b/c/` where the group does enter), and a deep path the reader is
+not going into costs one line rather than four. Inside a directory the group does enter,
+the files it does not touch fold to a count (`… 6 more`). What remains is exactly the
+group's own files, each lit, in the tree that holds them — which is the question the float
+is asked. The fold is the map's own, and the independence runs both ways: it never touches
+the file view's folds, whose state belongs to the reader's `z` and to that pane's cursor,
+and those folds never reach it — the map folds the document's whole tree, so a directory
+the reader put away in the file view still shows the group's files lit here.
 
 **A count beside a file names what the reader is being shown of that file**, never the
 file. Reading a group, the map's `+N −M` and the file-list modal's are that **group's part**

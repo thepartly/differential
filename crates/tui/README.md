@@ -57,9 +57,10 @@ line. Noise groups are folded entirely.
 Press `f` in the left pane to switch it to a tree of every file in the document. That
 includes binary and submodule changes, which the group view cannot show.
 
-Directories nest and show aggregate counts. Selecting a directory shows every hunk beneath
-it. Selecting a file shows that file's hunks in position order, whatever group they belong
-to, each header carrying its group's label.
+Directories nest and show aggregate counts. A chain of directories that each hold nothing
+but one directory is one row (`a/b/c/`), folded and selected as one. Selecting a directory
+shows every hunk beneath it. Selecting a file shows that file's hunks in position order,
+whatever group they belong to, each header carrying its group's label.
 
 Reviewed marks are shared between the two views. They key on the hunk's digest either way.
 

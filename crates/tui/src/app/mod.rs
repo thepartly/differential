@@ -504,8 +504,9 @@ pub enum ViewMode {
 enum MapRow {
     /// A directory the group touches. Its children follow.
     Dir { depth: usize, name: String },
-    /// A directory the group does not touch, and everything under it. A chain
-    /// of single-child directories is joined, so one row says `a/b/c/`.
+    /// A directory the group does not touch, and everything under it. The
+    /// tree has already joined a chain of single-child directories, so one row
+    /// can say `a/b/c/`.
     Folded {
         depth: usize,
         name: String,
@@ -544,8 +545,16 @@ pub struct TreeEntry {
 }
 
 pub enum TreeKind {
-    Dir { path: String },
-    File { file_idx: usize },
+    /// `path` is the deepest directory of a joined chain, and what folds and
+    /// the cursor key on; `name` is what the row says — `a/b/c` for a chain,
+    /// the directory's own name otherwise.
+    Dir {
+        path: String,
+        name: String,
+    },
+    File {
+        file_idx: usize,
+    },
 }
 
 pub struct App {

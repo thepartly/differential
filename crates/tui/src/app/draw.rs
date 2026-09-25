@@ -1155,13 +1155,12 @@ impl App {
         let dim = bg(Style::default().fg(self.theme.gutter_fg));
 
         match &entry.kind {
-            TreeKind::Dir { path } => {
+            TreeKind::Dir { path, name } => {
                 let glyph = if self.collapsed.contains(path) {
                     "▸"
                 } else {
                     "▾"
                 };
-                let name = basename(path).to_string();
                 vec![Line::from(vec![
                     Span::styled(format!("{mark}{indent}{glyph} "), dim),
                     Span::styled(
@@ -1667,12 +1666,9 @@ impl App {
                 .position(|e| e.depth <= tree[i].depth)
                 .map_or(n, |k| i + 1 + k)
         };
-        let leaf = |i: usize| {
-            let path = match &tree[i].kind {
-                TreeKind::Dir { path } => path.as_str(),
-                TreeKind::File { .. } => return String::new(),
-            };
-            basename(path).to_string()
+        let leaf = |i: usize| match &tree[i].kind {
+            TreeKind::Dir { name, .. } => name.clone(),
+            TreeKind::File { .. } => String::new(),
         };
 
         let mut out = Vec::new();
@@ -1688,24 +1684,10 @@ impl App {
                     i += 1;
                 }
                 TreeKind::Dir { .. } => {
-                    // Absorb a chain of single-child directories, so a deep
-                    // path the group never enters costs one row, not four.
+                    // A chain the group never enters is already one row: the
+                    // tree joined it (`build_tree`), so it folds as one.
                     let end = end_of(i);
-                    let mut name = leaf(i);
-                    let mut cur = i;
-                    loop {
-                        let mut kids =
-                            (cur + 1..end).filter(|&j| tree[j].depth == tree[cur].depth + 1);
-                        let (Some(only), None) = (kids.next(), kids.next()) else {
-                            break;
-                        };
-                        if !matches!(tree[only].kind, TreeKind::Dir { .. }) {
-                            break;
-                        }
-                        name.push('/');
-                        name.push_str(&leaf(only));
-                        cur = only;
-                    }
+                    let name = leaf(i);
                     out.push(MapRow::Folded {
                         depth,
                         name,
