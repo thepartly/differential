@@ -121,8 +121,8 @@ enum Command {
     /// choice, answerable from anywhere.
     Agents {
         /// Run one real model call against this agent, or the configured one.
-        #[arg(long, num_args = 0..=1, default_missing_value = "")]
-        probe: Option<String>,
+        #[arg(long, num_args = 0..=1, value_parser = agent_name())]
+        probe: Option<Option<Agent>>,
         /// User config to read `[grouping].agent` from.
         #[arg(long)]
         user_config: Option<PathBuf>,
@@ -219,7 +219,7 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         timeout_secs,
     } = &cli.command
     {
-        return agents_command(probe.as_deref(), user_config.as_deref(), *timeout_secs);
+        return agents_command(*probe, user_config.as_deref(), *timeout_secs);
     }
 
     // `clean` needs a repository but no range, no config and no languages, so
@@ -713,6 +713,19 @@ fn print_range(base: &str, head: &str) {
 ///
 /// The count is taken before the delete either way, so the two modes report the
 /// same thing about the same state.
+/// `--probe <agent>`: the agents by name, checked by clap, which lists them in
+/// `--help` and names them in its error. A name is the whole vocabulary here,
+/// so the list comes from `Agent::ALL` rather than a second copy.
+fn agent_name() -> impl clap::builder::TypedValueParser<Value = Agent> {
+    use clap::builder::TypedValueParser;
+    clap::builder::PossibleValuesParser::new(Agent::ALL.iter().map(|a| a.key())).map(|name| {
+        *Agent::ALL
+            .iter()
+            .find(|a| a.key() == name)
+            .expect("clap accepted only these names")
+    })
+}
+
 /// `dfr agents` — list them, or probe one.
 ///
 /// The listing is free. The probe makes one real model call, which is why it is
@@ -723,7 +736,7 @@ fn print_range(base: &str, head: &str) {
 /// setup script and wants to be told, rather than reading four lines and
 /// deciding.
 fn agents_command(
-    probe: Option<&str>,
+    probe: Option<Option<Agent>>,
     user_config: Option<&Path>,
     timeout_secs: u64,
 ) -> anyhow::Result<ExitCode> {
@@ -733,7 +746,7 @@ fn agents_command(
     };
     let configured = user.grouping.agent.unwrap_or_default();
 
-    let Some(name) = probe else {
+    let Some(named) = probe else {
         print!("{}", agents::list(&agents::rows(configured, backend_for)));
         return Ok(ExitCode::SUCCESS);
     };
@@ -741,20 +754,7 @@ fn agents_command(
     // `--probe` with no value means the configured agent: the common case is
     // "does MY setup work", and making someone type their own agent's name back
     // is a question the config already answered.
-    let agent = if name.is_empty() {
-        configured
-    } else {
-        match Agent::ALL.iter().find(|a| a.key() == name) {
-            Some(&a) => a,
-            None => {
-                let names: Vec<&str> = Agent::ALL.iter().map(|a| a.key()).collect();
-                return usage_error(&format!(
-                    "unknown agent {name:?}; try one of: {}",
-                    names.join(", ")
-                ));
-            }
-        }
-    };
+    let agent = named.unwrap_or(configured);
 
     // The probe builds its backend with the same function the pipeline uses. A
     // probe against a command the pipeline would not run proves nothing about
@@ -990,6 +990,26 @@ fn grouped(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn probe_takes_an_agent_by_name_or_none_for_the_configured_one() {
+        use clap::Parser;
+        let probe = |args: &[&str]| match Cli::try_parse_from(args).map(|c| c.command) {
+            Ok(Command::Agents { probe, .. }) => Ok(probe),
+            Ok(_) => panic!("not the agents command"),
+            Err(e) => Err(e.kind()),
+        };
+        assert_eq!(probe(&["dfr", "agents"]), Ok(None));
+        assert_eq!(probe(&["dfr", "agents", "--probe"]), Ok(Some(None)));
+        assert_eq!(
+            probe(&["dfr", "agents", "--probe", "codex"]),
+            Ok(Some(Some(Agent::Codex)))
+        );
+        assert_eq!(
+            probe(&["dfr", "agents", "--probe", "nope"]),
+            Err(clap::error::ErrorKind::InvalidValue)
+        );
+    }
 
     #[test]
     fn a_size_never_reads_as_a_full_unit_of_the_one_below() {
