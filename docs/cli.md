@@ -300,6 +300,11 @@ context = 3
 context_step = 10
 # Diff layout a review opens in: "split" or "unified".
 diff = "split"
+
+[keys]
+next-group = ["ctrl-j"]
+delete = ["d d"]   # a sequence is written with spaces
+publish = []       # unbound
 ```
 
 | key | default | meaning |
@@ -310,10 +315,21 @@ diff = "split"
 | `review.context_step` | `10` | Lines one `z` pulls in at a context boundary row. |
 | `review.diff` | `split` | Layout a review OPENS in. `s` still toggles, and a review that has recorded a choice keeps it. |
 | `review.theme` | `dark` | Which palette the reviewer wears, by name. See below. |
+| `keys.<action>` | the reviewer's own keys | The keys an action answers to. Setting it **replaces** that action's defaults, and `[]` unbinds it. The names, and the keys that cannot be rebound, are in [`spec/tui.md`](../spec/tui.md#rebinding). |
 
 Resolution order for each file: the explicit flag, then the default path, then the built-in
 defaults. A missing file means defaults. A malformed file is a hard error. An unknown key
 is a hard error too.
+
+A `[keys]` table is checked before `dfr review` opens the terminal. An unknown action, a
+string that is not a key, `ctrl-c` (it quits from everywhere), and two actions on one key in
+one screen are each a usage error, exit 2. The error lists every problem in the table:
+
+```
+error: config error in ~/.config/differential/config.toml: [keys]: 2 problems
+  "j" is bound to both down and delete in the review
+  "j" is bound to both down and delete in the findings list
+```
 
 ### Themes
 

@@ -7233,6 +7233,7 @@ use differential_tui::app::{
     footer_row, half_centre, half_widths, hints_width, layout, pane_inner, publish_area,
     publish_footer, search_modal_area, split_point,
 };
+use differential_tui::keymap::{Action, Keymap, KeysConfig};
 use ratatui::layout::Rect;
 
 /// The screen every mouse test is measured at.
@@ -9335,11 +9336,11 @@ fn the_help_modal_names_the_divider_keys() {
     sized(&mut app);
     app.handle_key(key('?'));
     let text = screen(&app, SCREEN.width, SCREEN.height).join("\n");
-    assert!(text.contains("alt-=/alt--"), "help was:\n{text}");
-    // The key column is padded to a fixed width, so a key too long for it runs
-    // straight into its own words.
+    assert!(text.contains("alt-=/alt-- · alt-+"), "help was:\n{text}");
+    // The key column is as wide as the widest key, so no key runs straight
+    // into its own words.
     assert!(
-        text.contains("alt-=/alt--  widen"),
+        text.contains("alt-=/alt-- · alt-+  widen"),
         "the key and its words must not run together:\n{text}"
     );
 }
@@ -9633,4 +9634,201 @@ fn both_dividers_are_held_to_one_rule() {
             assert_eq!(lw + rw, width - 1, "the `│` keeps its own column");
         }
     }
+}
+
+/// Options whose keymap is the defaults with `[keys]` laid over them.
+fn with_keys(pairs: &[(Action, &[&str])]) -> ReviewOptions {
+    let config = KeysConfig(
+        pairs
+            .iter()
+            .map(|(a, ks)| (*a, ks.iter().map(|k| k.to_string()).collect()))
+            .collect(),
+    );
+    ReviewOptions {
+        keymap: Keymap::new(&config).expect("a good [keys] table"),
+        ..ReviewOptions::default()
+    }
+}
+
+#[test]
+fn a_rebound_key_does_the_action_and_the_old_one_does_nothing() {
+    let (_r, mut app) = make_app_with(with_keys(&[(Action::Down, &["e"])]));
+    assert_eq!(app.selected_group, 0);
+    app.handle_key(key('j'));
+    assert_eq!(app.selected_group, 0, "j is not down any more");
+    app.handle_key(key('e'));
+    assert_eq!(app.selected_group, 1, "e is");
+
+    // The same action in a list: the rebinding holds wherever `down` works.
+    // Unfolded first, so the list has more than the one exemplar's file.
+    app.handle_key(key('z'));
+    app.focus = Focus::Detail;
+    app.handle_key(key('f'));
+    let selected = |app: &App| match app.mode {
+        Mode::FileList { selected, .. } => selected,
+        _ => panic!("the file list is open"),
+    };
+    assert_eq!(selected(&app), 0);
+    app.handle_key(key('j'));
+    assert_eq!(selected(&app), 0, "j does nothing in the list either");
+    app.handle_key(key('e'));
+    assert_eq!(selected(&app), 1);
+}
+
+#[test]
+fn the_footer_and_the_help_name_the_rebound_key() {
+    let (_r, mut app) = make_app_with(with_keys(&[(Action::Open, &["o"])]));
+    sized(&mut app);
+    let footer = screen(&app, SCREEN.width, SCREEN.height)
+        .last()
+        .cloned()
+        .unwrap();
+    assert!(
+        footer.contains("o open"),
+        "the plan pane's footer: {footer:?}"
+    );
+    assert!(!footer.contains("enter open"), "{footer:?}");
+    assert!(footer.trim_end().ends_with("? help"), "{footer:?}");
+
+    app.handle_key(key('?'));
+    assert!(matches!(app.mode, Mode::Help(_)));
+    let text = screen(&app, SCREEN.width, SCREEN.height);
+    let key_of = |words: &str| {
+        let row = text.iter().find(|r| r.contains(words)).expect(words);
+        let inside = row.split('│').find(|c| c.contains(words)).unwrap();
+        inside.split_whitespace().next().unwrap().to_string()
+    };
+    assert_eq!(key_of("open the group or file"), "o", "{text:#?}");
+    assert_eq!(key_of("these keys"), "?", "help is fixed");
+}
+
+#[test]
+fn a_click_on_a_footer_button_presses_the_rebound_key() {
+    let (_r, mut app) = make_app_with(with_keys(&[(Action::Open, &["o"])]));
+    sized(&mut app);
+    let panes = layout(SCREEN, DEFAULT_PLAN_COLS);
+    let (hints, x0) = app.status_hints(panes.status);
+    let open = hints.first().expect("`o open` leads the plan pane's keys");
+    assert_eq!(open.presses, vec![key('o')]);
+    assert_eq!(app.focus, Focus::Groups);
+    app.handle_mouse(click(x0, panes.status.y));
+    assert_eq!(app.focus, Focus::Detail, "the click pressed o");
+}
+
+#[test]
+fn q_and_question_mark_are_the_reviewers_own() {
+    use differential_tui::keymap::KeyProblem;
+    for key in ["q", "?"] {
+        let taken = KeysConfig(
+            [(Action::Copy, vec![key.to_string()])]
+                .into_iter()
+                .collect(),
+        );
+        let err = Keymap::new(&taken).unwrap_err();
+        assert!(matches!(err.0[..], [KeyProblem::Reserved { .. }]), "{err}");
+    }
+    let (_r, mut app) = make_app();
+    // `q` closes a list, and quits from the review.
+    app.focus = Focus::Detail;
+    app.handle_key(key('f'));
+    assert!(matches!(app.mode, Mode::FileList { .. }));
+    assert!(app.handle_key(key('q')).is_empty());
+    assert!(matches!(app.mode, Mode::Normal), "q closed the list");
+    // `?` opens help from a list too, with the shift a terminal sends.
+    app.handle_key(key('f'));
+    app.handle_key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::SHIFT));
+    assert!(matches!(app.mode, Mode::Help(_)));
+    app.handle_key(key('x'));
+    assert!(
+        matches!(app.mode, Mode::FileList { .. }),
+        "and gives it back"
+    );
+    app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    assert!(matches!(app.handle_key(key('q'))[..], [Effect::Quit]));
+}
+
+#[test]
+fn an_unbound_key_leaves_the_footer_and_the_messages() {
+    let (_r, mut app) = make_app_with(with_keys(&[(Action::ToggleWrap, &[])]));
+    sized(&mut app);
+    app.focus = Focus::Detail;
+    app.handle_key(key('w'));
+    assert!(!app.wrap_on_for_test(), "w is unbound");
+    // No message names a key that does nothing.
+    let help = {
+        app.handle_key(key('?'));
+        screen(&app, SCREEN.width, SCREEN.height).join("\n")
+    };
+    assert!(!help.contains("soft wrap long lines"), "{help}");
+}
+
+#[test]
+fn the_rows_name_the_rebound_fold_key() {
+    let (_r, mut app) = make_app_with(with_keys(&[(Action::Fold, &["o"])]));
+    app.handle_key(key('j'));
+    put_cursor_on(&mut app, |k| *k == RowKind::Fold);
+    // Wide, so the hint at the fold row's end is on the screen.
+    let text = screen(&app, 200, 40).join("\n");
+    assert!(text.contains("o to show"), "{text}");
+    assert!(!text.contains("z to show"), "{text}");
+    app.handle_key(key('o'));
+    assert!(
+        !app.rows.iter().any(|r| r.kind == RowKind::Fold),
+        "o opened it"
+    );
+}
+
+/// `cargo test -p differential-tui --test tui -- --ignored --nocapture render_dump_keys`
+///
+/// The help modal and the footer, with the default keys and then with a
+/// `[keys]` table laid over them.
+#[ignore = "a dump for the author's eyes, not an assertion"]
+#[test]
+fn render_dump_keys() {
+    let dump = |title: &str, opts: ReviewOptions, help: KeyEvent| {
+        let (_r, mut app) = make_app_with(opts);
+        sized(&mut app);
+        println!("── {title}: the plan pane ──");
+        println!(
+            "{}",
+            screen(&app, SCREEN.width, SCREEN.height).last().unwrap()
+        );
+        app.focus = Focus::Detail;
+        println!("── {title}: the diff pane ──");
+        println!(
+            "{}",
+            screen(&app, SCREEN.width, SCREEN.height).last().unwrap()
+        );
+        app.handle_key(key('f'));
+        println!("── {title}: the file list ──");
+        for row in screen(&app, SCREEN.width, SCREEN.height)
+            .iter()
+            .rev()
+            .take(4)
+            .rev()
+        {
+            println!("{row}");
+        }
+        app.mode = Mode::Normal;
+        app.focus = Focus::Groups;
+        app.handle_key(help);
+        println!("── {title}: help in the plan pane ──");
+        for row in screen(&app, SCREEN.width, SCREEN.height) {
+            println!("{row}");
+        }
+    };
+    dump("defaults", ReviewOptions::default(), key('?'));
+    dump(
+        "rebound",
+        with_keys(&[
+            (Action::Down, &["e", "down"]),
+            (Action::Up, &["u", "up"]),
+            (Action::NextGroup, &["ctrl-n"]),
+            (Action::PrevGroup, &["ctrl-p"]),
+            (Action::Delete, &["X"]),
+            (Action::Findings, &["ctrl-f"]),
+            (Action::Close, &["esc", "ctrl-g"]),
+        ]),
+        key('?'),
+    );
 }

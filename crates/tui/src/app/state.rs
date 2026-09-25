@@ -229,6 +229,7 @@ impl App {
                             context_step: self.opts.context_step,
                             expansion: &self.expanded,
                             expanded_threads: &self.expanded_threads,
+                            keys: &self.opts.keymap,
                         },
                         view,
                         fold: if self.folds_open.contains(&view.id) {
@@ -260,6 +261,7 @@ impl App {
                         context_step: self.opts.context_step,
                         expansion: &self.expanded,
                         expanded_threads: &self.expanded_threads,
+                        keys: &self.opts.keymap,
                     };
                     self.rows = match targets.as_slice() {
                         // A single file keeps its dedicated builder (it renders a
@@ -696,8 +698,15 @@ impl App {
             .collect();
         if entries.is_empty() {
             self.status = match self.skipped_files {
-                0 => "no files listed here (unfold with z?)".into(),
-                n => format!("{n} file{} folded, safe to skip — z to show", plural(n)),
+                0 => match self.keymap().first(Screen::Review, Action::Fold) {
+                    Some(k) => format!("no files listed here (unfold with {k}?)"),
+                    None => "no files listed here".into(),
+                },
+                n => self.then_says(
+                    &format!("{n} file{} folded, safe to skip", plural(n)),
+                    Action::Fold,
+                    "to show",
+                ),
             };
             return;
         }
@@ -765,7 +774,13 @@ impl App {
             }
         }));
         if entries.is_empty() {
-            self.status = "no findings yet — c writes one".into();
+            self.status = match self
+                .keymap()
+                .says(Screen::Review, Action::Comment, "writes one")
+            {
+                Some(hint) => format!("no findings yet — {hint}"),
+                None => "no findings yet".into(),
+            };
             return;
         }
         entries.sort_by_key(FindingEntry::section);
@@ -1039,7 +1054,7 @@ impl App {
     /// it takes the footer's passing message.
     pub(super) fn shift_pane(&mut self, by: Option<isize>) {
         if self.wrap_on() {
-            self.status = "soft wrap is on · w turns it off".into();
+            self.status = self.then_says("soft wrap is on", Action::ToggleWrap, "turns it off");
             return;
         }
         self.hscroll = match by {

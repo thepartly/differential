@@ -7,6 +7,7 @@
 //! screen.
 
 pub mod app;
+pub mod keymap;
 pub mod markdown;
 pub mod osc;
 pub mod picker;
@@ -37,6 +38,7 @@ use differential_engine::{PipelineOutput, ReviewSession};
 
 use app::{App, Effect};
 pub use app::{ForgeLink, ReviewOptions};
+pub use keymap::{Keymap, KeymapError};
 use picker::PickedSource;
 use ratatui::layout::Rect;
 use rows::RowFactory;

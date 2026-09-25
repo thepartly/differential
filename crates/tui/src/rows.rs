@@ -25,6 +25,7 @@ use differential_engine::schema;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 
+use super::keymap::{Action, Keymap, Screen};
 use super::theme::Theme;
 // Re-exported: `SnippetLine` carries one in a public field, and the vendored
 // module it comes from is private.
@@ -789,6 +790,16 @@ pub struct RowsContext<'a> {
     /// Resolved threads the reader has opened; a resolved thread not here is
     /// drawn collapsed to its header.
     pub expanded_threads: &'a HashSet<String>,
+    /// The keys, for the rows that name one — a fold, a boundary, a
+    /// collapsed thread all say which key opens them.
+    pub keys: &'a Keymap,
+}
+
+impl RowsContext<'_> {
+    /// `"<fold key> <what>"`, or nothing when the reader unbound the key.
+    fn fold_says(&self, what: &str) -> Option<String> {
+        self.keys.says(Screen::Review, Action::Fold, what)
+    }
 }
 
 /// The group view's extras on top of the shared core.
@@ -826,7 +837,10 @@ pub fn build_group_rows(factory: &mut RowFactory, ctx: &GroupContext) -> Vec<Row
         )
         .with_hint(
             Style::default().fg(ctx.core.theme.hint_cursor_fg),
-            "  ·  z to show".to_string(),
+            ctx.core
+                .fold_says("to show")
+                .map(|s| format!("  ·  {s}"))
+                .unwrap_or_default(),
         ),
     );
     rows
@@ -1282,7 +1296,8 @@ fn rail(theme: &Theme, indent: usize) -> Span<'static> {
 ///
 /// When `collapsed`, a resolved thread is one header row naming its comment
 /// count and the `z` that opens it; the bodies and replies are withheld.
-fn thread_rows(theme: &Theme, t: &RemoteThread, hunk: usize, collapsed: bool) -> Vec<Row> {
+fn thread_rows(ctx: &RowsContext, t: &RemoteThread, hunk: usize, collapsed: bool) -> Vec<Row> {
+    let theme = ctx.theme;
     if collapsed {
         let root = t.comments.first();
         let mut head = root
@@ -1290,9 +1305,12 @@ fn thread_rows(theme: &Theme, t: &RemoteThread, hunk: usize, collapsed: bool) ->
             .unwrap_or_default();
         let n = t.comments.len();
         head.push_str(&format!(
-            " · resolved · {n} comment{} · z to open",
+            " · resolved · {n} comment{}",
             if n == 1 { "" } else { "s" }
         ));
+        if let Some(open) = ctx.fold_says("to open") {
+            head.push_str(&format!(" · {open}"));
+        }
         let dim = Style::default()
             .fg(theme.noise_fg)
             .add_modifier(Modifier::BOLD);
@@ -1412,7 +1430,7 @@ fn place_notes(ctx: &RowsContext, rows: &mut Vec<Row>) {
         // A resolved thread is collapsed to its header until `z` opens it; its
         // replies are hidden with it.
         let collapsed = t.resolved && !ctx.expanded_threads.contains(&t.id);
-        out.extend(thread_rows(ctx.theme, t, hunk, collapsed));
+        out.extend(thread_rows(ctx, t, hunk, collapsed));
         if !collapsed {
             for r in replies_to(t) {
                 out.extend(finding_rows(ctx.theme, r, hunk, REPLY_INDENT));
@@ -1693,11 +1711,15 @@ fn boundary_row(ctx: &RowsContext, b: &window::Boundary, step: usize, both_ends:
                 .group_of_hunk(HunkId::from_index(next))
                 .map(|g| format!(" “{}”", g.label))
                 .unwrap_or_default();
-            (format!("next: {class}{group}"), "z shows it".to_string())
+            (
+                format!("next: {class}{group}"),
+                ctx.fold_says("shows it").unwrap_or_default(),
+            )
         }
         None => (
             format!("{} lines hidden", b.hidden),
-            format!("z shows {}", step.min(b.hidden)),
+            ctx.fold_says(&format!("shows {}", step.min(b.hidden)))
+                .unwrap_or_default(),
         ),
     };
     // A band, not a rule: two of these sit adjacent where two blocks meet, and

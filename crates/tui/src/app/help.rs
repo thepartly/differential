@@ -13,8 +13,10 @@
 //!
 //! 1. Add a variant to [`Area`], and its words to [`Area::title`].
 //! 2. Say when the reader is in it, in [`App::area_of`].
-//! 3. Write its rows in [`App::acts_of`] — [`Act::footer`] for the one to
-//!    three a footer shows, [`Act::quiet`] for the rest.
+//! 3. Write its rows in [`App::acts_of`] — `on` for the one to three a
+//!    footer shows, `quiet` for the rest. A row names ACTIONS, and its keys
+//!    are read from the keymap; a new action also needs its default keys in
+//!    `keymap::DEFAULTS`.
 //!
 //! A row's short words go on ONE footer, never two: the window's own footer
 //! for a pane, and the modal's own footer for a modal ([`App::modal_hints`]).
@@ -22,13 +24,16 @@
 //! footer under it holds the pills and `? help` and nothing else.
 //! 4. Add the place to `spec/tui.md` and to this crate's README.
 //!
-//! What a footer button presses is read from the row's own key column
-//! ([`presses_for`]), so a row cannot name one key and press another.
+//! What a footer button presses is the first key the row names, read from
+//! the same keymap as the handler, so a row cannot name one key and press
+//! another — and a key the reader rebound is the key the row names.
 //!
 //! Built at draw time from the model, so `draw` stays a pure function of it
 //! and nothing here is state.
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+use crate::keymap::{Action, Binding, Keymap, Screen};
 
 use super::search::Reading;
 use super::text::{Hint, Ink, joined};
@@ -93,70 +98,79 @@ impl Area {
     }
 }
 
-/// One key and what it does here: as the footer says it, and as `?` does.
+/// One row of keys and what they do here: as the footer says it, and as `?`
+/// does.
 ///
 /// `footer` is the short words, and `None` keeps the row out of the footer —
 /// a footer of everything is the wall this change is undoing.
 pub struct Act {
+    /// Every key the row's actions answer to, as `?` writes them.
     pub key: String,
+    /// The first of each, as the footer writes them: a footer is short.
+    pub short: String,
+    /// What a click on the row's footer button presses: the first key of its
+    /// first action, so a row cannot name one key and press another.
+    pub presses: Vec<KeyEvent>,
     pub footer: Option<String>,
     pub help: String,
 }
 
-impl Act {
-    /// A row the footer shows and the modal explains.
-    fn footer(key: &str, short: &str, help: &str) -> Self {
+/// The key column of a row, before its words are added.
+struct Keys {
+    full: String,
+    short: String,
+    presses: Vec<KeyEvent>,
+}
+
+impl Keys {
+    /// Keys that are not the reader's to bind: the composer's, the search
+    /// box's, a question's. Written once, pressed as given.
+    fn fixed(text: &str, presses: Vec<KeyEvent>) -> Keys {
+        Keys {
+            full: text.to_string(),
+            short: text.to_string(),
+            presses,
+        }
+    }
+
+    fn footer(self, short: &str, help: &str) -> Act {
         Act {
-            key: key.to_string(),
+            key: self.full,
+            short: self.short,
+            presses: self.presses,
             footer: Some(short.to_string()),
             help: help.to_string(),
         }
     }
 
-    /// A row the modal names and the footer does not.
-    fn quiet(key: &str, help: &str) -> Self {
+    fn quiet(self, help: &str) -> Act {
         Act {
-            key: key.to_string(),
+            key: self.full,
+            short: self.short,
+            presses: self.presses,
             footer: None,
             help: help.to_string(),
         }
     }
 }
 
-/// The keys a click on this row's footer button presses, read from the key
-/// column itself so a row cannot name one key and press another. The first
-/// key named is the one a click presses: `j/k` is `j`, and `dd` is two `d`.
-fn presses_for(key: &str) -> Vec<KeyEvent> {
-    let bare = |code: KeyCode| vec![KeyEvent::new(code, KeyModifiers::NONE)];
-    let first = key.split(['/', ' ']).next().unwrap_or_default();
-    match first {
-        "enter" => bare(KeyCode::Enter),
-        "esc" => bare(KeyCode::Esc),
-        "space" => bare(KeyCode::Char(' ')),
-        "dd" => vec![KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE); 2],
-        // A chord ONE press can send. Without this a footer button naming one
-        // would read and do nothing, and `ctrl-r` is on a footer precisely
-        // because the footer is the only place its key is written down.
-        _ if first.len() == 6 && first.starts_with("ctrl-") => {
-            let c = first.chars().next_back().expect("six characters");
-            vec![KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL)]
-        }
-        _ => match first.chars().next() {
-            Some(c) if first.chars().count() == 1 => bare(KeyCode::Char(c)),
-            // A row whose key no single press can send — the wheel, "any
-            // other key". It reads, and a click on it does nothing.
-            _ => Vec::new(),
-        },
-    }
+/// A bare key, pressed once.
+fn bare(code: KeyCode) -> Vec<KeyEvent> {
+    vec![KeyEvent::new(code, KeyModifiers::NONE)]
 }
 
-/// One row as a footer button. The words are the row's, and the keys a
-/// click presses are read from its key column.
+/// A bare character, pressed once.
+fn press(c: char) -> Vec<KeyEvent> {
+    bare(KeyCode::Char(c))
+}
+
+/// One row as a footer button. The words are the row's, and so are the keys
+/// a click presses.
 fn hint(act: &Act) -> Hint {
     Hint::button(
-        &format!("{} ", act.key),
+        &format!("{} ", act.short),
         act.footer.as_deref().unwrap_or_default(),
-        presses_for(&act.key),
+        act.presses.clone(),
     )
 }
 
@@ -166,6 +180,54 @@ pub struct HelpSection {
     pub acts: Vec<Act>,
 }
 
+impl Keymap {
+    /// The key column for a row of one action, or of a pair read as one —
+    /// `down`/`up` is `j/k`. The pair's keys are zipped, so its alternates
+    /// read as pairs too: `j/k · down/up`. `None` when the reader unbound
+    /// every one of them, and the row goes: a row naming no key is a row
+    /// that says to press nothing.
+    fn keys(&self, screen: Screen, actions: &[Action]) -> Option<Keys> {
+        let bound: Vec<&[Binding]> = actions.iter().map(|a| self.bindings(screen, *a)).collect();
+        let longest = bound.iter().map(|b| b.len()).max().unwrap_or(0);
+        if longest == 0 {
+            return None;
+        }
+        let pair = |i: usize| -> String {
+            let keys: Vec<String> = bound
+                .iter()
+                .filter_map(|b| b.get(i).map(ToString::to_string))
+                .collect();
+            keys.join("/")
+        };
+        let full: Vec<String> = (0..longest).map(pair).collect();
+        let presses = bound
+            .iter()
+            .find_map(|b| b.first())
+            .map(Binding::presses)
+            .unwrap_or_default();
+        Some(Keys {
+            full: full.join(" · "),
+            short: pair(0),
+            presses,
+        })
+    }
+}
+
+impl Area {
+    /// Whose keys this place reads: the review's, a list's, or none the
+    /// reader binds.
+    fn screen(self) -> Option<Screen> {
+        match self {
+            Area::Plan | Area::Diff | Area::Selecting | Area::Peeking | Area::Thread { .. } => {
+                Some(Screen::Review)
+            }
+            Area::FileList => Some(Screen::FileList),
+            Area::Findings => Some(Screen::Findings),
+            Area::Search | Area::Composer | Area::Question | Area::Reading => None,
+        }
+    }
+}
+
 /// Getting about, in one place. Every one of these works from either pane,
 /// so a reader hunting for "how do I move" reads one run of rows rather than
 /// finding `j/k` under the place they are in and `g/G` three sections later.
@@ -173,42 +235,65 @@ pub struct HelpSection {
 /// `j/k` is the exception that proves it: it is the pane's, so it says what
 /// it does in THIS pane. In a selection it is the selection's, and it stays
 /// up in that place's own rows.
-fn moving(area: Area) -> Vec<Act> {
-    let mut acts = match area {
-        Area::Selecting => Vec::new(),
-        Area::Plan => vec![Act::quiet("j/k", "switch group")],
-        _ => vec![Act::quiet("j/k", "move over rows")],
+fn moving(keys: &Keymap, area: Area) -> Vec<Act> {
+    let row =
+        |actions: &[Action], help: &str| keys.keys(Screen::Review, actions).map(|k| k.quiet(help));
+    let pane = match area {
+        Area::Selecting => None,
+        Area::Plan => row(&[Action::Down, Action::Up], "switch group"),
+        _ => row(&[Action::Down, Action::Up], "move over rows"),
     };
-    acts.extend([
-        Act::quiet("J/K  { }", "previous / next group"),
-        Act::quiet("n/N", "next / previous hunk"),
-        Act::quiet("ctrl-d/u", "half page"),
-        Act::quiet("g/G", "top / bottom"),
-        Act::quiet("tab", "switch pane focus"),
-    ]);
-    acts
+    [
+        pane,
+        row(
+            &[Action::NextGroup, Action::PrevGroup],
+            "next / previous group",
+        ),
+        row(
+            &[Action::NextHunk, Action::PrevHunk],
+            "next / previous hunk",
+        ),
+        row(&[Action::HalfPageDown, Action::HalfPageUp], "half page"),
+        row(&[Action::Top, Action::Bottom], "top / bottom"),
+        row(&[Action::ToggleFocus], "switch pane focus"),
+    ]
+    .into_iter()
+    .flatten()
+    .collect()
 }
 
 /// The keys that mean the same thing wherever the reader stands in the
 /// review. They are why the footer can be three keys long: a key that is
 /// always there does not need saying on every row.
-fn everywhere() -> Vec<Act> {
-    vec![
-        Act::quiet("s", "unified / split diff"),
-        Act::quiet("w", "soft wrap long lines"),
-        Act::quiet(
-            "h/l  ·  0",
-            "shift the diff sideways · back to the left edge",
+fn everywhere(keys: &Keymap) -> Vec<Act> {
+    let row =
+        |actions: &[Action], help: &str| keys.keys(Screen::Review, actions).map(|k| k.quiet(help));
+    // `?` and `q` are fixed, whatever `[keys]` says (`keymap::RESERVED`).
+    let help = Keys::fixed("?", press('?'));
+    let quit = Keys::fixed("q · ctrl-c", press('q'));
+    [
+        row(&[Action::ToggleSplit], "unified / split diff"),
+        row(&[Action::ToggleWrap], "soft wrap long lines"),
+        row(
+            &[Action::ShiftLeft, Action::ShiftRight],
+            "shift the diff sideways",
         ),
-        Act::quiet("alt-=/alt--", "widen / narrow the diff pane"),
-        Act::quiet("/", "find a word in any changed file"),
-        Act::quiet("F", "every finding and thread, in one list"),
-        Act::quiet("y", "copy the open findings"),
-        Act::quiet("P", "publish the open findings (asks first)"),
-        Act::quiet("R", "fetch the review threads again"),
-        Act::quiet("?", "these keys"),
-        Act::quiet("q  ·  ctrl-c", "quit — state is saved on every change"),
+        row(&[Action::ShiftReset], "back to the left edge"),
+        row(
+            &[Action::GrowDiff, Action::ShrinkDiff],
+            "widen / narrow the diff pane",
+        ),
+        row(&[Action::Search], "find a word in any changed file"),
+        row(&[Action::Findings], "every finding and thread, in one list"),
+        row(&[Action::Copy], "copy the open findings"),
+        row(&[Action::Publish], "publish the open findings (asks first)"),
+        row(&[Action::Refetch], "fetch the review threads again"),
+        Some(help.quiet("these keys")),
+        Some(quit.quiet("quit — state is saved on every change")),
     ]
+    .into_iter()
+    .flatten()
+    .collect()
 }
 
 impl App {
@@ -280,70 +365,129 @@ impl App {
     /// The table. One row per key, the footer's one to three first: the
     /// footer takes them in this order and stops when the row runs out.
     fn acts_of(&self, area: Area) -> Vec<Act> {
-        match area {
+        let keys = self.keymap();
+        let screen = area.screen().unwrap_or(Screen::Review);
+        let on = |action: Action, short: &str, help: &str| {
+            keys.keys(screen, &[action]).map(|k| k.footer(short, help))
+        };
+        let quiet =
+            |actions: &[Action], help: &str| keys.keys(screen, actions).map(|k| k.quiet(help));
+        let rows: Vec<Option<Act>> = match area {
             // A label says what the key WILL do, not which view is already
             // on: a key named for where the reader already is reads as a key
             // that does nothing.
             Area::Plan => vec![
-                Act::footer("enter", "open", "open the group or file in the diff pane"),
-                Act::footer("space", "reviewed", "mark the whole group or file reviewed"),
+                on(
+                    Action::Open,
+                    "open",
+                    "open the group or file in the diff pane",
+                ),
+                on(
+                    Action::ToggleReviewed,
+                    "reviewed",
+                    "mark the whole group or file reviewed",
+                ),
                 match self.view_mode {
-                    ViewMode::Files => Act::footer("f", "plan", "back to the reading plan"),
+                    ViewMode::Files => on(Action::Files, "plan", "back to the reading plan"),
                     ViewMode::Groups => {
-                        Act::footer("f", "tree", "the file tree instead of the plan")
+                        on(Action::Files, "tree", "the file tree instead of the plan")
                     }
                 },
-                Act::quiet("z", "unfold a skim remainder, a noise group or a directory"),
+                quiet(
+                    &[Action::Fold],
+                    "unfold a skim remainder, a noise group or a directory",
+                ),
             ],
             Area::Diff => vec![
-                Act::footer("c", "note", "write a finding on this line, or on the hunk"),
-                Act::footer("space", "reviewed", "mark this hunk's class reviewed"),
-                Act::footer("v", "select", "start a line selection here"),
-                Act::quiet("dd", "delete the finding under the cursor"),
-                Act::quiet(
-                    "z",
+                on(
+                    Action::Comment,
+                    "note",
+                    "write a finding on this line, or on the hunk",
+                ),
+                on(
+                    Action::ToggleReviewed,
+                    "reviewed",
+                    "mark this hunk's class reviewed",
+                ),
+                on(Action::Select, "select", "start a line selection here"),
+                quiet(&[Action::Delete], "delete the finding under the cursor"),
+                quiet(
+                    &[Action::Fold],
                     "on a symbol: what declares it · on a boundary: more of the \
                      file, or the hunk it names",
                 ),
-                Act::quiet("f", "the file list (enter jumps)"),
+                quiet(
+                    &[Action::Files],
+                    &match keys.first(Screen::FileList, Action::Open) {
+                        Some(k) => format!("the file list ({k} jumps)"),
+                        None => "the file list".to_string(),
+                    },
+                ),
             ],
             Area::Peeking => vec![
-                Act::footer("z", "next", "the next symbol on this line"),
-                Act::footer("esc", "close", "close the float"),
-                Act::quiet("j/k", "move on — the float closes with the cursor"),
+                on(Action::Fold, "next", "the next symbol on this line"),
+                on(Action::Close, "close", "close the float"),
+                quiet(
+                    &[Action::Down, Action::Up],
+                    "move on — the float closes with the cursor",
+                ),
             ],
             Area::Selecting => vec![
-                Act::footer(
-                    "j/k",
-                    "extend",
-                    "extend the selection, up to a context boundary",
+                keys.keys(screen, &[Action::Down, Action::Up])
+                    .map(|k| k.footer("extend", "extend the selection, up to a context boundary")),
+                on(
+                    Action::Comment,
+                    "note",
+                    "write one finding over the selected lines",
                 ),
-                Act::footer("c", "note", "write one finding over the selected lines"),
-                Act::footer("esc", "drop", "drop the selection"),
-                Act::quiet("v", "drops it too"),
+                on(Action::Close, "drop", "drop the selection"),
+                quiet(&[Action::Select], "drops it too"),
             ],
             // A thread is the forge's. What the reader may do to it depends
             // on whether the comment under the cursor is theirs.
             Area::Thread { own, resolved } => [
                 vec![
-                    Act::footer("r", "reply", "draft a reply under this thread"),
+                    on(Action::Reply, "reply", "draft a reply under this thread"),
                     match resolved {
-                        true => {
-                            Act::footer("x", "reopen", "reopen the thread on the forge, at once")
-                        }
-                        false => {
-                            Act::footer("x", "resolve", "resolve the thread on the forge, at once")
-                        }
+                        true => on(
+                            Action::Resolve,
+                            "reopen",
+                            "reopen the thread on the forge, at once",
+                        ),
+                        false => on(
+                            Action::Resolve,
+                            "resolve",
+                            "resolve the thread on the forge, at once",
+                        ),
                     },
                 ],
                 match own {
                     true => vec![
-                        Act::footer("c", "edit", "rewrite your comment on the forge"),
-                        Act::footer("dd", "delete", "delete it there and here (asks first)"),
+                        on(Action::Comment, "edit", "rewrite your comment on the forge"),
+                        on(
+                            Action::Delete,
+                            "delete",
+                            "delete it there and here (asks first)",
+                        ),
                     ],
-                    false => vec![Act::quiet("c  ·  dd", "not yours — r replies to it")],
+                    // Two keys that do nothing here, named together so the
+                    // reader who reaches for either finds out why.
+                    false => {
+                        let named: Vec<String> = [Action::Comment, Action::Delete]
+                            .iter()
+                            .filter_map(|a| keys.first(screen, *a).map(ToString::to_string))
+                            .collect();
+                        let help = match keys.says(screen, Action::Reply, "replies to it") {
+                            Some(reply) => format!("not yours — {reply}"),
+                            None => "not yours".to_string(),
+                        };
+                        vec![
+                            (!named.is_empty())
+                                .then(|| Keys::fixed(&named.join(" · "), Vec::new()).quiet(&help)),
+                        ]
+                    }
                 },
-                vec![Act::quiet("z", "open or close a resolved thread")],
+                vec![quiet(&[Action::Fold], "open or close a resolved thread")],
             ]
             .into_iter()
             .flatten()
@@ -351,28 +495,44 @@ impl App {
             // These two draw their own footer from these same rows, so the
             // list a reader sees under the box is this list.
             Area::FileList => vec![
-                Act::footer("enter", "jump", "jump to the file"),
-                Act::footer("esc", "close", "close the list · so does f"),
-                Act::quiet("j/k", "move over the files"),
+                on(Action::Open, "jump", "jump to the file"),
+                keys.keys(screen, &[Action::Close]).map(|k| {
+                    let also = keys.first(screen, Action::Files);
+                    let help = match also {
+                        Some(f) => format!("close the list · so do q and {f}"),
+                        None => "close the list · so does q".to_string(),
+                    };
+                    k.footer("close", &help)
+                }),
+                quiet(&[Action::Down, Action::Up], "move over the files"),
             ],
             // The arrows, not `j`/`k`: every printable key types into the
             // query, which is the price of a box you can search a path in.
             Area::Search => vec![
-                Act::footer("enter", "open", "jump to the occurrence"),
+                Some(
+                    Keys::fixed("enter", bare(KeyCode::Enter))
+                        .footer("open", "jump to the occurrence"),
+                ),
                 // On the footer, and it is the one key here that HAS to be:
                 // `?` types in this box, so the help modal cannot be opened
                 // from it and the footer is the only place a reader finds
                 // this. A label says what the key WILL do, not which reading
                 // is already on — the pill on the query row says that.
-                match self.search_reading() {
-                    Reading::Literal => {
-                        Act::footer("ctrl-r", "regexp", "read the query as a regular expression")
+                Some({
+                    let ctrl_r = Keys::fixed(
+                        "ctrl-r",
+                        vec![KeyEvent::new(KeyCode::Char('r'), KeyModifiers::CONTROL)],
+                    );
+                    match self.search_reading() {
+                        Reading::Literal => {
+                            ctrl_r.footer("regexp", "read the query as a regular expression")
+                        }
+                        Reading::Regexp => {
+                            ctrl_r.footer("literal", "read the query as a literal again")
+                        }
                     }
-                    Reading::Regexp => {
-                        Act::footer("ctrl-r", "literal", "read the query as a literal again")
-                    }
-                },
-                Act::footer("esc", "close", "close the search"),
+                }),
+                Some(Keys::fixed("esc", bare(KeyCode::Esc)).footer("close", "close the search")),
                 // No quiet rows, and they could not be read if there were.
                 // This is the one place `?` is a character rather than help,
                 // so `help_area` is never `Search` and nothing would ever
@@ -381,32 +541,47 @@ impl App {
                 // reader who cannot press `?` goes.
             ],
             Area::Findings => vec![
-                Act::footer("enter", "jump", "jump to the note or thread"),
-                Act::footer("dd", "delete", "delete the selected note"),
-                Act::footer(
-                    "D",
+                on(Action::Open, "jump", "jump to the note or thread"),
+                on(Action::Delete, "delete", "delete the selected note"),
+                on(
+                    Action::ClearNotes,
                     "clear local",
                     "clear the notes not on the request (asks first)",
                 ),
-                Act::footer("y", "copy", "copy the open findings"),
-                Act::footer("P", "publish", "publish the open findings (asks first)"),
-                Act::footer("esc", "close", "close the list · so does F"),
-                Act::quiet("j/k", "move over the list"),
+                on(Action::Copy, "copy", "copy the open findings"),
+                on(
+                    Action::Publish,
+                    "publish",
+                    "publish the open findings (asks first)",
+                ),
+                keys.keys(screen, &[Action::Close]).map(|k| {
+                    let help = match keys.first(screen, Action::Findings) {
+                        Some(f) => format!("close the list · so do q and {f}"),
+                        None => "close the list · so does q".to_string(),
+                    };
+                    k.footer("close", &help)
+                }),
+                quiet(&[Action::Down, Action::Up], "move over the list"),
             ],
             // The composer and the questions keep footers of their own: one
             // names a chord no single key sends, and the others are a
-            // question rather than a list of keys.
+            // question rather than a list of keys. None of their keys is the
+            // reader's to bind (ADR 0036).
             Area::Composer => vec![
-                Act::quiet("enter  ·  ctrl-s", "save the finding"),
-                Act::quiet("shift+enter", "a new line · or a trailing \\ before enter"),
-                Act::quiet("esc", "discard it"),
+                Some(Keys::fixed("enter · ctrl-s", Vec::new()).quiet("save the finding")),
+                Some(
+                    Keys::fixed("shift+enter", Vec::new())
+                        .quiet("a new line · or a trailing \\ before enter"),
+                ),
+                Some(Keys::fixed("esc", Vec::new()).quiet("discard it")),
             ],
             Area::Question => vec![
-                Act::quiet("y", "yes, and only y does"),
-                Act::quiet("any other key", "no — nothing happens"),
+                Some(Keys::fixed("y", Vec::new()).quiet("yes, and only y does")),
+                Some(Keys::fixed("any other key", Vec::new()).quiet("no — nothing happens")),
             ],
-            Area::Reading => vec![Act::quiet("any key", "close this")],
-        }
+            Area::Reading => vec![Some(Keys::fixed("any key", Vec::new()).quiet("close this"))],
+        };
+        rows.into_iter().flatten().collect()
     }
 
     /// The window footer's right edge: this place's short words, then
@@ -424,9 +599,8 @@ impl App {
             true => Vec::new(),
             false => self.modal_hints(),
         };
-        own.into_iter()
-            .chain([hint(&Act::footer("?", "help", "these keys"))])
-            .collect()
+        let help = hint(&Keys::fixed("?", press('?')).footer("help", "these keys"));
+        own.into_iter().chain([help]).collect()
     }
 
     /// A modal's own footer, exactly as drawn: this place's short words with
@@ -465,11 +639,11 @@ impl App {
             // already know. Last is where a reference belongs.
             sections.push(HelpSection {
                 title: "anywhere",
-                acts: everywhere(),
+                acts: everywhere(self.keymap()),
             });
             sections.push(HelpSection {
                 title: "moving",
-                acts: moving(area),
+                acts: moving(self.keymap(), area),
             });
         }
         sections

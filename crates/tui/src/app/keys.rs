@@ -10,6 +10,7 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::{Position, Rect};
 
+use crate::keymap::{Action, Lookup, Screen};
 use crate::rows::RowKind;
 
 use super::draw::{
@@ -38,16 +39,6 @@ const SHIFT_STEP: isize = 8;
 /// hundred-column screen in one tap, and the reader who wants a move that big
 /// drags it.
 const RESIZE_STEP: i16 = 4;
-
-/// Alt held, and ctrl not.
-///
-/// Deliberately not an exact match on the modifier set: `+` is shifted `=` on
-/// most keyboards, and a terminal with the keyboard enhancements on reports the
-/// shift as well — an exact match would make `alt-+` a dead key on exactly
-/// those terminals. Ctrl is excluded so a chord nobody aimed cannot land here.
-fn is_alt(m: KeyModifiers) -> bool {
-    m.contains(KeyModifiers::ALT) && !m.contains(KeyModifiers::CONTROL)
-}
 
 /// A bare `y`, and nothing else, answers a question here. Some terminals
 /// report ctrl-y as `Char('y')` with a modifier, and the irreversible actions
@@ -510,12 +501,13 @@ impl App {
         // One latch, taken before anything reads a key. It used to be taken
         // inside the normal-mode block, which a modal's early return never
         // reaches — so `dd` could only ever mean one thing in one place.
-        let pending_d = std::mem::take(&mut self.pending_d);
+        let pending = std::mem::take(&mut self.pending);
         // One key that quits from anywhere, the composer included. Every
         // other way out is a key of the place the reader is standing in, and
         // a reader who is lost is exactly the reader who cannot find one.
         // A draft in the box is lost; a finding already saved is not, since
-        // the session writes on every change.
+        // the session writes on every change. No `[keys]` table can take it
+        // (`keymap::RESERVED`).
         if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
             self.save_cursor();
             return vec![Effect::Quit];
@@ -529,13 +521,46 @@ impl App {
         // opened mid-gesture cannot leave one held over a screen where the
         // divider is no longer the thing under the pointer.
         self.divider_grab = None;
-        // `?` opens help from every place whose keys help can answer for,
-        // and the mode it was pressed in comes back when help closes. It is
-        // NOT a key in the composer, where it is a character, nor in a
-        // question, where every key but `y` is the no.
-        if key.code == KeyCode::Char('?') && self.help_opens() {
-            self.open_help();
-            return Vec::new();
+        // The three places whose keys are the reader's to bind: the key is
+        // looked up ONCE, here, and the place's handler is handed the action.
+        // `?` is one of them — help opens from every place whose keys help
+        // can answer for, and the mode it was pressed in comes back when
+        // help closes. It is NOT a key in the composer, where it is a
+        // character, nor in a question, where every key but `y` is the no.
+        if let Some(screen) = self.screen() {
+            // `q` and `?` are the reviewer's own, as `ctrl-c` is: the way out
+            // and the way to the answer, and no `[keys]` table may move
+            // either (`keymap::RESERVED`). `q` quits the review and closes a
+            // list back to it; `?` opens help over the place it is pressed.
+            match key.code {
+                KeyCode::Char('q') if key.modifiers.is_empty() => {
+                    if screen == Screen::Review {
+                        self.save_cursor();
+                        return vec![Effect::Quit];
+                    }
+                    self.mode = Mode::Normal;
+                    return Vec::new();
+                }
+                // With or without the shift a terminal reports it with.
+                KeyCode::Char('?') if (key.modifiers - KeyModifiers::SHIFT).is_empty() => {
+                    self.open_help();
+                    return Vec::new();
+                }
+                _ => {}
+            }
+            let action = match self.keymap().lookup(screen, &pending, key) {
+                Lookup::Act(action) => action,
+                Lookup::Pending(presses) => {
+                    self.pending = presses;
+                    return Vec::new();
+                }
+                Lookup::Nothing => return Vec::new(),
+            };
+            return match screen {
+                Screen::Review => self.normal_action(action),
+                Screen::FileList => self.file_list_action(action),
+                Screen::Findings => self.findings_action(action),
+            };
         }
         match &mut self.mode {
             // Help gives back the mode it was opened from: `?` in a modal
@@ -549,8 +574,18 @@ impl App {
                 self.mode = Mode::Normal;
                 Vec::new()
             }
-            Mode::FileList { .. } => self.file_list_key(key),
-            Mode::Findings { .. } => self.findings_key(key, pending_d),
+            // Asking to delete everything: the next key answers, and only
+            // `y` means yes. Anything else is a slip, and a slip must not
+            // be the thing that empties the store.
+            Mode::Findings { confirming, .. } => {
+                *confirming = false;
+                if is_yes(key) {
+                    self.clear_findings();
+                } else {
+                    self.status = "nothing deleted".into();
+                }
+                Vec::new()
+            }
             Mode::DeleteComment { .. } => {
                 let Mode::DeleteComment { own } = std::mem::replace(&mut self.mode, Mode::Normal)
                 else {
@@ -583,13 +618,28 @@ impl App {
                 self.search_key(key);
                 Vec::new()
             }
-            Mode::Normal => self.normal_key(key, pending_d),
+            Mode::Normal | Mode::FileList { .. } => unreachable!("a screen, handled above"),
         }
     }
 
-    /// A key in the file list: `j`/`k` step it, `enter` opens the file, and
-    /// `esc`, `f` or `q` close it.
-    fn file_list_key(&mut self, key: KeyEvent) -> Vec<Effect> {
+    /// Which screen's keys the next key is looked up in, or `None` where the
+    /// keys are fixed: a box the caret owns, a question only `y` answers, a
+    /// modal any key closes. Exactly where [`App::help_opens`] says `?` is
+    /// help, since help is one of the keys looked up.
+    pub(super) fn screen(&self) -> Option<Screen> {
+        match &self.mode {
+            Mode::Normal => Some(Screen::Review),
+            Mode::FileList { .. } => Some(Screen::FileList),
+            Mode::Findings {
+                confirming: false, ..
+            } => Some(Screen::Findings),
+            _ => None,
+        }
+    }
+
+    /// An action in the file list: `down`/`up` step it, `open` jumps to the
+    /// file, and `close` — or `files`, the key that opened it — closes it.
+    fn file_list_action(&mut self, action: Action) -> Vec<Effect> {
         let Mode::FileList {
             entries,
             selected,
@@ -599,30 +649,22 @@ impl App {
             return Vec::new();
         };
         let rows = file_list_rows(entries.len(), self.viewport.body_rows);
-        match key.code {
-            KeyCode::Char('j') | KeyCode::Down => {
-                step_list(selected, scroll, entries.len(), rows, true);
-            }
-            KeyCode::Char('k') | KeyCode::Up => {
-                step_list(selected, scroll, entries.len(), rows, false);
-            }
-            KeyCode::Enter => self.jump_to_listed_file(),
+        match action {
+            Action::Down => step_list(selected, scroll, entries.len(), rows, true),
+            Action::Up => step_list(selected, scroll, entries.len(), rows, false),
+            Action::Open => self.jump_to_listed_file(),
             // `/` reaches the search from here too: it is a key of
             // the review rather than of a pane, and a reader who has
             // opened the wrong list should not have to close it first.
-            KeyCode::Char('/') => self.open_search(),
-            KeyCode::Esc | KeyCode::Char('f') | KeyCode::Char('q') => {
-                self.mode = Mode::Normal;
-            }
+            Action::Search => self.open_search(),
+            Action::Close | Action::Files => self.mode = Mode::Normal,
             _ => {}
         }
         Vec::new()
     }
 
-    /// A key in the findings list. `pending_d` is the `d` before this one,
-    /// taken by the dispatcher: a handler reading the latch itself would find
-    /// it already cleared.
-    fn findings_key(&mut self, key: KeyEvent, pending_d: bool) -> Vec<Effect> {
+    /// An action in the findings list, while no question is waiting.
+    fn findings_action(&mut self, action: Action) -> Vec<Effect> {
         let Mode::Findings {
             entries,
             selected,
@@ -632,83 +674,60 @@ impl App {
         else {
             return Vec::new();
         };
-        // Asking to delete everything: the next key answers, and only
-        // `y` means yes. Anything else is a slip, and a slip must not
-        // be the thing that empties the store.
-        if *confirming {
-            *confirming = false;
-            if is_yes(key) {
-                self.clear_findings();
-            } else {
-                self.status = "nothing deleted".into();
-            }
-            return Vec::new();
-        }
         let rules = section_rules(entries).len();
         let rows = findings_rows(entries.len(), rules, self.viewport.body_rows);
-        let mut copy = false;
-        match (key.code, key.modifiers) {
-            (KeyCode::Char('j'), _) | (KeyCode::Down, _) => {
-                step_list(selected, scroll, entries.len(), rows, true);
-            }
-            (KeyCode::Char('k'), _) | (KeyCode::Up, _) => {
-                step_list(selected, scroll, entries.len(), rows, false);
-            }
+        match action {
+            Action::Down => step_list(selected, scroll, entries.len(), rows, true),
+            Action::Up => step_list(selected, scroll, entries.len(), rows, false),
             // Only the local notes are up for this: a published note is
             // the request's, and a thread is somebody else's.
-            (KeyCode::Char('D'), _) => {
+            Action::ClearNotes => {
                 if entries.iter().any(|e| !e.thread && !e.published) {
                     *confirming = true;
                 } else {
-                    self.status =
-                        "nothing local to delete · dd deletes a published note on the forge".into();
+                    self.status = self.then_says(
+                        "nothing local to delete",
+                        Action::Delete,
+                        "deletes a published note on the forge",
+                    );
                 }
             }
-            (KeyCode::Char('d'), KeyModifiers::NONE) => {
-                if pending_d {
-                    let (id, thread, published) = {
-                        let e = &entries[*selected];
-                        (e.id.clone(), e.thread, e.published)
-                    };
-                    // Whose the comment is, the session says; see
-                    // `delete_finding_at_cursor` for the same rule.
-                    let own = if thread {
-                        self.session.own_root(&id)
-                    } else if published {
-                        self.session.own_of_finding(&id)
-                    } else {
-                        None
-                    };
-                    match (own, thread) {
-                        (Some(own), _) => self.mode = Mode::DeleteComment { own },
-                        (None, true) => self.status = NOT_YOURS.into(),
-                        (None, false) => self.delete_finding(&id),
-                    }
+            Action::Delete => {
+                let (id, thread, published) = {
+                    let e = &entries[*selected];
+                    (e.id.clone(), e.thread, e.published)
+                };
+                // Whose the comment is, the session says; see
+                // `delete_finding_at_cursor` for the same rule.
+                let own = if thread {
+                    self.session.own_root(&id)
+                } else if published {
+                    self.session.own_of_finding(&id)
                 } else {
-                    self.pending_d = true;
+                    None
+                };
+                match (own, thread) {
+                    (Some(own), _) => self.mode = Mode::DeleteComment { own },
+                    (None, true) => self.status = self.not_yours(),
+                    (None, false) => self.delete_finding(&id),
                 }
             }
             // Copy from here too, for the same reason `P` sends from
             // here: the list is where the reader sees what is not yet
             // on the request. The clipboard call is the caller's, so
             // this arm only says the summary is wanted.
-            (KeyCode::Char('y'), _) => copy = true,
+            Action::Copy => return vec![Effect::CopySummary(self.findings_summary())],
             // Publish from here too: the list is where the reader sees
             // what is not yet on the request, and it sends everything
             // that is not, exactly as P in the diff does.
-            (KeyCode::Char('P'), _) => {
+            Action::Publish => {
                 self.mode = Mode::Normal;
                 self.offer_publish();
             }
-            (KeyCode::Enter, _) => self.jump_to_listed_finding(),
-            (KeyCode::Char('/'), _) => self.open_search(),
-            (KeyCode::Esc, _) | (KeyCode::Char('F'), _) | (KeyCode::Char('q'), _) => {
-                self.mode = Mode::Normal;
-            }
+            Action::Open => self.jump_to_listed_finding(),
+            Action::Search => self.open_search(),
+            Action::Close | Action::Findings => self.mode = Mode::Normal,
             _ => {}
-        }
-        if copy {
-            return vec![Effect::CopySummary(self.findings_summary())];
         }
         Vec::new()
     }
@@ -806,51 +825,44 @@ impl App {
         }
     }
 
-    /// A key in the review proper: one table, because that is what a key
-    /// table reads as. Forty of its arms are one call each; the two that
-    /// are not, `c` and `r`, have names of their own below.
-    fn normal_key(&mut self, key: KeyEvent, pending_d: bool) -> Vec<Effect> {
-        match (key.code, key.modifiers) {
-            (KeyCode::Char('q'), _) => {
-                self.save_cursor();
-                return vec![Effect::Quit];
-            }
-            (KeyCode::Tab, _) => {
+    /// An action in the review proper: one table, because that is what a key
+    /// table reads as. Most of its arms are one call each; the two that are
+    /// not, `comment` and `reply`, have names of their own below.
+    fn normal_action(&mut self, action: Action) -> Vec<Effect> {
+        let detail = self.focus == Focus::Detail;
+        match action {
+            Action::ToggleFocus => {
                 self.focus = match self.focus {
                     Focus::Groups => Focus::Detail,
                     Focus::Detail => Focus::Groups,
                 }
             }
-            (KeyCode::Enter, _) if self.focus == Focus::Groups => self.enter_plan_entry(),
-            (KeyCode::Char('j'), KeyModifiers::NONE) | (KeyCode::Down, _) => match self.focus {
+            Action::Open if !detail => self.enter_plan_entry(),
+            Action::Down => match self.focus {
                 Focus::Groups => self.select_entry(self.selected_entry() + 1),
                 Focus::Detail => self.move_cursor(1),
             },
-            (KeyCode::Char('k'), KeyModifiers::NONE) | (KeyCode::Up, _) => match self.focus {
+            Action::Up => match self.focus {
                 Focus::Groups => self.select_entry(self.selected_entry().saturating_sub(1)),
                 Focus::Detail => self.move_cursor(-1),
             },
-            (KeyCode::Char('J'), _) | (KeyCode::Char('}'), _) => {
-                self.select_entry(self.selected_entry() + 1)
-            }
-            (KeyCode::Char('K'), _) | (KeyCode::Char('{'), _) => {
-                self.select_entry(self.selected_entry().saturating_sub(1))
-            }
-            (KeyCode::Char('d'), KeyModifiers::CONTROL) => {
+            Action::NextGroup => self.select_entry(self.selected_entry() + 1),
+            Action::PrevGroup => self.select_entry(self.selected_entry().saturating_sub(1)),
+            Action::HalfPageDown => {
                 self.cursor = self.half_page(self.cursor, 1);
                 self.cursor = self.next_selectable(self.cursor, -1).unwrap_or(self.cursor);
                 self.follow_cursor();
             }
-            (KeyCode::Char('u'), KeyModifiers::CONTROL) => {
+            Action::HalfPageUp => {
                 self.cursor = self.half_page(self.cursor, -1);
                 self.cursor = self.next_selectable(self.cursor, 1).unwrap_or(self.cursor);
                 self.follow_cursor();
             }
-            (KeyCode::Char('g'), _) => {
+            Action::Top => {
                 self.cursor = self.next_selectable(0, 1).unwrap_or(0);
                 self.follow_cursor();
             }
-            (KeyCode::Char('G'), _) => {
+            Action::Bottom => {
                 self.cursor = self
                     .next_selectable(self.rows.len().saturating_sub(1), -1)
                     .unwrap_or(0);
@@ -863,8 +875,8 @@ impl App {
             // The pane matters: `self.cursor` is a DIFF row wherever the focus
             // is, so without it a press in the tree opened whatever the diff's
             // cursor happened to be parked on.
-            (KeyCode::Char('z'), _)
-                if self.focus == Focus::Detail
+            Action::Fold
+                if detail
                     && matches!(
                         self.rows.get(self.cursor).map(|r| &r.kind),
                         Some(RowKind::ContextEdge { .. })
@@ -874,15 +886,10 @@ impl App {
             }
             // A resolved thread is collapsed to its header; `z` opens and
             // closes it, the way `z` opens a fold or a context gap elsewhere.
-            (KeyCode::Char('z'), _)
-                if self.focus == Focus::Detail
-                    && self.thread_at_cursor().is_some_and(|t| t.resolved) =>
-            {
+            Action::Fold if detail && self.thread_at_cursor().is_some_and(|t| t.resolved) => {
                 self.toggle_thread_expanded();
             }
-            (KeyCode::Char('z'), _)
-                if self.focus == Focus::Groups && self.view_mode == ViewMode::Files =>
-            {
+            Action::Fold if !detail && self.view_mode == ViewMode::Files => {
                 self.toggle_dir();
             }
             // A declaration the reader cannot see is being withheld too, which
@@ -896,16 +903,12 @@ impl App {
             // here anyway — but the order is what says which meaning wins,
             // and leaving that to chance is how a key starts meaning two
             // things on one row.
-            (KeyCode::Char('z'), _)
-                if self.focus == Focus::Detail && !self.peekable().is_empty() =>
-            {
-                self.step_peek();
-            }
-            (KeyCode::Char('z'), _) => self.toggle_group_fold(),
-            (KeyCode::Char('n'), KeyModifiers::NONE) => self.jump_hunk(1),
-            (KeyCode::Char('N'), _) => self.jump_hunk(-1),
-            (KeyCode::Char('s'), KeyModifiers::NONE) => self.toggle_split(),
-            (KeyCode::Char('w'), KeyModifiers::NONE) => self.toggle_wrap(),
+            Action::Fold if detail && !self.peekable().is_empty() => self.step_peek(),
+            Action::Fold => self.toggle_group_fold(),
+            Action::NextHunk => self.jump_hunk(1),
+            Action::PrevHunk => self.jump_hunk(-1),
+            Action::ToggleSplit => self.toggle_split(),
+            Action::ToggleWrap => self.toggle_wrap(),
             // Sideways, in the pane you are in. A line wider than its column
             // is cut in either layout and twice as often in split, where the
             // column is half a pane; `w` is the other answer and the two are
@@ -913,48 +916,34 @@ impl App {
             //
             // Eight columns is one indent step, so a press moves a distance
             // worth pressing a key for. `0` is the way back, in one.
-            (KeyCode::Char('l'), KeyModifiers::NONE) | (KeyCode::Right, _)
-                if self.focus == Focus::Detail =>
-            {
-                self.shift_pane(Some(SHIFT_STEP));
-            }
-            (KeyCode::Char('h'), KeyModifiers::NONE) | (KeyCode::Left, _)
-                if self.focus == Focus::Detail =>
-            {
-                self.shift_pane(Some(-SHIFT_STEP));
-            }
-            (KeyCode::Char('0'), KeyModifiers::NONE) if self.focus == Focus::Detail => {
-                self.shift_pane(None);
-            }
+            Action::ShiftRight if detail => self.shift_pane(Some(SHIFT_STEP)),
+            Action::ShiftLeft if detail => self.shift_pane(Some(-SHIFT_STEP)),
+            Action::ShiftReset if detail => self.shift_pane(None),
             // The divider, as zellij moves it. The second key in this reviewer
             // that does not act on the pane you are in: it always names the
             // DIFF pane, because making room for the diff is the thing the
             // reader wants and the left pane is what pays for it.
-            (KeyCode::Char('=') | KeyCode::Char('+'), m) if is_alt(m) => {
-                self.resize_diff(RESIZE_STEP);
-            }
-            (KeyCode::Char('-'), m) if is_alt(m) => {
-                self.resize_diff(-RESIZE_STEP);
-            }
+            Action::GrowDiff => self.resize_diff(RESIZE_STEP),
+            Action::ShrinkDiff => self.resize_diff(-RESIZE_STEP),
+            // Every finding at once, from either pane. It is a fact about the
+            // review rather than about a pane, unlike `f`.
+            Action::Findings => self.open_findings(),
+            // And so is a word. `/` is the one key in this reviewer that does
+            // NOT act on the pane it is pressed in: what a name is and where
+            // it lives is a fact about the branch, and the reader asking has
+            // by definition not found the pane it is in yet.
+            Action::Search => self.open_search(),
             // One key for files, acting on the pane it is pressed in. In the
             // left pane that is which list of files you are reading — the
             // plan or the tree; in the diff pane it is which file you want to
             // be looking at. `v` used to switch the left pane from either
             // side, which meant a key in one pane silently rearranged the
             // other.
-            // Every finding at once, from either pane. It is a fact about the
-            // review rather than about a pane, unlike `f`.
-            (KeyCode::Char('F'), _) => self.open_findings(),
-            // And so is a word. `/` is the one key in this reviewer that does
-            // NOT act on the pane it is pressed in: what a name is and where
-            // it lives is a fact about the branch, and the reader asking has
-            // by definition not found the pane it is in yet.
-            (KeyCode::Char('/'), _) => self.open_search(),
-            (KeyCode::Char('f'), KeyModifiers::NONE) => match self.focus {
+            Action::Files => match self.focus {
                 Focus::Groups => self.toggle_file_view(),
                 Focus::Detail => self.open_file_list(),
             },
-            (KeyCode::Char(' '), _) => self.toggle_reviewed(),
+            Action::ToggleReviewed => self.toggle_reviewed(),
             // A selection, so a finding can be about the lines it is about.
             // One field, not a mode: `j`/`k` keep moving the cursor and the
             // selection is the span between the two ends, which is what makes
@@ -966,10 +955,8 @@ impl App {
             // it appears while a selection is open and goes when it closes,
             // where a passing message described a MODE in the same grey slot
             // that "finding saved" uses for something already over.
-            (KeyCode::Char('v'), KeyModifiers::NONE) if self.visual.is_some() => {
-                self.visual = None;
-            }
-            (KeyCode::Char('v'), KeyModifiers::NONE) => {
+            Action::Select if self.visual.is_some() => self.visual = None,
+            Action::Select => {
                 if self.rows.get(self.cursor).is_some_and(|r| r.line.is_some()) {
                     self.visual = Some(self.cursor);
                 } else {
@@ -981,30 +968,18 @@ impl App {
             // Before the selection's `esc`, so one press closes one thing:
             // the float came last, so it goes first, and a second `esc` still
             // drops the selection underneath it.
-            (KeyCode::Esc, _) if self.peek.is_some() => {
-                self.peek = None;
-            }
-            (KeyCode::Esc, _) if self.visual.is_some() => {
-                self.visual = None;
-            }
-            (KeyCode::Char('c'), KeyModifiers::NONE) => self.edit_at_cursor(),
-            (KeyCode::Char('d'), KeyModifiers::NONE) => {
-                if pending_d {
-                    self.delete_finding_at_cursor();
-                } else {
-                    self.pending_d = true;
-                }
-            }
-            (KeyCode::Char('y'), _) => {
-                return vec![Effect::CopySummary(self.findings_summary())];
-            }
-            (KeyCode::Char('r'), KeyModifiers::NONE) => self.reply_at_cursor(),
+            Action::Close if self.peek.is_some() => self.peek = None,
+            Action::Close if self.visual.is_some() => self.visual = None,
+            Action::Comment => self.edit_at_cursor(),
+            Action::Delete => self.delete_finding_at_cursor(),
+            Action::Copy => return vec![Effect::CopySummary(self.findings_summary())],
+            Action::Reply => self.reply_at_cursor(),
             // The forge's threads (ADR 0029): resolve the one under the cursor,
             // or fetch them all again. Both go out on a worker thread and
             // land through `poll_forge`.
-            (KeyCode::Char('x'), KeyModifiers::NONE) => self.toggle_thread_resolved(),
-            (KeyCode::Char('R'), _) => self.start_fetch(),
-            (KeyCode::Char('P'), _) => self.offer_publish(),
+            Action::Resolve => self.toggle_thread_resolved(),
+            Action::Refetch => self.start_fetch(),
+            Action::Publish => self.offer_publish(),
             _ => {}
         }
         Vec::new()
@@ -1029,7 +1004,7 @@ impl App {
                 editor: ta,
             };
         } else if self.thread_at_cursor().is_some() {
-            self.status = NOT_YOURS.into();
+            self.status = self.not_yours();
         } else if let Some(h) = self.current_hunk() {
             // A line already carrying a note opens THAT note. Two
             // notes on one line would each be half the story, and
@@ -1101,7 +1076,7 @@ impl App {
                 editor: ta,
             };
         } else {
-            self.status = "r replies to a review thread".into();
+            self.status = self.then_says("", Action::Reply, "replies to a review thread");
         }
     }
 }

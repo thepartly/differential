@@ -5,14 +5,16 @@
 //! - **User-level** `~/.config/differential/config.toml` (XDG) — `[grouping]`:
 //!   which agent CLI to run and its timeout, and `[review]`: which palette the
 //!   reviewer wears, how much context it shows around a hunk, and which diff
-//!   layout it opens in. All per-user choices, not properties of the repo, so
-//!   none of them lives in it.
+//!   layout it opens in, and `[keys]`: which keys the reviewer's actions answer
+//!   to. All per-user choices, not properties of the repo, so none of them
+//!   lives in it.
 //!
 //! HARD RULE (ADR 0012): config tunes classification hints and tool behaviour.
 //! It can never remove a file or hunk from enumeration — enumeration runs before
 //! and independently of anything in this module, and nothing here is consulted
 //! by the parser or the invariants.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use globset::{Glob, GlobSet, GlobSetBuilder};
@@ -46,7 +48,7 @@ struct RawConfig {
     _stack: serde::de::IgnoredAny,
 }
 
-/// The user-level file: `[grouping]` and `[review]`.
+/// The user-level file: `[grouping]`, `[review]` and `[keys]`.
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawUserConfig {
@@ -54,6 +56,8 @@ struct RawUserConfig {
     grouping: GroupingConfig,
     #[serde(default)]
     review: ReviewConfig,
+    #[serde(default)]
+    keys: KeysConfig,
 }
 
 /// Everything `parse_user` reads, so `load` assigns one value rather than
@@ -62,6 +66,7 @@ struct RawUserConfig {
 pub struct UserConfig {
     pub grouping: GroupingConfig,
     pub review: ReviewConfig,
+    pub keys: KeysConfig,
 }
 
 /// Which agent to run, by name.
@@ -314,6 +319,153 @@ impl Default for ReviewConfig {
     }
 }
 
+/// Something the terminal reviewer does on a key, by name (ADR 0036).
+///
+/// A name rather than a key, because a key is the reader's to choose and the
+/// thing it does is not. `[keys]` maps these to key strings; the renderer owns
+/// what a key string means and what the defaults are, so this crate never
+/// learns a terminal's vocabulary. One name means one thing wherever it
+/// works: `down` moves in the plan pane, the file list and the findings list
+/// alike, so a reader binds it once.
+///
+/// Adding an action is adding a variant here, its name in [`Action::key`],
+/// and its default keys and its arm in the renderer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Action {
+    ToggleFocus,
+    Open,
+    Close,
+    Down,
+    Up,
+    NextGroup,
+    PrevGroup,
+    HalfPageDown,
+    HalfPageUp,
+    Top,
+    Bottom,
+    NextHunk,
+    PrevHunk,
+    ToggleSplit,
+    ToggleWrap,
+    ShiftRight,
+    ShiftLeft,
+    ShiftReset,
+    GrowDiff,
+    ShrinkDiff,
+    Fold,
+    Files,
+    Findings,
+    Search,
+    ToggleReviewed,
+    Select,
+    Comment,
+    Delete,
+    ClearNotes,
+    Copy,
+    Reply,
+    Resolve,
+    Refetch,
+    Publish,
+}
+
+impl Action {
+    /// Every action, so a lister does not keep its own copy of the list.
+    /// `all_actions_are_listed` in this module is the check a `match` would
+    /// have been.
+    pub const ALL: [Action; 34] = [
+        Action::ToggleFocus,
+        Action::Open,
+        Action::Close,
+        Action::Down,
+        Action::Up,
+        Action::NextGroup,
+        Action::PrevGroup,
+        Action::HalfPageDown,
+        Action::HalfPageUp,
+        Action::Top,
+        Action::Bottom,
+        Action::NextHunk,
+        Action::PrevHunk,
+        Action::ToggleSplit,
+        Action::ToggleWrap,
+        Action::ShiftRight,
+        Action::ShiftLeft,
+        Action::ShiftReset,
+        Action::GrowDiff,
+        Action::ShrinkDiff,
+        Action::Fold,
+        Action::Files,
+        Action::Findings,
+        Action::Search,
+        Action::ToggleReviewed,
+        Action::Select,
+        Action::Comment,
+        Action::Delete,
+        Action::ClearNotes,
+        Action::Copy,
+        Action::Reply,
+        Action::Resolve,
+        Action::Refetch,
+        Action::Publish,
+    ];
+
+    /// The name this action answers to in `[keys]`. Hand-written for the
+    /// reason [`Agent::key`] is: serde renames on the way in only.
+    pub fn key(self) -> &'static str {
+        match self {
+            Action::ToggleFocus => "toggle-focus",
+            Action::Open => "open",
+            Action::Close => "close",
+            Action::Down => "down",
+            Action::Up => "up",
+            Action::NextGroup => "next-group",
+            Action::PrevGroup => "prev-group",
+            Action::HalfPageDown => "half-page-down",
+            Action::HalfPageUp => "half-page-up",
+            Action::Top => "top",
+            Action::Bottom => "bottom",
+            Action::NextHunk => "next-hunk",
+            Action::PrevHunk => "prev-hunk",
+            Action::ToggleSplit => "toggle-split",
+            Action::ToggleWrap => "toggle-wrap",
+            Action::ShiftRight => "shift-right",
+            Action::ShiftLeft => "shift-left",
+            Action::ShiftReset => "shift-reset",
+            Action::GrowDiff => "grow-diff",
+            Action::ShrinkDiff => "shrink-diff",
+            Action::Fold => "fold",
+            Action::Files => "files",
+            Action::Findings => "findings",
+            Action::Search => "search",
+            Action::ToggleReviewed => "toggle-reviewed",
+            Action::Select => "select",
+            Action::Comment => "comment",
+            Action::Delete => "delete",
+            Action::ClearNotes => "clear-notes",
+            Action::Copy => "copy",
+            Action::Reply => "reply",
+            Action::Resolve => "resolve",
+            Action::Refetch => "refetch",
+            Action::Publish => "publish",
+        }
+    }
+}
+
+/// `[keys]` — which keys an action answers to, as the reader wrote them.
+///
+/// An action named here takes EXACTLY these keys, in every place it works:
+/// its defaults are replaced, not extended, so `[]` unbinds it. An action not
+/// named keeps its defaults.
+///
+/// The strings stay strings in this crate. What `"ctrl-d"` means, whether it
+/// parses, and whether two actions now share a key are the renderer's
+/// questions, answered by one library call before a terminal is touched
+/// (ADR 0036).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(transparent)]
+pub struct KeysConfig(pub BTreeMap<Action, Vec<String>>);
+
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawClassify {
@@ -339,6 +491,8 @@ pub struct Config {
     pub grouping: GroupingConfig,
     /// From the USER config: how much context the reviewer shows.
     pub review: ReviewConfig,
+    /// From the USER config: which keys the reviewer's actions answer to.
+    pub keys: KeysConfig,
 }
 
 /// gitattributes names honoured as a "generated" declaration when
@@ -370,6 +524,7 @@ impl Default for Config {
             attributes: default_attributes(),
             grouping: GroupingConfig::default(),
             review: ReviewConfig::default(),
+            keys: KeysConfig::default(),
         }
     }
 }
@@ -407,10 +562,12 @@ impl Config {
         let user = Self::load_user(src, user_override)?;
         config.grouping = user.grouping;
         config.review = user.review;
+        config.keys = user.keys;
         Ok(config)
     }
 
-    /// The USER file alone: `[grouping]` and `[review]`, and no repository.
+    /// The USER file alone: `[grouping]`, `[review]` and `[keys]`, and no
+    /// repository.
     ///
     /// [`load`](Self::load) needs a repository root to find the repo file.
     /// `dfr agents` has none — which agent you would run is a per-user choice
@@ -452,10 +609,11 @@ impl Config {
             attributes: raw.classify.attributes.unwrap_or_else(default_attributes),
             grouping: GroupingConfig::default(),
             review: ReviewConfig::default(),
+            keys: KeysConfig::default(),
         })
     }
 
-    /// Parse the USER file: `[grouping]` and `[review]`.
+    /// Parse the USER file: `[grouping]`, `[review]` and `[keys]`.
     pub fn parse_user(text: &str, origin: &str) -> Result<UserConfig, EngineError> {
         let raw: RawUserConfig = toml::from_str(text).map_err(|e| EngineError::Config {
             path: origin.to_string(),
@@ -464,6 +622,7 @@ impl Config {
         Ok(UserConfig {
             grouping: raw.grouping,
             review: raw.review,
+            keys: raw.keys,
         })
     }
 }
@@ -753,7 +912,7 @@ attributes = ["linguist-generated", "custom-generated"]
         std::fs::write(&repo_file, "[classify]\ngenerated = [\"gen/**\"]").unwrap();
         std::fs::write(
             &user_file,
-            "[grouping]\nagent = \"claude-code\"\n[review]\ncontext = 8",
+            "[grouping]\nagent = \"claude-code\"\n[review]\ncontext = 8\n[keys]\ntop = [\"Q\"]",
         )
         .unwrap();
         let c = Config::load(
@@ -766,11 +925,109 @@ attributes = ["linguist-generated", "custom-generated"]
         assert!(c.generated.is_match("gen/x"));
         assert_eq!(c.grouping.agent, Some(Agent::ClaudeCode));
         assert_eq!(c.review.context, 8);
+        assert_eq!(c.keys.0[&Action::Top], ["Q"]);
 
         // Explicit-but-missing paths are hard errors; absent defaults are not.
         assert!(
             Config::load(&SRC, tmp.path(), Some(Path::new("/nope")), Some(&user_file)).is_err()
         );
         assert!(Config::load(&SRC, tmp.path(), None, Some(&user_file)).is_ok());
+    }
+
+    #[test]
+    fn keys_map_action_names_to_the_strings_as_written() {
+        let u =
+            Config::parse_user("[keys]\nnext-group = [\"ctrl-j\"]\npublish = []", "test").unwrap();
+        assert_eq!(u.keys.0[&Action::NextGroup], ["ctrl-j"]);
+        // An empty list is a statement, not an absence: it unbinds.
+        assert_eq!(u.keys.0[&Action::Publish], Vec::<String>::new());
+        assert!(
+            !u.keys.0.contains_key(&Action::Top),
+            "unnamed keeps defaults"
+        );
+        // Absent means no overrides at all.
+        assert!(Config::parse_user("", "test").unwrap().keys.0.is_empty());
+    }
+
+    #[test]
+    fn an_unknown_action_is_an_error_naming_every_action() {
+        let err = Config::parse_user("[keys]\nexplode = [\"x\"]", "test").unwrap_err();
+        let text = err.to_string();
+        for action in Action::ALL {
+            assert!(
+                text.contains(action.key()),
+                "must name {}: {text}",
+                action.key()
+            );
+        }
+        // A bare string where a list goes is an error too, not a one-key list:
+        // the shape is the same for one key as for three.
+        assert!(Config::parse_user("[keys]\ntop = \"g\"", "test").is_err());
+    }
+
+    #[test]
+    fn keys_are_the_users_and_not_the_repos() {
+        let err = Config::parse("[keys]\ntop = [\"g\"]", "test").unwrap_err();
+        assert!(err.to_string().contains("keys"), "{err}");
+    }
+
+    #[test]
+    fn every_action_name_round_trips() {
+        for action in Action::ALL {
+            let text = format!("[keys]\n{} = []", action.key());
+            let u = Config::parse_user(&text, "test").unwrap();
+            assert!(
+                u.keys.0.contains_key(&action),
+                "{} did not parse",
+                action.key()
+            );
+        }
+    }
+
+    #[test]
+    fn all_actions_are_listed() {
+        // The same check as `all_agents_are_listed`: the `match` breaks when a
+        // variant is added, and the fix is to add it to `ALL` as well.
+        fn listed(a: Action) -> bool {
+            Action::ALL.contains(&a)
+        }
+        for a in Action::ALL {
+            match a {
+                Action::ToggleFocus
+                | Action::Open
+                | Action::Close
+                | Action::Down
+                | Action::Up
+                | Action::NextGroup
+                | Action::PrevGroup
+                | Action::HalfPageDown
+                | Action::HalfPageUp
+                | Action::Top
+                | Action::Bottom
+                | Action::NextHunk
+                | Action::PrevHunk
+                | Action::ToggleSplit
+                | Action::ToggleWrap
+                | Action::ShiftRight
+                | Action::ShiftLeft
+                | Action::ShiftReset
+                | Action::GrowDiff
+                | Action::ShrinkDiff
+                | Action::Fold
+                | Action::Files
+                | Action::Findings
+                | Action::Search
+                | Action::ToggleReviewed
+                | Action::Select
+                | Action::Comment
+                | Action::Delete
+                | Action::ClearNotes
+                | Action::Copy
+                | Action::Reply
+                | Action::Resolve
+                | Action::Refetch
+                | Action::Publish => assert!(listed(a)),
+            }
+        }
     }
 }

@@ -676,7 +676,11 @@ impl App {
                 None => {
                     // No group owns the file, so the reading plan has no row
                     // for it at all. Only the file view can show this one.
-                    self.status = format!("{path} carries no hunks · f opens the file view");
+                    self.status = self.then_says(
+                        &format!("{path} carries no hunks"),
+                        Action::Files,
+                        "opens the file view",
+                    );
                     return;
                 }
             },
@@ -755,8 +759,11 @@ impl App {
             return;
         };
         if away > MOST_REVEALED {
-            self.status =
-                format!("{path}:{line} is {away} lines from the nearest hunk · z opens more");
+            self.status = self.then_says(
+                &format!("{path}:{line} is {away} lines from the nearest hunk"),
+                Action::Fold,
+                "opens more",
+            );
             return;
         }
         let e = self.expanded.entry(hunk).or_default();
@@ -779,7 +786,11 @@ impl App {
             Some(row) => {
                 self.land_on(row);
                 if self.status.is_empty() {
-                    self.status = format!("{path}:{line} is not shown here · z opens more");
+                    self.status = self.then_says(
+                        &format!("{path}:{line} is not shown here"),
+                        Action::Fold,
+                        "opens more",
+                    );
                 }
             }
             None => {
