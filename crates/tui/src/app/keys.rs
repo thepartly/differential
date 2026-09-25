@@ -541,14 +541,32 @@ impl App {
         // help closes. It is NOT a key in the composer, where it is a
         // character, nor in a question, where every key but `y` is the no.
         if let Some(screen) = self.screen() {
-            // `:` is fixed, as `ctrl-c` is: the command line reaches
-            // `:config`, which is where a `[keys]` table is repaired, so no
-            // table may move it (`keymap::RESERVED`, ADR 0037).
-            if (key.code, key.modifiers - KeyModifiers::SHIFT)
-                == (KeyCode::Char(':'), KeyModifiers::NONE)
-            {
-                self.open_command();
-                return Vec::new();
+            // `q`, `?` and `:` are the reviewer's own, as `ctrl-c` is: the
+            // way out, the way to the answer, and the way to `:config`, where
+            // a broken `[keys]` table is repaired — so no table may move any
+            // of them (`keymap::RESERVED`, ADR 0036, 0037). `q` quits the
+            // review and closes a list back to it; `?` opens help over the
+            // place it is pressed; `:` opens the command line.
+            // `?` and `:` with or without the shift a terminal reports them with.
+            let shifted = (key.modifiers - KeyModifiers::SHIFT).is_empty();
+            match key.code {
+                KeyCode::Char('q') if key.modifiers.is_empty() => {
+                    if screen == Screen::Review {
+                        self.save_cursor();
+                        return vec![Effect::Quit];
+                    }
+                    self.mode = Mode::Normal;
+                    return Vec::new();
+                }
+                KeyCode::Char('?') if shifted => {
+                    self.open_help();
+                    return Vec::new();
+                }
+                KeyCode::Char(':') if shifted => {
+                    self.open_command();
+                    return Vec::new();
+                }
+                _ => {}
             }
             let action = match self.keymap().lookup(screen, &pending, key) {
                 Lookup::Act(action) => action,
@@ -558,10 +576,6 @@ impl App {
                 }
                 Lookup::Nothing => return Vec::new(),
             };
-            if action == Action::Help {
-                self.open_help();
-                return Vec::new();
-            }
             return match screen {
                 Screen::Review => self.normal_action(action),
                 Screen::FileList => self.file_list_action(action),
@@ -840,10 +854,6 @@ impl App {
     fn normal_action(&mut self, action: Action) -> Vec<Effect> {
         let detail = self.focus == Focus::Detail;
         match action {
-            Action::Quit => {
-                self.save_cursor();
-                return vec![Effect::Quit];
-            }
             Action::ToggleFocus => {
                 self.focus = match self.focus {
                     Focus::Groups => Focus::Detail,

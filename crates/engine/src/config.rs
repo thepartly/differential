@@ -387,8 +387,6 @@ impl Default for ReviewConfig {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Action {
-    Quit,
-    Help,
     ToggleFocus,
     Open,
     Close,
@@ -429,9 +427,7 @@ impl Action {
     /// Every action, so a lister does not keep its own copy of the list.
     /// `all_actions_are_listed` in this module is the check a `match` would
     /// have been.
-    pub const ALL: [Action; 36] = [
-        Action::Quit,
-        Action::Help,
+    pub const ALL: [Action; 34] = [
         Action::ToggleFocus,
         Action::Open,
         Action::Close,
@@ -472,8 +468,6 @@ impl Action {
     /// reason [`Agent::key`] is: serde renames on the way in only.
     pub fn key(self) -> &'static str {
         match self {
-            Action::Quit => "quit",
-            Action::Help => "help",
             Action::ToggleFocus => "toggle-focus",
             Action::Open => "open",
             Action::Close => "close",
@@ -1035,7 +1029,7 @@ attributes = ["linguist-generated", "custom-generated"]
         std::fs::write(&repo_file, "[classify]\ngenerated = [\"gen/**\"]").unwrap();
         std::fs::write(
             &user_file,
-            "[grouping]\nagent = \"claude-code\"\n[review]\ncontext = 8\n[keys]\nquit = [\"Q\"]",
+            "[grouping]\nagent = \"claude-code\"\n[review]\ncontext = 8\n[keys]\ntop = [\"Q\"]",
         )
         .unwrap();
         let c = Config::load(
@@ -1048,7 +1042,7 @@ attributes = ["linguist-generated", "custom-generated"]
         assert!(c.generated.is_match("gen/x"));
         assert_eq!(c.grouping.agent, Some(Agent::ClaudeCode));
         assert_eq!(c.review.context, 8);
-        assert_eq!(c.keys.0[&Action::Quit], ["Q"]);
+        assert_eq!(c.keys.0[&Action::Top], ["Q"]);
 
         // Explicit-but-missing paths are hard errors; absent defaults are not.
         assert!(
@@ -1065,7 +1059,7 @@ attributes = ["linguist-generated", "custom-generated"]
         // An empty list is a statement, not an absence: it unbinds.
         assert_eq!(u.keys.0[&Action::Publish], Vec::<String>::new());
         assert!(
-            !u.keys.0.contains_key(&Action::Quit),
+            !u.keys.0.contains_key(&Action::Top),
             "unnamed keeps defaults"
         );
         // Absent means no overrides at all.
@@ -1085,12 +1079,12 @@ attributes = ["linguist-generated", "custom-generated"]
         }
         // A bare string where a list goes is an error too, not a one-key list:
         // the shape is the same for one key as for three.
-        assert!(Config::parse_user("[keys]\nquit = \"q\"", "test").is_err());
+        assert!(Config::parse_user("[keys]\ntop = \"g\"", "test").is_err());
     }
 
     #[test]
     fn keys_are_the_users_and_not_the_repos() {
-        let err = Config::parse("[keys]\nquit = [\"q\"]", "test").unwrap_err();
+        let err = Config::parse("[keys]\ntop = [\"g\"]", "test").unwrap_err();
         assert!(err.to_string().contains("keys"), "{err}");
     }
 
@@ -1116,9 +1110,7 @@ attributes = ["linguist-generated", "custom-generated"]
         }
         for a in Action::ALL {
             match a {
-                Action::Quit
-                | Action::Help
-                | Action::ToggleFocus
+                Action::ToggleFocus
                 | Action::Open
                 | Action::Close
                 | Action::Down

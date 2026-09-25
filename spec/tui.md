@@ -667,8 +667,8 @@ The full reference. `?` shows the subset that applies where the reader is standi
 | `x` | `resolve` | resolve or reopen the review thread under the cursor, on the forge, at once |
 | `R` | `refetch` | fetch the request's review threads again |
 | `P` | `publish` | publish the open findings to the request as one review — a float first says what goes and what stays and why; `y` sends, any other key keeps them local |
-| `?` | `help` | help — the keys of where the reader is standing, then the keys that work anywhere. Pressed in the file list or the findings list, it gives that list back |
-| `q`, `ctrl-c` | `quit` (`ctrl-c` is fixed) | quit — state is saved on every change, quitting never loses anything. In the file list or the findings list `q` closes the list instead, as `esc` does. `ctrl-c` quits from every mode, the composer included, where it drops the draft in the box |
+| `?` | — (fixed) | help — the keys of where the reader is standing, then the keys that work anywhere. Pressed in the file list or the findings list, it gives that list back |
+| `q`, `ctrl-c` | — (fixed) | quit — state is saved on every change, quitting never loses anything. In the file list or the findings list `q` closes the list instead, as `esc` does. `ctrl-c` quits from every mode, the composer included, where it drops the draft in the box |
 | `:` | — (fixed) | the command line — `:config`, `:help`, `:findings`, `:search [text]`, `:files`, `:publish`, `:refetch`, `:copy`, `:q`/`:quit` ([Command line](#command-line)) |
 | `esc` | `close` | close the float, then drop a selection · in the file list or the findings list, close it — `q` does too there |
 
@@ -695,10 +695,13 @@ publish = []         # unbound
   problem in the table at once. `dfr review` exits 2 before the terminal opens.
 - **Keys are written as they are shown**: `j`, `J` (shift-j), `ctrl-d`, `alt-=`, `enter`,
   `esc`, `tab`, `space`, `down`, `f5`. A letter's case is its shift.
-- **Some keys are not the reader's.** `ctrl-c` quits from everywhere and no action may take
-  it. Nor may `:`, which opens the command line — the way to `:config`, where a broken
-  table is repaired (ADR 0037). The composer's keys, the search box's keys, and the bare
-  `y` that answers a question are fixed, and so are the picker's and the splash's.
+- **Some keys are not the reader's.** `ctrl-c` quits from everywhere, `q` quits the review
+  and closes a list, `?` opens help, and `:` opens the command line — the way to
+  `:config`, where a broken table is repaired (ADR 0037). No action may take any of them:
+  each is a way out or the way to the answer, and a reader who has rebound something is
+  exactly the reader who needs those not to move. The composer's keys, the search box's
+  keys, and the bare `y` that answers a question are fixed, and so are the picker's and the
+  splash's.
 
 The footer, `?`, and every message and row that names a key name the bound one. A key the
 reader unbound is left out, never named.

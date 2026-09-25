@@ -165,6 +165,11 @@ fn bare(code: KeyCode) -> Vec<KeyEvent> {
     vec![KeyEvent::new(code, KeyModifiers::NONE)]
 }
 
+/// A bare character, pressed once.
+fn press(c: char) -> Vec<KeyEvent> {
+    bare(KeyCode::Char(c))
+}
+
 /// One row as a footer button. The words are the row's, and so are the keys
 /// a click presses.
 fn hint(act: &Act) -> Hint {
@@ -274,12 +279,9 @@ fn moving(keys: &Keymap, area: Area) -> Vec<Act> {
 fn everywhere(keys: &Keymap) -> Vec<Act> {
     let row =
         |actions: &[Action], help: &str| keys.keys(Screen::Review, actions).map(|k| k.quiet(help));
-    // `ctrl-c` is on the quit row whatever `[keys]` says, since nothing can
-    // take it (`keymap::RESERVED`).
-    let quit = match keys.keys(Screen::Review, &[Action::Quit]) {
-        Some(k) => Keys::fixed(&format!("{} · ctrl-c", k.full), k.presses),
-        None => Keys::fixed("ctrl-c", Vec::new()),
-    };
+    // `?` and `q` are fixed, whatever `[keys]` says (`keymap::RESERVED`).
+    let help = Keys::fixed("?", press('?'));
+    let quit = Keys::fixed("q · ctrl-c", press('q'));
     [
         row(&[Action::ToggleSplit], "unified / split diff"),
         row(&[Action::ToggleWrap], "soft wrap long lines"),
@@ -297,7 +299,7 @@ fn everywhere(keys: &Keymap) -> Vec<Act> {
         row(&[Action::Copy], "copy the open findings"),
         row(&[Action::Publish], "publish the open findings (asks first)"),
         row(&[Action::Refetch], "fetch the review threads again"),
-        row(&[Action::Help], "these keys"),
+        Some(help.quiet("these keys")),
         Some(quit.quiet("quit — state is saved on every change")),
     ]
     .into_iter()
@@ -528,8 +530,8 @@ impl App {
                 keys.keys(screen, &[Action::Close]).map(|k| {
                     let also = keys.first(screen, Action::Files);
                     let help = match also {
-                        Some(f) => format!("close the list · so does {f}"),
-                        None => "close the list".to_string(),
+                        Some(f) => format!("close the list · so do q and {f}"),
+                        None => "close the list · so does q".to_string(),
                     };
                     k.footer("close", &help)
                 }),
@@ -585,8 +587,8 @@ impl App {
                 ),
                 keys.keys(screen, &[Action::Close]).map(|k| {
                     let help = match keys.first(screen, Action::Findings) {
-                        Some(f) => format!("close the list · so does {f}"),
-                        None => "close the list".to_string(),
+                        Some(f) => format!("close the list · so do q and {f}"),
+                        None => "close the list · so does q".to_string(),
                     };
                     k.footer("close", &help)
                 }),
@@ -680,11 +682,8 @@ impl App {
             true => Vec::new(),
             false => self.modal_hints(),
         };
-        let help = self
-            .screen()
-            .and_then(|screen| self.keymap().keys(screen, &[Action::Help]))
-            .map(|k| hint(&k.footer("help", "these keys")));
-        own.into_iter().chain(help).collect()
+        let help = hint(&Keys::fixed("?", press('?')).footer("help", "these keys"));
+        own.into_iter().chain([help]).collect()
     }
 
     /// A modal's own footer, exactly as drawn: this place's short words with
