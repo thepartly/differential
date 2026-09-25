@@ -662,16 +662,22 @@ impl App {
     }
 
     /// Put the cursor on the matched line, wherever in the review it lives.
+    pub(super) fn jump_to_occurrence(&mut self, occ: &Occurrence) {
+        self.jumping(|app| app.jump_to_line(&occ.path, occ.line, occ.group));
+    }
+
+    /// Put the cursor on head-side `line` of `path`, wherever in the review it
+    /// lives. `group` is the one that reads it, as a position in the plan.
     ///
     /// The same navigation `jump_to_finding` makes, and for the same reason: a
     /// row exists only in the view that is BUILT, so reaching one is a
     /// navigation and never a row index. Three things can be in the way and
     /// each is opened in turn — the wrong group selected, a fold over the
     /// hunk, and a window that does not reach the line.
-    pub(super) fn jump_to_occurrence(&mut self, occ: &Occurrence) {
-        let (path, line) = (occ.path.clone(), occ.line);
+    pub(super) fn jump_to_line(&mut self, path: &str, line: u32, group: Option<usize>) {
+        let path = path.to_string();
         match self.view_mode {
-            ViewMode::Groups => match occ.group {
+            ViewMode::Groups => match group {
                 Some(g) => self.select_entry(g),
                 None => {
                     // No group owns the file, so the reading plan has no row
@@ -695,31 +701,56 @@ impl App {
         // A folded skim remainder or a folded noise group hides the hunk
         // itself. Opening it is the reader overriding a default deliberately,
         // on a line they asked for by name (ADR 0006).
-        if self.row_of_line(&path, line).is_none() {
+        if self.row_of_line(&path, "new", line).is_none() {
             self.toggle_group_fold();
         }
         // Still nothing: the line is real but outside every window the pane
         // shows, which is most of a file.
-        if self.row_of_line(&path, line).is_none() {
+        if self.row_of_line(&path, "new", line).is_none() {
             self.reveal_line(&path, line);
         }
-        match self.row_of_line(&path, line) {
+        match self.row_of_line(&path, "new", line) {
             Some(row) => self.land_on(row),
             None => self.land_near(&path, line),
         }
     }
 
-    /// The row showing head-side line `line` of `path`, if this view has one.
+    /// The group that reads head-side `line` of `path`, as a position in the
+    /// plan: the group of the hunk holding the line, or — for a line inside no
+    /// hunk — the first group by plan order that owns any hunk in the file.
+    ///
+    /// The rule [`Occurrence::group`] states, for one line. `search_scan`
+    /// applies it to a whole file's hits at once and keeps its own copy of the
+    /// file's hunks, because it wants their classes too.
+    pub(super) fn group_of_line(&self, path: &str, line: u32) -> Option<usize> {
+        let plan = self.session.plan();
+        let doc = self.session.doc();
+        let view = plan.files.get(*self.file_index.get(path)?)?;
+        let rank = |h| {
+            let id = &plan.group_of_hunk(h)?.id;
+            plan.groups.iter().position(|g| &g.id == id)
+        };
+        let holding = view.hunks.iter().copied().find(|h| {
+            let e = &doc.hunks[h.index()];
+            e.new_count > 0 && line >= e.new_start && line < e.new_start + e.new_count
+        });
+        match holding {
+            Some(h) => rank(h),
+            None => view.hunks.iter().copied().filter_map(rank).min(),
+        }
+    }
+
+    /// The row showing `side`'s line `line` of `path`, if this view has one.
     ///
     /// A diff row does not name its file; the header above it does, which is
     /// why this walks rather than searching.
-    fn row_of_line(&self, path: &str, line: u32) -> Option<usize> {
+    pub(super) fn row_of_line(&self, path: &str, side: &str, line: u32) -> Option<usize> {
         let mut here = false;
         for (i, r) in self.rows.iter().enumerate() {
             if let RowKind::FileHeader(p) = &r.kind {
                 here = p == path;
             }
-            if here && r.line.as_ref().is_some_and(|l| l.holds("new", line)) {
+            if here && r.line.as_ref().is_some_and(|l| l.holds(side, line)) {
                 return Some(i);
             }
         }

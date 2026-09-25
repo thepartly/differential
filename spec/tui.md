@@ -382,6 +382,29 @@ title of `name · file:line · class · group`. The group id is there because th
 next move is often to go and read that group first, and the id is what the plan pane's rows
 and their `after:` lines are keyed by.
 
+**`enter` goes there.** The float answers *what is this*; the question after it is often
+*then let me read it where it lives* — with the lines around it, its findings, its `space`.
+The cursor lands on the declaration's first line by the same navigation a search hit takes,
+because a declaration can sit wherever a hit can: in another group, which is selected; under
+a fold, which is opened; or outside every window of a file the change touches, which is
+widened to reach it. The float closes behind the jump. The key is `enter` (`open`) because it is
+the one every list in this reviewer jumps with, and in the diff pane it has no other meaning.
+The float names it on its own bottom edge, `enter go to · esc close` against the right
+corner, because the reader's eyes are on the float and not on the window footer. Those words
+are buttons, like any footer's.
+
+**`ctrl-o` goes back** (`back` in `[keys]`). Every jump — `enter` on the float, on a search
+hit, in the file list and in the findings list — remembers where the reader stood, and
+`ctrl-o` returns there, from either pane. It is a **stack**, so a chain of declarations followed down walks back up the
+way it came. Only the cursor returns; a float open before the jump stays closed, since the
+underlines already say the row has something to show. A place is remembered by its **line**,
+not its row index, because a jump can open a fold or a gap above where the reader stood and
+move every row below it. A jump that failed or stayed put remembers nothing, so the key never
+goes back to where the reader already is. `f` forgets every place, because a place names a
+group in one view and a tree row in the other. `?` lists it among the keys that work anywhere;
+the footer does not, because on an ordinary 100-column terminal a fourth key there pushes
+`c note` off it.
+
 **The line says so before the key is pressed.** Standing on a row **underlines** every name
 on it the change can resolve, and the one the float is answering takes the **highlight** as
 well. Without that a reader would have to press `z` on every line to learn which ones have
@@ -644,11 +667,12 @@ The full reference. `?` shows the subset that applies where the reader is standi
 | `j`/`k`, `↓`/`↑` | `down`/`up` | move (groups pane: switch group · diff pane: move over rows) |
 | `J`/`K`, `}`/`{` | `next-group`/`prev-group` | next / previous group |
 | `tab` | `toggle-focus` | switch pane focus |
-| `enter` | `open` | plan pane only: open the group or file in the diff pane · file view, on a directory: fold or unfold it |
+| `enter` | `open` | plan pane: open the group or file in the diff pane · file view, on a directory: fold or unfold it · diff pane, with a symbol's declaration floated: go to the declaration, wherever in the review it lives |
 | `ctrl-d`/`ctrl-u` | `half-page-down`/`half-page-up` | half page |
+| `ctrl-o` | `back` | back to where the last jump left from — `open` on the symbol float, on a search hit, in the file list or the findings list. A stack, one place per press; `f` clears it. In `?`, not on the footer |
 | `g`/`G` | `top`/`bottom` | top / bottom |
 | `n`/`N` | `next-hunk`/`prev-hunk` | next / previous hunk (skipping hunks crossed in from other groups) |
-| `z` | `fold` | show what is being withheld, in the pane you are in — diff pane: on a `──` context boundary row, more of the file, or the hunk it names · on a resolved review thread, open or close it · **on a code row whose line uses a symbol the change declares, what declares it** (again for the next symbol on the line, once more to close; `esc` closes too) · elsewhere, the skim remainder or noise group · plan pane, file view: a directory |
+| `z` | `fold` | show what is being withheld, in the pane you are in — diff pane: on a `──` context boundary row, more of the file, or the hunk it names · on a resolved review thread, open or close it · **on a code row whose line uses a symbol the change declares, what declares it** (again for the next symbol on the line, once more to close; `esc` closes too; `enter` goes to it) · elsewhere, the skim remainder or noise group · plan pane, file view: a directory |
 | `s` | `toggle-split` | toggle side-by-side / unified diff layout (persisted) |
 | `w` | `toggle-wrap` | soft wrap long lines (persisted) |
 | `alt--`/`alt-=` | `shrink-diff`/`grow-diff` | move the divider four columns: narrow or widen the **diff** pane; `alt-+` is `alt-=` for a keyboard that puts `+` on the same key. From either pane — one of the two keys that do not act on the pane you are in. Neither pane goes below 20 columns, and the footer says which wall it is against. Transient: every review opens at 40, and the plan and the tree each keep their own |
@@ -768,7 +792,8 @@ themselves as the "select text anyway" key while a program has the mouse, and ne
 on (Ghostty's `mouse-shift-capture`, off by default, is one). A click selects the row or
 entry under it; a click on what is already selected is `enter`; a click on a row the cursor cannot land on — the group header,
 a blank — leaves the cursor where it was. The two floating overviews are maps, and a click
-on one does nothing — **except on a divider's own column**. A float is drawn at its pane's
+on one does nothing — **except on a divider's own column**. The symbol float is a map too,
+bar the keys on its bottom edge, which are buttons. A float is drawn at its pane's
 full width, so the group map covers both the pane divider's right column and the split
 view's middle, and the file list covers the pane divider's left one. **A divider wins over
 any float across it**: it is a line down the whole pane, and one that went dead where a

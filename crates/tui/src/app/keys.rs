@@ -16,7 +16,8 @@ use crate::rows::RowKind;
 use super::draw::{
     centered_x, composer_area, composer_footer, config_modal_area, delete_comment_area,
     delete_comment_footer, file_list_modal_area, findings_modal_area, findings_question,
-    footer_fits, footer_row, pane_inner, publish_area, publish_footer, search_modal_area,
+    footer_fits, footer_row, pane_inner, peek_hints_x, publish_area, publish_footer,
+    search_modal_area,
 };
 use super::text::{
     Hint, basename, file_list_rows, findings_entry_at_line, findings_rows, findings_skip, hint_at,
@@ -108,6 +109,10 @@ impl App {
 
     /// `enter` in the file-list modal: close it on the selected file's header.
     fn jump_to_listed_file(&mut self) {
+        self.jumping(Self::go_to_listed_file);
+    }
+
+    fn go_to_listed_file(&mut self) {
         let Mode::FileList {
             entries, selected, ..
         } = &self.mode
@@ -124,6 +129,10 @@ impl App {
     /// `enter` in the findings modal: close it on the selected note or thread,
     /// or say why that is not possible.
     fn jump_to_listed_finding(&mut self) {
+        self.jumping(Self::go_to_listed_finding);
+    }
+
+    fn go_to_listed_finding(&mut self) {
         let Mode::Findings {
             entries, selected, ..
         } = &self.mode
@@ -436,6 +445,23 @@ impl App {
             return hint_at(&hints, x0, at.x)
                 .filter(|h| !h.presses.is_empty())
                 .map(|h| h.presses.clone());
+        }
+        // The symbol float is a map and swallows a click on itself — but its
+        // bottom edge names its keys, and those are buttons like any footer's.
+        if matches!(self.mode, Mode::Normal)
+            && let Some(area) = self.peek_area(panes.detail)
+        {
+            let edge = Rect {
+                y: area.bottom() - 1,
+                height: 1,
+                ..area
+            };
+            if edge.contains(at) {
+                let hints = self.peek_hints();
+                return hint_at(&hints, peek_hints_x(area, &hints), at.x)
+                    .filter(|h| !h.presses.is_empty())
+                    .map(|h| h.presses.clone());
+            }
         }
         match &self.mode {
             Mode::Editing { editor, .. } => {
@@ -871,6 +897,10 @@ impl App {
             },
             Action::NextGroup => self.select_entry(self.selected_entry() + 1),
             Action::PrevGroup => self.select_entry(self.selected_entry().saturating_sub(1)),
+            // Back where the last jump left from, from either pane: the jump
+            // took the reader wherever it went, so the way back cannot depend
+            // on which pane they are standing in now.
+            Action::Back => self.go_back(),
             Action::HalfPageDown => {
                 self.cursor = self.half_page(self.cursor, 1);
                 self.cursor = self.next_selectable(self.cursor, -1).unwrap_or(self.cursor);
@@ -928,6 +958,11 @@ impl App {
             // things on one row.
             Action::Fold if detail && !self.peekable().is_empty() => self.step_peek(),
             Action::Fold => self.toggle_group_fold(),
+            // The float's answer is somewhere in the review, so `open` goes
+            // there — the key every list in this reviewer jumps with. Only
+            // while a float is open: in the diff pane `open` has no other
+            // meaning, and this one needs something to go to.
+            Action::Open if detail && self.peek.is_some() => self.jump_to_declaration(),
             Action::NextHunk => self.jump_hunk(1),
             Action::PrevHunk => self.jump_hunk(-1),
             Action::ToggleSplit => self.toggle_split(),

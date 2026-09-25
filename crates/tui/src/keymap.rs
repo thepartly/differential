@@ -95,6 +95,9 @@ const DEFAULTS: &[(Action, &[Screen], &[&str])] = {
         (Action::Resolve, &[Review], &["x"]),
         (Action::Refetch, &[Review], &["R"]),
         (Action::Publish, &[Review, Findings], &["P"]),
+        // Vim's jump-back. Review only: a list is where a jump STARTS, and
+        // `q`/`esc` already leave it.
+        (Action::Back, &[Review], &["ctrl-o"]),
     ]
 };
 

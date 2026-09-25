@@ -295,6 +295,7 @@ fn everywhere(keys: &Keymap) -> Vec<Act> {
             "widen / narrow the diff pane",
         ),
         row(&[Action::Search], "find a word in any changed file"),
+        row(&[Action::Back], "back to where the last jump left from"),
         row(&[Action::Findings], "every finding and thread, in one list"),
         row(&[Action::Copy], "copy the open findings"),
         row(&[Action::Publish], "publish the open findings (asks first)"),
@@ -455,14 +456,15 @@ impl App {
                     },
                 ),
             ],
-            Area::Peeking => vec![
-                on(Action::Fold, "next", "the next symbol on this line"),
-                on(Action::Close, "close", "close the float"),
-                quiet(
+            Area::Peeking => {
+                let mut rows = vec![on(Action::Fold, "next", "the next symbol on this line")];
+                rows.extend(self.peek_acts().into_iter().map(Some));
+                rows.push(quiet(
                     &[Action::Down, Action::Up],
                     "move on — the float closes with the cursor",
-                ),
-            ],
+                ));
+                rows
+            }
             Area::Selecting => vec![
                 keys.keys(screen, &[Action::Down, Action::Up])
                     .map(|k| k.footer("extend", "extend the selection, up to a context boundary")),
@@ -684,6 +686,36 @@ impl App {
         };
         let help = hint(&Keys::fixed("?", press('?')).footer("help", "these keys"));
         own.into_iter().chain([help]).collect()
+    }
+
+    /// What the symbol float offers besides stepping: the window footer shows
+    /// these, and so does the float's own edge — where the reader's eyes are.
+    /// A key the reader unbound is left out of both.
+    fn peek_acts(&self) -> Vec<Act> {
+        let keys = self.keymap();
+        let go = match keys.first(Screen::Review, Action::Back) {
+            Some(k) => format!("go to the declaration · {k} comes back"),
+            None => "go to the declaration".to_string(),
+        };
+        [
+            keys.keys(Screen::Review, &[Action::Open])
+                .map(|k| k.footer("go to", &go)),
+            keys.keys(Screen::Review, &[Action::Close])
+                .map(|k| k.footer("close", "close the float")),
+        ]
+        .into_iter()
+        .flatten()
+        .collect()
+    }
+
+    /// The keys the symbol float names on its own bottom edge, as buttons.
+    /// One list for the draw and the click, so the two cannot disagree.
+    pub(super) fn peek_hints(&self) -> Vec<Hint> {
+        let mut hints = joined(&self.peek_acts().iter().map(hint).collect::<Vec<_>>());
+        // A column either side, so the words do not butt against the border.
+        hints.insert(0, Hint::note(" ", Ink::Dim));
+        hints.push(Hint::note(" ", Ink::Dim));
+        hints
     }
 
     /// A modal's own footer, exactly as drawn: this place's short words with
