@@ -421,13 +421,14 @@ pub enum Action {
     Resolve,
     Refetch,
     Publish,
+    Back,
 }
 
 impl Action {
     /// Every action, so a lister does not keep its own copy of the list.
     /// `all_actions_are_listed` in this module is the check a `match` would
     /// have been.
-    pub const ALL: [Action; 34] = [
+    pub const ALL: [Action; 35] = [
         Action::ToggleFocus,
         Action::Open,
         Action::Close,
@@ -462,6 +463,7 @@ impl Action {
         Action::Resolve,
         Action::Refetch,
         Action::Publish,
+        Action::Back,
     ];
 
     /// The name this action answers to in `[keys]`. Hand-written for the
@@ -502,6 +504,7 @@ impl Action {
             Action::Resolve => "resolve",
             Action::Refetch => "refetch",
             Action::Publish => "publish",
+            Action::Back => "back",
         }
     }
 }
@@ -1143,7 +1146,8 @@ attributes = ["linguist-generated", "custom-generated"]
                 | Action::Reply
                 | Action::Resolve
                 | Action::Refetch
-                | Action::Publish => assert!(listed(a)),
+                | Action::Publish
+                | Action::Back => assert!(listed(a)),
             }
         }
     }

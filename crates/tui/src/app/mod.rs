@@ -414,10 +414,33 @@ pub struct Peek {
     pub nth: usize,
     /// `name · file:line · C7 · g3`.
     pub title: String,
+    /// Where the declaration lives: its file, and the head-side line it
+    /// starts on. What `enter` goes to.
+    pub file: String,
+    pub line: u32,
     /// The declaration, one entry per line: its number, and its styled text.
     pub body: Vec<crate::rows::SnippetLine>,
     /// Lines the cap cut, for the `… N more lines` row.
     pub more: usize,
+}
+
+/// Where the reader stood before a jump — enough to stand there again once
+/// the rows have been rebuilt.
+///
+/// The LINE, not only the row index: a jump inside one group can open a fold
+/// or a context gap drawn above where the reader stood, and that moves every
+/// row index below it. The index is kept for the rows that have no line — a
+/// header, a boundary — where it is the best there is.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Place {
+    /// Which list `entry` indexes. A place from the other view names a row
+    /// that is not there, which is why `f` forgets them all.
+    pub view: ViewMode,
+    /// The selected group, or the selected tree row.
+    pub entry: usize,
+    pub row: usize,
+    /// The row's file, side and line, where it has one.
+    pub at: Option<(String, &'static str, u32)>,
 }
 
 /// A plan row's relation to the selected group — what the gutter connector
@@ -542,6 +565,8 @@ pub struct App {
     /// reading aid for this sitting, not a finding, so nothing here reaches the
     /// sidecar store.
     pub peek: Option<Peek>,
+    /// Where each jump left from, the latest last. `ctrl-o` pops one.
+    pub jumps: Vec<Place>,
     scroll: usize,
     /// How far the diff pane's CONTENT is shifted left, in columns.
     ///
@@ -675,6 +700,7 @@ impl App {
             cursor: 0,
             visual: None,
             peek: None,
+            jumps: Vec::new(),
             scroll: 0,
             hscroll: 0,
             group_scroll: 0,
@@ -761,6 +787,7 @@ mod draw;
 mod findings;
 mod forge;
 mod help;
+mod jumps;
 mod keys;
 mod peek;
 mod search;

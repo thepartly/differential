@@ -7699,6 +7699,11 @@ fn the_horizontal_wheel_shifts_the_diff_pane_as_h_and_l_do() {
 /// sits to the right of `helper_one`, so column order and press order must
 /// agree.
 fn app_with_symbols() -> (TestRepo, App) {
+    app_with_symbols_and(laid_out(false))
+}
+
+/// [`app_with_symbols`], opened with `opts`.
+fn app_with_symbols_and(opts: ReviewOptions) -> (TestRepo, App) {
     let r = TestRepo::new();
     r.write("src/lib.rs", b"// lib\n");
     r.write("src/call.rs", b"// call\n");
@@ -7729,7 +7734,7 @@ fn app_with_symbols() -> (TestRepo, App) {
             )
         )
     });
-    let app = open_app_with_opts(&r, &backend, ".dfr-symbol-store", laid_out(false));
+    let app = open_app_with_opts(&r, &backend, ".dfr-symbol-store", opts);
     (r, app)
 }
 
@@ -8214,6 +8219,388 @@ fn a_new_call_to_an_existing_helper_lights_up() {
         peek.body.iter().all(|l| l.origin == LineOrigin::Context),
         "the change never wrote this declaration"
     );
+}
+
+/// `enter` on an open float goes to what it shows (issue 161).
+///
+/// The float answers "what is this", and the reader's next question is often
+/// "then let me read it where it lives" — with its neighbours, its findings,
+/// its `space`. The cursor lands on the declaration's first line.
+#[test]
+fn enter_on_the_float_goes_to_the_declaration() {
+    let (_r, mut app) = app_with_symbols();
+    cursor_on_text(&mut app, "helper_one() + helper_two()");
+    // The SECOND symbol, so the jump follows the one the float is answering
+    // and not merely the first name on the line.
+    app.handle_key(key('z'));
+    app.handle_key(key('z'));
+    assert!(app.peek.as_ref().is_some_and(|p| p.nth == 1));
+
+    app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(cursor_path(&app).as_deref(), Some("src/lib.rs"));
+    assert_eq!(cursor_line(&app), Some(6), "`fn helper_two` is line 6");
+    assert_eq!(app.focus, Focus::Detail);
+    assert!(app.peek.is_none(), "the float closes behind the jump");
+}
+
+/// `cargo test -p differential-tui --test tui -- --ignored --nocapture render_dump_jump_to_declaration`
+#[ignore = "a dump for the author's eyes, not an assertion"]
+#[test]
+fn render_dump_jump_to_declaration() {
+    let (_r, mut app) = app_with_symbols();
+    sized(&mut app);
+    cursor_on_text(&mut app, "helper_one() + helper_two()");
+    app.handle_key(key('z'));
+    app.handle_key(key('z'));
+    println!("\n=== z z — helper_two floated; the footer offers enter ===");
+    for row in screen(&app, 100, 30) {
+        println!("{row}");
+    }
+    app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    println!("\n=== enter — the cursor on `fn helper_two`, src/lib.rs:6 ===");
+    for row in screen(&app, 100, 30) {
+        println!("{row}");
+    }
+    app.handle_key(ctrl('o'));
+    println!("\n=== ctrl-o — back on the call, no float ===");
+    for row in screen(&app, 100, 30) {
+        println!("{row}");
+    }
+    app.handle_key(key('?'));
+    println!("\n=== ? — ctrl-o is among the keys that work anywhere ===");
+    for row in screen(&app, 100, 40) {
+        println!("{row}");
+    }
+}
+
+/// Without a float, `enter` in the diff pane still does nothing.
+#[test]
+fn enter_without_a_float_moves_nothing() {
+    let (_r, mut app) = app_with_symbols();
+    let row = cursor_on_text(&mut app, "helper_one() + helper_two()");
+    app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(app.cursor, row);
+}
+
+/// A declaration the change did not write is outside every hunk, and the
+/// jump opens the window to reach it — the same way a search hit does.
+#[test]
+fn enter_opens_the_window_to_reach_an_untouched_declaration() {
+    let r = TestRepo::new();
+    r.write(
+        "src/lib.rs",
+        b"// lib\nfn sum_xy(a: u8, b: u8) -> u8 {\n    a + b\n}\n\n\n\n\n\n\n\nfn other() {}\n",
+    );
+    r.write("src/call.rs", b"// call\nfn caller() {\n}\n");
+    r.commit_all("base");
+    // `sum_xy` is untouched and eight lines above the only hunk in its file,
+    // past the three lines of context the pane opens with.
+    r.write(
+        "src/lib.rs",
+        b"// lib\nfn sum_xy(a: u8, b: u8) -> u8 {\n    a + b\n}\n\n\n\n\n\n\n\nfn other() { changed() }\n",
+    );
+    r.write(
+        "src/call.rs",
+        b"// call\nfn caller() {\n    let n = sum_xy(1, 2);\n}\n",
+    );
+    r.commit_all("head");
+    let backend = FakeBackend::new("fake", |ids| {
+        let all: Vec<String> = ids
+            .iter()
+            .map(|i| format!("{i:?}").trim_matches('"').to_string())
+            .collect();
+        format!(
+            r#"{{"groups": [{}]}}"#,
+            json_group(
+                "Everything",
+                "focus",
+                &all.iter().map(String::as_str).collect::<Vec<_>>()
+            )
+        )
+    });
+    let mut app = open_app_with_opts(&r, &backend, ".dfr-untouched-store", laid_out(false));
+    assert!(
+        !app.rows.iter().any(|r| r
+            .line
+            .as_ref()
+            .is_some_and(|l| l.text.contains("fn sum_xy"))),
+        "the fixture needs the declaration out of view"
+    );
+    cursor_on_text(&mut app, "sum_xy(1, 2)");
+    app.handle_key(key('z'));
+    assert!(app.peek.is_some());
+
+    app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(cursor_path(&app).as_deref(), Some("src/lib.rs"));
+    assert_eq!(cursor_line(&app), Some(2), "the gap was opened to reach it");
+}
+
+/// A declaration in one group and its call in another, with the calling
+/// group selected.
+fn app_with_a_declaration_in_another_group() -> (TestRepo, App) {
+    let r = TestRepo::new();
+    // Two shapes, so two classes and so two groups: the declaring file edits a
+    // line in place, and the calling file only adds.
+    r.write("src/lib.rs", b"// lib\nfn helper_one() {\n    0\n}\n");
+    r.write("src/call.rs", b"// call\n");
+    r.commit_all("base");
+    r.write("src/lib.rs", b"// lib\nfn helper_one() {\n    1\n}\n");
+    r.write(
+        "src/call.rs",
+        b"// call\nfn caller() {\n    let total = helper_one();\n}\n",
+    );
+    r.commit_all("head");
+    let mut app = open_app_with_opts(
+        &r,
+        &one_group_per_class(),
+        ".dfr-cross-group-store",
+        laid_out(false),
+    );
+    // Stand in whichever group holds the call.
+    let _calling = (0..app.groups().len())
+        .find(|&g| {
+            app.selected_group = g;
+            app.rebuild_rows();
+            app.rows.iter().any(|r| {
+                r.line
+                    .as_ref()
+                    .is_some_and(|l| l.text.contains("let total = helper_one()"))
+            })
+        })
+        .expect("a group holds the call");
+    (r, app)
+}
+
+/// A declaration in another group is reached by selecting that group, whose
+/// rows do not exist until it is — the navigation a search hit makes.
+#[test]
+fn enter_reaches_a_declaration_in_another_group() {
+    let (_r, mut app) = app_with_a_declaration_in_another_group();
+    let calling = app.selected_group;
+    cursor_on_text(&mut app, "let total = helper_one()");
+    assert!(
+        !app.rows.iter().any(|r| r
+            .line
+            .as_ref()
+            .is_some_and(|l| l.text.contains("fn helper_one"))),
+        "the fixture needs the declaration in another group"
+    );
+    app.handle_key(key('z'));
+    assert!(app.peek.is_some());
+
+    app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert_ne!(
+        app.selected_group, calling,
+        "it went to the declaring group"
+    );
+    assert_eq!(cursor_path(&app).as_deref(), Some("src/lib.rs"));
+    assert_eq!(cursor_line(&app), Some(2));
+}
+
+/// The float names its own keys on its bottom edge, and each is a button.
+///
+/// The window footer said `enter go to` already, but the reader's eyes are
+/// on the float; a key the float does not name is one they have to go and
+/// find.
+#[test]
+fn the_float_names_enter_on_its_own_edge_and_a_click_presses_it() {
+    let (_r, mut app) = app_with_symbols();
+    sized(&mut app);
+    cursor_on_text(&mut app, "helper_one() + helper_two()");
+    app.handle_key(key('z'));
+    let area = app
+        .peek_area(app.panes().detail)
+        .expect("the float has a home");
+    let edge = area.bottom() - 1;
+    let rows = screen(&app, SCREEN.width, SCREEN.height);
+    let drawn = &rows[edge as usize];
+    assert!(
+        drawn.trim_end().ends_with("enter go to  ·  esc close ┘"),
+        "the bottom edge names the keys, against its corner: {drawn:?}"
+    );
+
+    // A click on `enter` presses it.
+    let col = drawn
+        .char_indices()
+        .map(|(b, _)| b)
+        .position(|b| drawn[b..].starts_with("enter go to"))
+        .expect("the hint is on the edge") as u16;
+    app.handle_mouse(click(col, edge));
+    assert_eq!(cursor_path(&app).as_deref(), Some("src/lib.rs"));
+    assert_eq!(
+        cursor_line(&app),
+        Some(2),
+        "the click went to the declaration"
+    );
+}
+
+/// `ctrl-o` goes back to where the jump left from.
+#[test]
+fn ctrl_o_goes_back_from_the_declaration_to_the_call() {
+    let (_r, mut app) = app_with_symbols();
+    let call = cursor_on_text(&mut app, "helper_one() + helper_two()");
+    app.handle_key(key('z'));
+    app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(cursor_path(&app).as_deref(), Some("src/lib.rs"));
+
+    app.handle_key(ctrl('o'));
+    assert_eq!(app.cursor, call, "back on the call");
+    assert_eq!(app.focus, Focus::Detail);
+    assert!(
+        app.peek.is_none(),
+        "only the cursor comes back, not the float"
+    );
+
+    // And the stack is spent.
+    app.handle_key(ctrl('o'));
+    assert_eq!(app.cursor, call);
+    assert_eq!(app.status, "nowhere to go back to");
+}
+
+/// A chain of declarations walks back up the way it came.
+#[test]
+fn ctrl_o_walks_back_up_a_chain_of_declarations() {
+    let r = TestRepo::new();
+    r.write("src/lib.rs", b"// lib\n");
+    r.commit_all("base");
+    r.write(
+        "src/lib.rs",
+        b"// lib\nfn leaf() {}\nfn middle() {\n    leaf();\n}\nfn top() {\n    middle();\n}\n",
+    );
+    r.commit_all("head");
+    let mut app = open_app_with_opts(
+        &r,
+        &one_group_per_class(),
+        ".dfr-chain-store",
+        laid_out(false),
+    );
+    let start = cursor_on_text(&mut app, "    middle();");
+    app.handle_key(key('z'));
+    app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(cursor_line(&app), Some(3), "at `fn middle`");
+    let middle = cursor_on_text(&mut app, "    leaf();");
+    // Standing somewhere else first is a move, not a jump; the stack holds
+    // where the jumps LEFT from.
+    app.handle_key(key('z'));
+    app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(cursor_line(&app), Some(2), "at `fn leaf`");
+
+    app.handle_key(ctrl('o'));
+    assert_eq!(app.cursor, middle, "first back to the call of leaf");
+    app.handle_key(ctrl('o'));
+    assert_eq!(app.cursor, start, "then back to the call of middle");
+}
+
+/// Back from another group selects the group the reader came from.
+#[test]
+fn ctrl_o_comes_back_across_groups() {
+    let (_r, mut app) = app_with_a_declaration_in_another_group();
+    let calling = app.selected_group;
+    let call = cursor_on_text(&mut app, "let total = helper_one()");
+    app.handle_key(key('z'));
+    app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert_ne!(app.selected_group, calling);
+
+    app.handle_key(ctrl('o'));
+    assert_eq!(app.selected_group, calling, "the calling group again");
+    assert_eq!(app.cursor, call);
+}
+
+/// Back lands on the LINE, not a stale row index: the jump opened a gap in
+/// a file drawn above the call, which moved every row below it.
+#[test]
+fn ctrl_o_lands_on_the_line_after_the_jump_moved_the_rows() {
+    let r = TestRepo::new();
+    let lib = |tail: &str| {
+        format!("// lib\nfn sum_xy(a: u8, b: u8) -> u8 {{\n    a + b\n}}\n\n\n\n\n\n\n\n{tail}\n")
+    };
+    // `a_lib.rs` sorts above `z_call.rs`, so what the jump opens is drawn
+    // ABOVE the call.
+    r.write("src/a_lib.rs", lib("fn other() {}").as_bytes());
+    r.write("src/z_call.rs", b"// call\nfn caller() {\n}\n");
+    r.commit_all("base");
+    r.write("src/a_lib.rs", lib("fn other() { changed() }").as_bytes());
+    r.write(
+        "src/z_call.rs",
+        b"// call\nfn caller() {\n    let n = sum_xy(1, 2);\n}\n",
+    );
+    r.commit_all("head");
+    let backend = FakeBackend::new("fake", |ids| {
+        let all: Vec<String> = ids
+            .iter()
+            .map(|i| format!("{i:?}").trim_matches('"').to_string())
+            .collect();
+        format!(
+            r#"{{"groups": [{}]}}"#,
+            json_group(
+                "Everything",
+                "focus",
+                &all.iter().map(String::as_str).collect::<Vec<_>>()
+            )
+        )
+    });
+    let mut app = open_app_with_opts(&r, &backend, ".dfr-shifted-store", laid_out(false));
+    let call = cursor_on_text(&mut app, "sum_xy(1, 2)");
+    app.handle_key(key('z'));
+    app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(cursor_line(&app), Some(2));
+
+    app.handle_key(ctrl('o'));
+    assert_ne!(app.cursor, call, "the fixture needs the rows to have moved");
+    assert_eq!(cursor_path(&app).as_deref(), Some("src/z_call.rs"));
+    assert_eq!(cursor_line(&app), Some(3), "back on the call's line");
+}
+
+/// Every jump pushes, not only the float's: a search hit and a finding too.
+#[test]
+fn ctrl_o_comes_back_from_a_search_and_from_a_finding() {
+    let (_r, mut app) = app_with_symbols();
+    let call = cursor_on_text(&mut app, "helper_one() + helper_two()");
+    note_on(
+        &mut app,
+        |r| {
+            r.line
+                .as_ref()
+                .is_some_and(|l| l.text.contains("fn helper_two"))
+        },
+        "a note",
+    );
+
+    // From the call, to the note, through the findings list.
+    app.cursor = call;
+    app.handle_key(key('F'));
+    app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert_ne!(app.cursor, call, "the list jumped");
+    app.handle_key(ctrl('o'));
+    assert_eq!(app.cursor, call, "back from the finding");
+
+    // And through a search.
+    search_for(&mut app, "let inner");
+    app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(cursor_line(&app), Some(3));
+    app.handle_key(ctrl('o'));
+    assert_eq!(app.cursor, call, "back from the search hit");
+}
+
+/// A jump that goes nowhere records nothing, and `f` forgets every place:
+/// a place names a group in one view and a tree row in the other.
+#[test]
+fn a_jump_that_stays_put_records_nothing_and_f_clears_the_stack() {
+    let (_r, mut app) = app_with_symbols();
+    let call = cursor_on_text(&mut app, "helper_one() + helper_two()");
+    // The top hit is the line the reader is on.
+    search_for(&mut app, "helper_two()");
+    app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(app.cursor, call);
+    app.handle_key(ctrl('o'));
+    assert_eq!(app.status, "nowhere to go back to");
+
+    app.handle_key(key('z'));
+    app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    app.focus = Focus::Groups;
+    app.handle_key(key('f'));
+    app.handle_key(ctrl('o'));
+    assert_eq!(app.status, "nowhere to go back to");
 }
 
 // ------------------------------------------------------------------ search
@@ -9650,6 +10037,35 @@ fn with_keys(pairs: &[(Action, &[&str])]) -> ReviewOptions {
     }
 }
 
+/// `back` rebinds like any action, and the float's edge names the keys the
+/// reader bound rather than the defaults.
+#[test]
+fn back_and_the_floats_keys_follow_the_keys_table() {
+    let opts = ReviewOptions {
+        keymap: with_keys(&[(Action::Back, &["backspace"]), (Action::Close, &["e"])]).keymap,
+        ..laid_out(false)
+    };
+    let (_r, mut app) = app_with_symbols_and(opts);
+    sized(&mut app);
+    let call = cursor_on_text(&mut app, "helper_one() + helper_two()");
+    app.handle_key(key('z'));
+    let area = app
+        .peek_area(app.panes().detail)
+        .expect("the float has a home");
+    let edge = &screen(&app, SCREEN.width, SCREEN.height)[(area.bottom() - 1) as usize];
+    assert!(
+        edge.trim_end().ends_with("enter go to  ·  e close ┘"),
+        "the edge names the bound close key: {edge:?}"
+    );
+
+    app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert_ne!(app.cursor, call);
+    app.handle_key(ctrl('o'));
+    assert_ne!(app.cursor, call, "ctrl-o is not back any more");
+    app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+    assert_eq!(app.cursor, call, "backspace is");
+}
+
 #[test]
 fn a_rebound_key_does_the_action_and_the_old_one_does_nothing() {
     let (_r, mut app) = make_app_with(with_keys(&[(Action::Down, &["e"])]));
@@ -10022,6 +10438,36 @@ fn a_clashing_key_blocks_the_save_and_says_why() {
     assert!(matches!(app.mode, Mode::Config(_)), "still open");
     assert!(app.status.starts_with("not saved"), "{}", app.status);
     assert!(!path.exists(), "nothing was written");
+}
+
+/// `back` is a row of the config modal like any action, and a key saved
+/// there is the key `back` answers to at once.
+#[test]
+fn back_is_rebound_from_the_config_modal() {
+    use differential_engine::config::Config;
+    use differential_engine::store::OsConfigSource;
+    let tmp = tempfile::TempDir::new().unwrap();
+    let path = tmp.path().join("config.toml");
+    let (_r, mut app) = app_with_symbols_and(ReviewOptions {
+        user_config_path: Some(path.clone()),
+        ..laid_out(false)
+    });
+    command(&mut app, "config");
+    select_config_row(&mut app, "back");
+    retype_config_row(&mut app, "[\"backspace\"]");
+    assert!(app.config_edit().unwrap().problems.is_empty());
+    app.handle_key(ctrl('s'));
+    assert!(app.status.starts_with("saved"), "{}", app.status);
+    let saved = Config::load_user(&OsConfigSource, Some(&path)).unwrap();
+    assert_eq!(saved.keys.0[&Action::Back], ["backspace"]);
+
+    let call = cursor_on_text(&mut app, "helper_one() + helper_two()");
+    app.handle_key(key('z'));
+    assert!(app.peek.is_some(), "the float opened");
+    app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert_ne!(app.cursor, call);
+    app.handle_key(KeyEvent::new(KeyCode::Backspace, KeyModifiers::NONE));
+    assert_eq!(app.cursor, call, "the saved key goes back");
 }
 
 #[test]

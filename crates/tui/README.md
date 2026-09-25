@@ -140,18 +140,20 @@ the diff cursor, whichever pane you are in.
 | `N` | either | Previous hunk. |
 | `ctrl-d` | either | Half a page down. |
 | `ctrl-u` | either | Half a page up. |
+| `ctrl-o` | either | Back to where the last jump left from: `enter` on a symbol's declaration, a search hit, the file list or the findings list. One place per press, most recent first. |
 | `g` | either | Jump to the first row. |
 | `G` | either | Jump to the last row. |
 | `tab` | either | Switch pane focus. |
 | `enter` | left | In the file view, fold or unfold the directory. Otherwise move focus to the diff pane. |
-| `enter` | diff | Nothing. |
+| `enter` | diff, with a symbol's declaration floated | Go to the declaration, wherever in the review it lives. Its group is selected, and a fold or a context gap is opened to reach it. |
+| `enter` | diff, otherwise | Nothing. |
 
 ### Normal mode — showing and switching
 
 | key | pane | action |
 |---|---|---|
 | `z` | diff, on a `──` boundary row | Show more of the file, or cross into the hunk the row names. |
-| `z` | diff, on a line that uses a symbol the change declares | Float its declaration, tinted to show which of its lines the change wrote. Such names are underlined as soon as the cursor reaches the line. Again for the next symbol, once more to close; `esc` closes too. |
+| `z` | diff, on a line that uses a symbol the change declares | Float its declaration, tinted to show which of its lines the change wrote. Such names are underlined as soon as the cursor reaches the line. Again for the next symbol, once more to close; `esc` closes too; `enter` goes to it. |
 | `z` | left, file view | Fold or unfold the directory. |
 | `z` | anywhere else | Unfold the skim remainder, or the noise group. |
 | `s` | either | Toggle side-by-side and unified layout. Saved per review; `review.diff` sets what a review opens as. |

@@ -652,6 +652,9 @@ impl App {
         };
         self.cursor = 0;
         self.scroll = 0;
+        // A place names a group in one view and a tree row in the other, so
+        // none of them means anything after the switch.
+        self.jumps.clear();
         // The divider is per list, so switching lists moves it — and the diff
         // pane's width with it. Re-measure before the rows are built, or they
         // wrap at the width the pane had a moment ago.

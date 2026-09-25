@@ -172,7 +172,9 @@ a **peek modal** opens showing where it is declared:
 
 The modal carries the declaration's own lines, syntax-highlighted, with their own line
 numbers. Its title says which shape class wrote it and which group that class landed in, so
-the next move — go and read `g2` first — is on the screen already.
+the next move — go and read `g2` first — is on the screen already. `enter` takes you there:
+the cursor lands on the declaration, in whichever group reads it, and `ctrl-o` brings you
+back.
 
 ### A word, found anywhere in the change
 

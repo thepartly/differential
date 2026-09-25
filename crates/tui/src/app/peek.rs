@@ -1,4 +1,5 @@
-//! `z` on a code row: light the symbol, and show what declares it.
+//! `z` on a code row: light the symbol, and show what declares it. `enter`
+//! then goes there.
 //!
 //! The engine records which token on which line resolves to which declaration
 //! (ADR 0032). This is the half that reads it.
@@ -93,6 +94,22 @@ impl App {
         }
     }
 
+    /// Go to the declaration the float is showing (issue 161).
+    ///
+    /// The float answers "what is this"; the next question is often "then let
+    /// me read it where it lives", with the lines around it, its findings and
+    /// its `space`. That is the navigation a search hit makes, because a
+    /// declaration can sit anywhere a hit can: in another group, under a fold,
+    /// or outside every window of a file the change touches.
+    ///
+    /// The float closes first, so a declaration on the very row it was asked
+    /// from still leaves the reader with the answer gone and the code in hand.
+    pub(super) fn jump_to_declaration(&mut self) {
+        let Some(peek) = self.peek.take() else { return };
+        let group = self.group_of_line(&peek.file, peek.line);
+        self.jumping(|app| app.jump_to_line(&peek.file, peek.line, group));
+    }
+
     /// Drop a float that no longer belongs to where the reader is standing.
     ///
     /// The float answers a question asked ON one row, with the diff pane in
@@ -173,6 +190,8 @@ impl App {
             row: self.cursor,
             nth,
             title,
+            file,
+            line,
             body,
             more,
         })

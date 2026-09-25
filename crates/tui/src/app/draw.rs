@@ -1475,7 +1475,10 @@ impl App {
             // Padded here, not in the model: a test asserting WHICH symbol is
             // open reads the title, and it should not have to know how a
             // border draws one. Every other float pads at this same point.
-            Paragraph::new(lines).block(pane(&self.theme, format!(" {} ", peek.title), true)),
+            Paragraph::new(lines).block(
+                pane(&self.theme, format!(" {} ", peek.title), true)
+                    .title_bottom(footer_line(&self.theme, &self.peek_hints()).right_aligned()),
+            ),
             area,
         );
     }
@@ -2914,6 +2917,13 @@ pub fn delete_comment_area(body: Rect, lines: usize) -> Rect {
 }
 
 /// A box's footer: the last content row `frame` leaves inside it.
+/// Where the float's bottom-edge keys start: right-aligned, inside the
+/// corner. The one arithmetic for the draw and the click.
+pub fn peek_hints_x(area: Rect, hints: &[Hint]) -> u16 {
+    let w = u16::try_from(hints_width(hints)).unwrap_or(u16::MAX);
+    area.right().saturating_sub(1).saturating_sub(w)
+}
+
 pub fn footer_row(area: Rect) -> Rect {
     let inner = pane_inner(area);
     Rect {
