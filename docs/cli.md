@@ -321,6 +321,11 @@ Resolution order for each file: the explicit flag, then the default path, then t
 defaults. A missing file means defaults. A malformed file is a hard error. An unknown key
 is a hard error too.
 
+The reviewer can also edit and save this file: `:config` in `dfr review` opens a modal
+over every key above ([`spec/tui.md`](../spec/tui.md#config-modal)). **Saving from there
+rewrites the file whole, so its comments and layout are not kept.** Every `[review]` value
+is written out, defaults included.
+
 A `[keys]` table is checked before `dfr review` opens the terminal. An unknown action, a
 string that is not a key, `ctrl-c` (it quits from everywhere), and two actions on one key in
 one screen are each a usage error, exit 2. The error lists every problem in the table:

@@ -35,6 +35,7 @@ pulldown-cmark = { version = "0.13", default-features = false }
 
 [dev-dependencies]
 differential-testutil = { workspace = true }
+tempfile = { workspace = true }
 
 [lints]
 workspace = true

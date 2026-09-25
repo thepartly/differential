@@ -669,6 +669,7 @@ The full reference. `?` shows the subset that applies where the reader is standi
 | `P` | `publish` | publish the open findings to the request as one review — a float first says what goes and what stays and why; `y` sends, any other key keeps them local |
 | `?` | — (fixed) | help — the keys of where the reader is standing, then the keys that work anywhere. Pressed in the file list or the findings list, it gives that list back |
 | `q`, `ctrl-c` | — (fixed) | quit — state is saved on every change, quitting never loses anything. In the file list or the findings list `q` closes the list instead, as `esc` does. `ctrl-c` quits from every mode, the composer included, where it drops the draft in the box |
+| `:` | — (fixed) | the command line — `:config`, `:help`, `:findings`, `:search [text]`, `:files`, `:publish`, `:refetch`, `:copy`, `:q`/`:quit` ([Command line](#command-line)) |
 | `esc` | `close` | close the float, then drop a selection · in the file list or the findings list, close it — `q` does too there |
 
 ### Rebinding
@@ -695,13 +696,69 @@ publish = []         # unbound
 - **Keys are written as they are shown**: `j`, `J` (shift-j), `ctrl-d`, `alt-=`, `enter`,
   `esc`, `tab`, `space`, `down`, `f5`. A letter's case is its shift.
 - **Some keys are not the reader's.** `ctrl-c` quits from everywhere, `q` quits the review
-  and closes a list, and `?` opens help; no action may take any of them. Each is a way out
-  or the way to the answer, and a reader who has rebound something is exactly the reader
-  who needs those not to move. The composer's keys, the search box's keys, and the bare `y` that answers a question
-  are fixed, and so are the picker's and the splash's.
+  and closes a list, `?` opens help, and `:` opens the command line — the way to
+  `:config`, where a broken table is repaired (ADR 0037). No action may take any of them:
+  each is a way out or the way to the answer, and a reader who has rebound something is
+  exactly the reader who needs those not to move. The composer's keys, the search box's
+  keys, and the bare `y` that answers a question are fixed, and so are the picker's and the
+  splash's.
 
 The footer, `?`, and every message and row that names a key name the bound one. A key the
 reader unbound is left out, never named.
+
+### Command line
+
+`:` opens a line on the status row, as vim's does (ADR 0037). It opens from the review, the
+file list and the findings list; from a list it takes the list's place. Its keys are fixed:
+every printable key types, `enter` runs the line, `esc` drops the line, and so does
+`backspace` on an empty one.
+
+**Completion is shown as you type.** A popup above the line lists every command the typed
+name could still become, each with what it does. An empty line lists them all. The rest of
+the first match is drawn dim after the caret. `tab` or `↓` fills the line with the next
+match and `shift-tab` or `↑` with the previous; the list stays the one the TYPED text
+matched, so `tab` walks it. `→` at the end takes the dim rest. Once the line has an
+argument, the popup goes.
+
+| command | does what its key does |
+|---|---|
+| `:config` | the config modal, below. It has no key of its own |
+| `:help` | `?` |
+| `:findings` | `F` |
+| `:search [text]` | `/`, with `text` typed into the query when given |
+| `:files` | `f` in the diff pane: the file list |
+| `:publish` | `P` |
+| `:refetch` | `R` |
+| `:copy` | `y` |
+| `:q`, `:quit` | `q` |
+
+A command refuses where its key refuses, in the same words. A name nobody has gets
+`no command :foo · :help lists them`, and `?` lists the commands in its last row.
+
+### Config modal
+
+`:config` edits the whole user file (`[grouping]`, `[review]`, `[keys]`) in a box down the
+left of the screen. The diff stays visible beside it, which is what the preview needs.
+
+- **The modal's keys are fixed, whatever `[keys]` says**, because this is where a broken
+  keymap gets repaired. `j`/`k` move; `h`/`l` change a value (cycle a name, or step a
+  number: a minute for the timeout); `enter` types a value; `r` puts a row back to its
+  default; `ctrl-s` saves; `esc` or `q` discards.
+- **`enter` on a multiple-choice row — the agent, the theme, the diff layout — opens a list
+  of its choices.** Each step through it sets the row, so a theme or a layout is worn as
+  it is passed and the whole screen is the preview. `enter` keeps it, and `esc` goes back
+  to the choice on when the list opened, which `•` marks.
+- **Theme, diff layout and context preview as they change.** `esc` puts back what was
+  there. A layout this review recorded with `s` still wins over the default, and the diff
+  row says so. Keys and the agent are not previewed.
+- **A key row is typed as the file writes it**: `["ctrl-j", "d d"]`, and `[]` unbinds.
+  Typing back an action's defaults removes its override. The draft is checked as
+  `dfr review` checks the file (ADR 0036), its problems are listed under the rows, and a
+  save is refused while any remain.
+- **Saving rewrites the file whole** and applies everything at once, keys included. **The
+  file's comments and layout are not kept.** The modal's headline names the file it
+  writes. The agent and its timeout take effect from the next grouping run. With no config
+  directory, saving is refused rather than written elsewhere.
 
 **The mouse acts on the pane under the pointer, and that pane takes focus.** The wheel is
 `j`/`k` there — one row per notch in the diff, one entry per notch in the plan — and the

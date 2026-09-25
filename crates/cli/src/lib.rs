@@ -14,7 +14,7 @@ use std::time::Duration;
 use anyhow::Context;
 use clap::{Args, Parser, Subcommand};
 use differential_engine::artefact::symbols::SymbolReaders;
-use differential_engine::config::{Agent, Config, user_config_path};
+use differential_engine::config::{Agent, Config, UserConfig, user_config_path};
 use differential_engine::forge::{self, Forge, ForgeKind, Request};
 use differential_engine::forgeio::{GhForge, GlabForge};
 use differential_engine::gitio::Repo;
@@ -261,13 +261,15 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
                 Ok(k) => k,
                 Err(e) => {
                     let path = user_config
+                        .clone()
                         .or_else(|| user_config_path(&OsConfigSource))
                         .map(|p| p.display().to_string())
                         .unwrap_or_else(|| "the user config".into());
                     return usage_error(&format!("config error in {path}: {e}"));
                 }
             };
-            run_review(resolved, no_cache, keymap)
+            let config_path = user_config.or_else(|| user_config_path(&OsConfigSource));
+            run_review(resolved, no_cache, keymap, config_path)
         }
         Command::Findings {
             summary,
@@ -427,6 +429,7 @@ fn run_review(
     r: Resolved,
     no_cache: bool,
     keymap: differential_tui::Keymap,
+    user_config_path: Option<PathBuf>,
 ) -> anyhow::Result<ExitCode> {
     let Resolved {
         repo,
@@ -453,6 +456,13 @@ fn run_review(
         split_diff: config.review.diff.is_split(),
         theme: config.review.theme,
         keymap,
+        // The whole user file, for `:config` to edit, and where it saves.
+        user_config: UserConfig {
+            grouping: config.grouping.clone(),
+            review: config.review.clone(),
+            keys: config.keys.clone(),
+        },
+        user_config_path,
         // As TYPED, so the footer can hand it straight back. Empty when the
         // picker chose the source, which has no spelling.
         range: match &request {

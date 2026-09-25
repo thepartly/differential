@@ -469,6 +469,11 @@ pub trait ConfigSource {
     /// `read`'s `None`, so the error text comes from the same `std::fs` call
     /// it always did and cannot drift.
     fn read_required(&self, path: &Path) -> Result<String, EngineError>;
+
+    /// Replace the file at `path` with `text`, creating its directory, so a
+    /// reader never sees half of it. The reviewer's config modal saves
+    /// through this ([`Config::save_user`](crate::config::Config::save_user)).
+    fn save(&self, path: &Path, text: &str) -> Result<(), EngineError>;
 }
 
 #[cfg(test)]

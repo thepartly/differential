@@ -357,6 +357,16 @@ impl ports::ConfigSource for OsConfigSource {
             msg: e.to_string(),
         })
     }
+
+    fn save(&self, path: &Path, text: &str) -> Result<(), EngineError> {
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir).map_err(|e| EngineError::Config {
+                path: dir.display().to_string(),
+                msg: e.to_string(),
+            })?;
+        }
+        write_atomic(path, text.as_bytes())
+    }
 }
 
 // --------------------------------------------------------- review catalogue
