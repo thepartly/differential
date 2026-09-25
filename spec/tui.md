@@ -777,6 +777,11 @@ left of the screen. The diff stays visible beside it, which is what the preview 
 - **Theme, diff layout and context preview as they change.** `esc` puts back what was
   there. A layout this review recorded with `s` still wins over the default, and the diff
   row says so. Keys and the agent are not previewed.
+- **The `editor` row is typed, and checked on the spot.** It holds the command `e` opens a
+  file with, and a value this tool could not run is refused in the modal rather than at
+  the next press. Cleared, the row shows `$VISUAL, then $EDITOR` beside its `default` mark
+  — unset here means the environment's, never *no editor*, and an empty row on its own
+  would read as the second. The saved command is the one `e` uses at once.
 - **A key row is typed as the file writes it**: `["ctrl-j", "d d"]`, and `[]` unbinds.
   Typing back an action's defaults removes its override. The draft is checked as
   `dfr review` checks the file (ADR 0036), its problems are listed under the rows, and a

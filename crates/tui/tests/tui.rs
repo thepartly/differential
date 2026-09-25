@@ -10906,7 +10906,7 @@ fn e_with_no_editor_configured_says_so_and_spawns_nothing() {
 /// whole point of ADR 0036 is that nothing else has to be told.
 #[test]
 fn the_external_editor_key_is_rebindable() {
-    let mut opts = with_keys(&[(Action::ExternalEditor, &["ctrl-o"])]);
+    let mut opts = with_keys(&[(Action::ExternalEditor, &["ctrl-e"])]);
     opts.editor = with_editor().editor;
     let (_r, mut app) = make_app_with(opts);
     app.focus = Focus::Detail;
@@ -10918,10 +10918,10 @@ fn the_external_editor_key_is_rebindable() {
     app.cursor = row;
 
     assert!(app.handle_key(key('e')).is_empty(), "e is not bound now");
-    let pressed = app.handle_key(KeyEvent::new(KeyCode::Char('o'), KeyModifiers::CONTROL));
+    let pressed = app.handle_key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::CONTROL));
     assert!(
         matches!(pressed.as_slice(), [Effect::OpenInEditor { .. }]),
-        "ctrl-o is"
+        "ctrl-e is"
     );
 
     // And the help names the bound key rather than the default, because the
@@ -10933,7 +10933,7 @@ fn the_external_editor_key_is_rebindable() {
         .iter()
         .find(|r| r.contains("open this line in your editor"))
         .expect("the help must name the action");
-    assert!(row.contains("ctrl-o"), "{row:?}");
+    assert!(row.contains("ctrl-e"), "{row:?}");
 }
 
 /// An action nobody can reach is a key that quietly does nothing, so an
@@ -11095,6 +11095,21 @@ fn render_dump_editor_key() {
     }
     app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
 
+    // The `:config` row, unset and set.
+    let mut cfg = make_app_with(ReviewOptions::default()).1;
+    sized(&mut cfg);
+    command(&mut cfg, "config");
+    select_config_row(&mut cfg, "editor");
+    println!("\n=== :config — the editor row, unset ===");
+    for row in screen(&cfg, 100, 40) {
+        println!("{row}");
+    }
+    retype_config_row(&mut cfg, "zed --wait {file}:{line}");
+    println!("\n=== :config — the editor row, set ===");
+    for row in screen(&cfg, 100, 40) {
+        println!("{row}");
+    }
+
     // The status the key writes when no editor is resolved. The rest of the
     // footer strings are the loop's, after a spawn a test cannot make; they
     // are pinned in `launch.rs`'s own unit test instead.
@@ -11175,12 +11190,19 @@ fn the_config_modal_edits_the_editor_command() {
 /// application layer hands the environment's own answer over for this.
 #[test]
 fn clearing_the_editor_row_falls_back_to_the_environment() {
-    let env = differential_engine::config::EditorCommand::parse("vi", "test").unwrap();
+    use differential_engine::config::{EditorCommand, ReviewConfig, UserConfig};
+    // The file names one and the environment names another, which is the only
+    // state where "what does clearing the row mean" has two possible answers.
     let (_r, mut app) = make_app_with(ReviewOptions {
-        editor: Some(
-            differential_engine::config::EditorCommand::parse("nvim {file}", "test").unwrap(),
-        ),
-        editor_env: Some(env.clone()),
+        editor: Some(EditorCommand::parse("nvim {file}", "test").unwrap()),
+        editor_env: Some(EditorCommand::parse("vi", "test").unwrap()),
+        user_config: UserConfig {
+            review: ReviewConfig {
+                editor: Some("nvim {file}".to_string()),
+                ..ReviewConfig::default()
+            },
+            ..UserConfig::default()
+        },
         ..ReviewOptions::default()
     });
     sized(&mut app);

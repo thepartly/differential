@@ -142,6 +142,24 @@ Refusing on a row with no line was the alternative, and it is what `z` does with
 It was rejected because the two keys answer different questions. `z` shows a thing that is
 either there or not. `e` takes the reader somewhere, and the file is always there.
 
+**5. The config modal edits the command, and clearing the row means the environment.**
+
+`[review].editor` is a row in `:config` ([ADR 0037](0037-a-command-line-and-a-config-modal.md))
+like every other personal setting, typed and checked on the spot: a command this tool could
+not run is refused in the modal, not at the next press of `e`.
+
+Clearing it is the case worth stating. Unset means `$VISUAL`, then `$EDITOR` — it does not
+mean *no editor*, and an empty row beside the word `default` would read as the second. So
+the row names the fallback, and the renderer is handed what the environment says
+(`ReviewOptions::editor_env`) alongside the resolved command. Without that second value,
+clearing the row while the reviewer ran would leave `e` dead until the next start for a
+reader who had never written `[review].editor` in the first place — a setting that breaks
+what it was not asked about.
+
+The resolution goes through `show_review`, the one function ADR 0037 routes the draft, the
+original and the saved config through, so a preview, an `esc` and a save cannot disagree
+about which command `e` holds.
+
 ## Consequences
 
 - **One dependency**, `shlex`, in the engine. It is pure and has no dependencies of its

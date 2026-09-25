@@ -549,7 +549,15 @@ impl App {
                     ));
                 }
                 _ => {
-                    row.push(Span::styled(value, if default { dim } else { key }));
+                    // An empty value in this column would read as "no editor".
+                    // Unset here means the environment's, so the row says so
+                    // where every other row puts its value. The typed box
+                    // still opens on the real value, which is nothing.
+                    let shown = match (field, value.is_empty()) {
+                        (Field::Editor, true) => "$VISUAL, then $EDITOR".to_string(),
+                        _ => value,
+                    };
+                    row.push(Span::styled(shown, if default { dim } else { key }));
                     if default {
                         row.push(Span::styled(
                             "  default",
@@ -558,11 +566,6 @@ impl App {
                     }
                     if field == Field::Diff && self.layout_is_recorded() {
                         row.push(Span::styled("  · this review keeps its own (s)", dim));
-                    }
-                    // An empty row says nothing, and unset here does not mean
-                    // "no editor" — it means the environment's.
-                    if field == Field::Editor && default {
-                        row.push(Span::styled("$VISUAL, then $EDITOR", dim));
                     }
                 }
             }

@@ -385,6 +385,10 @@ Unset, the tool reads `$VISUAL` and then `$EDITOR`. **The two sources fail diffe
 written for this tool. A `$VISUAL` or `$EDITOR` that cannot be split is skipped, because it
 was written for every program on the machine; `e` then reports that no editor is set.
 
+`:config` in the reviewer edits this key like any other, checking the command as you type
+it and using the saved one at once. Clearing the row there means the environment again,
+which the modal says on the row.
+
 The reviewer does not reload after the editor exits. The diff on screen was generated from
 the range and is never patched, so whatever was just written is not in it. The footer says
 `the diff is not reloaded` every time, which is the honest version of that.
