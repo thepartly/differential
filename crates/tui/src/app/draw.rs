@@ -823,10 +823,21 @@ impl App {
         // Shift the preview so the hit is on it. A match two hundred columns
         // into a long line is a match the reader cannot see, and a preview
         // that marks nothing reads as a preview of the wrong line.
-        let shift = s
-            .hit()
-            .filter(|e| e.hit.end > room)
-            .map_or(0, |e| e.hit.end + 2 - room.min(e.hit.end));
+        //
+        // In COLUMNS: the hit is a byte range, the box is a width, and the
+        // two are one number only while the line is ASCII.
+        let hit_end = s.hit().map_or(0, |e| {
+            s.preview
+                .iter()
+                .find(|l| l.number == e.line)
+                .map(|l| l.pairs.iter().map(|(_, t)| t.as_str()).collect::<String>())
+                .and_then(|text| text.get(..e.hit.end).map(UnicodeWidthStr::width))
+                .unwrap_or(e.hit.end)
+        });
+        let shift = match hit_end > room {
+            true => hit_end + 2 - room.min(hit_end),
+            false => 0,
+        };
 
         s.preview
             .iter()
@@ -845,8 +856,8 @@ impl App {
                     num,
                 )];
                 let mut drawn = 0usize;
-                for (st, t) in slice_pairs(&l.pairs, shift, shift + room) {
-                    drawn += t.chars().count();
+                for (st, t) in take_columns(&drop_columns(&l.pairs, shift), room) {
+                    drawn += UnicodeWidthStr::width(t.as_str());
                     let st = match code_bg {
                         Some(bg) if st.bg.is_none() => st.bg(bg),
                         _ => st,
@@ -1451,8 +1462,8 @@ impl App {
                 // the rule the diff rows' own fill already follows.
                 let room = inner.saturating_sub(width + 1);
                 let mut drawn = 0usize;
-                for (st, t) in slice_pairs(&l.pairs, 0, room) {
-                    drawn += t.chars().count();
+                for (st, t) in take_columns(&l.pairs, room) {
+                    drawn += UnicodeWidthStr::width(t.as_str());
                     let st = match code_bg {
                         Some(bg) if st.bg.is_none() => st.bg(bg),
                         _ => st,

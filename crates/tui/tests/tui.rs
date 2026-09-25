@@ -11429,3 +11429,36 @@ fn render_dump_joined_dirs() {
         println!("{l}");
     }
 }
+
+/// A line of wide characters, long enough that the preview shifts sideways
+/// to show the hit. The preview measured columns and cut by bytes, so the cut
+/// landed inside a character (a panic) or a full column off.
+#[test]
+fn the_search_preview_cuts_wide_text_by_columns() {
+    let r = TestRepo::new();
+    r.write("wide.txt", b"start\n");
+    r.commit_all("base");
+    let line = format!("{} needle\n", "中".repeat(70));
+    r.write("wide.txt", format!("start\n{line}").as_bytes());
+    r.commit_all("head");
+    let mut app = open_app_with(&r, &skim_first_backend(), ".dfr-wide-store");
+    sized(&mut app);
+    search_for(&mut app, "needle");
+    let rows = screen(&app, SCREEN.width, SCREEN.height);
+    // The preview's line 2: the hit shifted into view, and the box's own
+    // right edge still where it belongs — nothing overran it.
+    let preview = rows
+        .iter()
+        .find(|r| r.contains("│ 2 │") && r.contains("needle"))
+        .unwrap_or_else(|| panic!("the shifted preview shows the hit:\n{}", rows.join("\n")));
+    let top = rows
+        .iter()
+        .find(|r| r.contains(" search "))
+        .expect("the search box's top edge");
+    let edge = top.chars().position(|c| c == '┐').expect("its corner");
+    assert_eq!(
+        preview.chars().nth(edge),
+        Some('│'),
+        "the preview row stops at the box's edge: {preview:?}"
+    );
+}
