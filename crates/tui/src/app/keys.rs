@@ -14,9 +14,9 @@ use crate::keymap::{Action, Lookup, Screen};
 use crate::rows::RowKind;
 
 use super::draw::{
-    centered_x, composer_area, composer_footer, delete_comment_area, delete_comment_footer,
-    file_list_modal_area, findings_modal_area, findings_question, footer_fits, footer_row,
-    pane_inner, publish_area, publish_footer, search_modal_area,
+    centered_x, composer_area, composer_footer, config_modal_area, delete_comment_area,
+    delete_comment_footer, file_list_modal_area, findings_modal_area, findings_question,
+    footer_fits, footer_row, pane_inner, publish_area, publish_footer, search_modal_area,
 };
 use super::text::{
     Hint, basename, file_list_rows, findings_entry_at_line, findings_rows, findings_skip, hint_at,
@@ -91,6 +91,8 @@ impl App {
                 editor.insert_str(text);
             }
             Mode::Search(_) => self.search_paste(text),
+            Mode::Command(_) => self.command_paste(text),
+            Mode::Config(_) => self.config_paste(text),
             _ => {}
         }
     }
@@ -206,7 +208,14 @@ impl App {
             }
             // A box the caret owns, and two questions only `y` answers: their
             // footers took the click above, and nothing else in them does.
-            Mode::Editing { .. } | Mode::Publish { .. } | Mode::DeleteComment { .. } => {}
+            Mode::Editing { .. }
+            | Mode::Publish { .. }
+            | Mode::DeleteComment { .. }
+            | Mode::Command(_) => {}
+            Mode::Config(_) => {
+                let area = config_modal_area(panes.body);
+                self.config_mouse(content_line(area, at), click, step);
+            }
             Mode::FileList { .. } => self.file_list_mouse(panes.body, at, click, step),
             Mode::Findings { .. } => self.findings_mouse(panes.body, at, click, step),
             Mode::Search(_) => {
@@ -449,6 +458,10 @@ impl App {
                 let area = search_modal_area(panes.body);
                 footer_presses(&self.modal_footer(), footer_row(area), false, at)
             }
+            Mode::Config(_) => {
+                let area = config_modal_area(panes.body);
+                footer_presses(&self.modal_footer(), footer_row(area), false, at)
+            }
             Mode::Findings {
                 entries,
                 confirming,
@@ -528,10 +541,14 @@ impl App {
         // help closes. It is NOT a key in the composer, where it is a
         // character, nor in a question, where every key but `y` is the no.
         if let Some(screen) = self.screen() {
-            // `q` and `?` are the reviewer's own, as `ctrl-c` is: the way out
-            // and the way to the answer, and no `[keys]` table may move
-            // either (`keymap::RESERVED`). `q` quits the review and closes a
-            // list back to it; `?` opens help over the place it is pressed.
+            // `q`, `?` and `:` are the reviewer's own, as `ctrl-c` is: the
+            // way out, the way to the answer, and the way to `:config`, where
+            // a broken `[keys]` table is repaired — so no table may move any
+            // of them (`keymap::RESERVED`, ADR 0036, 0037). `q` quits the
+            // review and closes a list back to it; `?` opens help over the
+            // place it is pressed; `:` opens the command line.
+            // `?` and `:` with or without the shift a terminal reports them with.
+            let shifted = (key.modifiers - KeyModifiers::SHIFT).is_empty();
             match key.code {
                 KeyCode::Char('q') if key.modifiers.is_empty() => {
                     if screen == Screen::Review {
@@ -541,9 +558,12 @@ impl App {
                     self.mode = Mode::Normal;
                     return Vec::new();
                 }
-                // With or without the shift a terminal reports it with.
-                KeyCode::Char('?') if (key.modifiers - KeyModifiers::SHIFT).is_empty() => {
+                KeyCode::Char('?') if shifted => {
                     self.open_help();
+                    return Vec::new();
+                }
+                KeyCode::Char(':') if shifted => {
+                    self.open_command();
                     return Vec::new();
                 }
                 _ => {}
@@ -618,6 +638,9 @@ impl App {
                 self.search_key(key);
                 Vec::new()
             }
+            // The same, for the command line: `?` and `:` are characters.
+            Mode::Command(_) => self.command_key(key),
+            Mode::Config(_) => self.config_key(key),
             Mode::Normal | Mode::FileList { .. } => unreachable!("a screen, handled above"),
         }
     }

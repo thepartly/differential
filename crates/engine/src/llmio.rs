@@ -32,6 +32,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
+use crate::config::DEFAULT_TIMEOUT_SECS;
 use crate::llm::{LlmBackend, LlmError};
 use crate::subprocess;
 
@@ -170,7 +171,10 @@ impl CommandBackend {
     /// agent that had shipped as the only option. That is the whole argument
     /// for the probe existing.
     pub fn claude_cli(fetch: &str) -> Self {
-        let mut b = Self::new(Self::claude_argv(fetch), Duration::from_secs(1200));
+        let mut b = Self::new(
+            Self::claude_argv(fetch),
+            Duration::from_secs(DEFAULT_TIMEOUT_SECS),
+        );
         b.name = "Claude Code".to_string();
         b.identity = Self::claude_argv("<fetch>").join(" ");
         b
@@ -235,7 +239,10 @@ impl CommandBackend {
     /// otherwise. An argv that can be widened by a file this crate never reads
     /// is not a boundary, it is a request.
     pub fn codex_cli() -> Self {
-        let mut b = Self::new(Self::codex_argv(), Duration::from_secs(1200));
+        let mut b = Self::new(
+            Self::codex_argv(),
+            Duration::from_secs(DEFAULT_TIMEOUT_SECS),
+        );
         b.name = "Codex".to_string();
         b.identity = Self::codex_argv().join(" ");
         b
@@ -270,7 +277,10 @@ impl CommandBackend {
     ///
     /// `-o text` prints the final message only. `-` makes stdin the prompt.
     pub fn droid_cli() -> Self {
-        let mut b = Self::new(Self::droid_argv(), Duration::from_secs(1200));
+        let mut b = Self::new(
+            Self::droid_argv(),
+            Duration::from_secs(DEFAULT_TIMEOUT_SECS),
+        );
         b.name = "Droid".to_string();
         b.identity = Self::droid_argv().join(" ");
         b
@@ -306,7 +316,10 @@ impl CommandBackend {
     ///
     /// Never pass `--allow-all-tools` or `--allow-all-paths`.
     pub fn copilot_cli(fetch: &str) -> Self {
-        let mut b = Self::new(Self::copilot_argv(fetch), Duration::from_secs(1200));
+        let mut b = Self::new(
+            Self::copilot_argv(fetch),
+            Duration::from_secs(DEFAULT_TIMEOUT_SECS),
+        );
         b.name = "GitHub Copilot".to_string();
         b.identity = Self::copilot_argv("<fetch>").join(" ");
         b
@@ -352,7 +365,7 @@ impl CommandBackend {
     /// `--no-session` stops Pi writing a session file for a call nobody
     /// resumes.
     pub fn pi_cli() -> Self {
-        let mut b = Self::new(Self::pi_argv(), Duration::from_secs(1200));
+        let mut b = Self::new(Self::pi_argv(), Duration::from_secs(DEFAULT_TIMEOUT_SECS));
         b.name = "Pi".to_string();
         b.identity = Self::pi_argv().join(" ");
         b

@@ -216,6 +216,9 @@ A new term earns an entry only when it names a concept no existing entry covers.
   or the sequence of keys, it answers to. A **screen** (`keymap::Screen`) is where a key is
   looked up: the review, the file list, the findings list. Avoid: "shortcut", "command".
   [ADR 0036](../adr/0036-keys-are-bound-by-action.md).
+- **command line** / **config modal**. `:` opens the command line on the status row, which
+  runs a command by name (`:findings`). `:config` opens the config modal, which edits the
+  user file and saves it whole. [ADR 0037](../adr/0037-a-command-line-and-a-config-modal.md).
 - **projection**. A renderer-agnostic read model: `plan::ReviewView` over the document, and
   the findings a `ReviewSession` hands to `y` and `dfr findings`. Shared domain policy lives in
   `engine::plan`.

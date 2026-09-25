@@ -525,6 +525,18 @@ impl RowFactory {
         }
     }
 
+    /// Forget every highlighted line, so the next rebuild paints them again.
+    ///
+    /// The cache holds STYLED spans, so a palette change has to come through
+    /// here: a rebuild alone would paint the lines already seen in the old
+    /// theme's syntax colours and the rest in the new one's.
+    pub fn forget_highlights(&mut self) {
+        for file in self.cache.values_mut() {
+            file.old_hl = Highlights::default();
+            file.new_hl = Highlights::default();
+        }
+    }
+
     /// Lines syntect has parsed for this factory's lifetime.
     ///
     /// The point of the windowed rebuild is that this stays proportional to

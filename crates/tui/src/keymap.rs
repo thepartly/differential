@@ -105,10 +105,13 @@ const DEFAULTS: &[(Action, &[Screen], &[&str])] = {
 /// - `q` quits the review, and closes a list back to it.
 /// - `?` opens the keys of where the reader is standing — the one place a
 ///   reader who rebound something can find out what they did.
+/// - `:` opens the command line, which is how `:config` is reached to repair
+///   a table — so it cannot be a key the table moves (ADR 0037).
 pub const RESERVED: &[(&str, &str)] = &[
     ("ctrl-c", "it quits from everywhere"),
     ("q", "it quits the review and closes a list"),
     ("?", "it opens help from everywhere"),
+    (":", "it opens the command line from everywhere"),
 ];
 
 /// The reserved key `binding` is, and why, if it is one.
@@ -339,6 +342,16 @@ impl Default for Keymap {
     fn default() -> Self {
         Keymap::new(&KeysConfig::default()).expect("the default keys have no problems")
     }
+}
+
+/// An action's default keys, as `[keys]` writes them. The config modal shows
+/// them for an action the reader has not rebound, and resets a row to them.
+pub fn defaults(action: Action) -> Vec<String> {
+    DEFAULTS
+        .iter()
+        .find(|(a, ..)| *a == action)
+        .map(|(.., keys)| keys.iter().map(|k| k.to_string()).collect())
+        .unwrap_or_default()
 }
 
 impl Keymap {
