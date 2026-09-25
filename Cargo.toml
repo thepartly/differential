@@ -42,6 +42,10 @@ globset = "0.4"
 memchr = "2"
 percent-encoding = "2"
 petgraph = "0.8"
+# Enum names and variant lists, derived beside serde's renames.
+strum = { version = "0.28", features = ["derive"] }
+# Request URLs from the forge CLIs, read as URLs.
+url = "2"
 etcetera = "0.11"
 palette = "0.7"
 # Symbol readers. All grammar crates resolve to one `tree-sitter-language`

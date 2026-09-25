@@ -688,7 +688,7 @@ mod tests {
     /// Every shipped palette. The legibility, chroma and distinctness tests
     /// below all run over this, which is what makes adding a theme cheap: a
     /// seed that does not hold up fails here rather than in someone's terminal.
-    const ALL: [ThemeName; 11] = ThemeName::ALL;
+    const ALL: &[ThemeName] = ThemeName::ALL;
 
     fn must_rgb(c: Color) -> Rgb {
         rgb_of(c).unwrap_or_else(|| panic!("{c:?} is not an Rgb — a palette may not use ANSI"))
@@ -744,7 +744,7 @@ mod tests {
     /// without one fails to compile in `seed`; this catches everything after.
     #[test]
     fn every_named_theme_builds() {
-        for name in ALL {
+        for &name in ALL {
             let t = Theme::named(name);
             assert!(rgb_of(t.bg).is_some(), "{name:?}");
         }
@@ -755,7 +755,7 @@ mod tests {
     /// the whole reason the old palette could not go light.
     #[test]
     fn no_palette_uses_a_terminal_defined_colour() {
-        for name in ALL {
+        for &name in ALL {
             let t = Theme::named(name);
             for (what, c) in fields(&t) {
                 assert!(rgb_of(c).is_some(), "{name:?}.{what} is {c:?}, not Rgb");
@@ -769,7 +769,7 @@ mod tests {
     /// lighting at all. Neither shows up as a failure anywhere else.
     #[test]
     fn every_theme_keeps_the_colours_it_dispatches_on_apart() {
-        for name in ALL {
+        for &name in ALL {
             let t = Theme::named(name);
             let pairs = [
                 ("gutter blocks", t.added_gutter_bg, t.deleted_gutter_bg),
@@ -833,7 +833,7 @@ mod tests {
     /// the step is measured rather than chosen.
     #[test]
     fn a_lit_row_steps_in_order_between_its_tint_and_its_gutter_block() {
-        for name in ALL {
+        for &name in ALL {
             let t = Theme::named(name);
             let l = |c: Color| lightness(must_rgb(c));
             for (what, tint, sel, cur, block) in [
@@ -882,7 +882,7 @@ mod tests {
         // Every failure at once. One assert per field would report the first
         // and hide the other six, and these are tuned as a set.
         let mut bad = Vec::new();
-        for name in ALL {
+        for &name in ALL {
             let t = Theme::named(name);
             let bg = must_rgb(t.bg);
             // A theme cannot be held to a bar it does not clear on bare
@@ -935,7 +935,7 @@ mod tests {
     #[test]
     fn a_search_hit_is_readable_and_unmistakable() {
         let mut bad = Vec::new();
-        for name in ALL {
+        for &name in ALL {
             let t = Theme::named(name);
             let seed = seed(name);
             let fill = must_rgb(t.highlight_bg);
@@ -996,7 +996,7 @@ mod tests {
     #[test]
     fn a_semantic_ink_is_tellable_from_ordinary_text() {
         let mut bad = Vec::new();
-        for name in ALL {
+        for &name in ALL {
             let t = Theme::named(name);
             for (what, c) in [
                 ("reviewed_fg", t.reviewed_fg),
@@ -1026,7 +1026,7 @@ mod tests {
     /// has to read on all three rather than on the one it was chosen against.
     #[test]
     fn the_cursor_line_number_reads_on_every_block_it_sits_on() {
-        for name in ALL {
+        for &name in ALL {
             let t = Theme::named(name);
             let ink = must_rgb(t.cursor_gutter_fg);
             for (what, block) in [
@@ -1044,7 +1044,7 @@ mod tests {
     /// looking like a diff — but not so strong that code cannot be read on it.
     #[test]
     fn a_change_tint_is_visible_without_drowning_the_code() {
-        for name in ALL {
+        for &name in ALL {
             let t = Theme::named(name);
             let (bg, fg) = (must_rgb(t.bg), must_rgb(t.fg));
             let base = contrast(fg, bg);

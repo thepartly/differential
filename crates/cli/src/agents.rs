@@ -657,7 +657,7 @@ mod tests {
         assert_eq!(configured, vec!["codex"]);
 
         let text = list(&rows);
-        for agent in Agent::ALL {
+        for &agent in Agent::ALL {
             assert!(
                 text.contains(agent.key()),
                 "{} missing: {text}",
