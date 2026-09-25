@@ -162,8 +162,18 @@ the diff cursor, whichever pane you are in.
 | `alt-=` | any | Widen the **diff** pane four columns, narrowing the left pane. |
 | `alt--` | any | Narrow the **diff** pane four columns. |
 | `/` | any | Open the search. See below. |
+| `e` | diff | Open the file in your editor, at the line under the cursor. A row that is not a line opens the hunk's first new-side line; a row under no hunk opens the file at the top. |
+| `e` | left, file view | Open the selected file in your editor, at the top. |
+| `e` | left, reading plan | Nothing — a group is not a file, and the footer says so. |
 
-`z` and `f` act on the pane you are in. The diff cursor exists whichever pane has focus, so
+`e` opens the file **as it is now**, the way `/` searches it: a review of a committed range
+names lines of that range, and the file on disk is the worktree's. The reviewer suspends,
+hands the terminal over, and takes it back; it does not reload, so the editor's writes are
+not in the diff on screen, and the footer says so. The command is
+`review.editor` — `{file}` and `{line}` say where the path and the line go — falling back
+to `$VISUAL` and then `$EDITOR`.
+
+`z`, `f` and `e` act on the pane you are in. The diff cursor exists whichever pane has focus, so
 without that rule a press in the file tree would open part of a file you were not looking at.
 
 `/` and the divider keys are the exceptions, and the only ones. A name you are hunting for
@@ -489,6 +499,7 @@ colour it is. They can never change which hunks exist.
 ```toml
 [keys]
 next-group = ["ctrl-j"]
+external-editor = ["ctrl-e"]
 delete = ["d d"]   # a sequence is written with spaces
 publish = []       # unbound
 ```

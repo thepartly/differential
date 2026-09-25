@@ -178,6 +178,9 @@ context_step = 10
 # not a setting: `s` still toggles, and a review that has recorded a choice
 # keeps it.
 diff = "split"
+# The command `e` opens a file with. `{file}` and `{line}` say where the path
+# and the line go. Unset, the tool falls back to $VISUAL and then $EDITOR.
+editor = "nvim +{line} {file}"
 ```
 
 `theme` is a **name, not a colour list**, for the same reason `agent` is a name and not an
@@ -192,6 +195,17 @@ not merely spawn a process: it hands the agent a tool allowlist, a fetch command
 prompt written for what that agent can do (ADR 0022). An arbitrary argv got the prompt and
 none of the rest, so it was a knob that looked like it worked. Adding an agent is adding a
 `config::Agent` variant and the arm in `backend_from` the compiler then demands.
+
+`editor` is the **one key here that IS a command**, and the exception is worth stating
+because the two rules above it are the pattern. Neither reason reaches it. An editor
+invocation is not handed anything the reader cannot see — no allowlist, no prompt, nothing
+derived — so a command gets the whole of what the feature needs. And every editor spells
+the line differently, so the alternative was an enum of editors in this crate, which would
+have decided for the reader which editors exist. A name would have been the knob that
+looked like it worked, in the other direction: a reader whose editor is not in the list
+could not open a file at all. What the command costs is stated rather than discovered —
+the reader has to know their own editor's line flag, and a bare `EDITOR=vim` names none,
+so it opens the file at the top and the reviewer's footer says so (ADR 0038).
 
 Because the backend's **identity** is part of the grouping cache key, users running
 different agents get separate cache entries in the clone's shared cache — correct, since a

@@ -28,7 +28,7 @@
 use std::collections::{HashMap, HashSet};
 
 use differential_engine::FsReviewSession;
-use differential_engine::config::{ThemeName, UserConfig};
+use differential_engine::config::{EditorCommand, ThemeName, UserConfig};
 use differential_engine::plan::LineCounts;
 use differential_engine::review_state::{FindingStatus, Lines};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
@@ -81,6 +81,22 @@ pub struct ReviewOptions {
     /// Where the config modal saves. `None` when no config directory can be
     /// found, and then saving says so rather than writing somewhere else.
     pub user_config_path: Option<std::path::PathBuf>,
+    /// The command `e` hands the terminal to, already parsed.
+    ///
+    /// Resolved by the application layer from `[review].editor`, then
+    /// `$VISUAL`, then `$EDITOR` — this crate never reads the environment and
+    /// never sees the raw config string, only a thing that can answer "the
+    /// argv for this file at this line" (ADR 0038). `None` means the reader
+    /// has set none, and `e` says so.
+    pub editor: Option<EditorCommand>,
+    /// What `$VISUAL`/`$EDITOR` alone say, whether or not the file overrode
+    /// them.
+    ///
+    /// The config modal can CLEAR `[review].editor` while the reviewer runs,
+    /// and clearing it means "use the environment" — which this crate may not
+    /// read. So the application layer hands over the environment's own answer
+    /// too, and `show_review` falls back to it.
+    pub editor_env: Option<EditorCommand>,
 }
 
 impl Default for ReviewOptions {
@@ -97,6 +113,8 @@ impl Default for ReviewOptions {
             keymap: Keymap::default(),
             user_config: UserConfig::default(),
             user_config_path: None,
+            editor: None,
+            editor_env: None,
         }
     }
 }
@@ -398,6 +416,16 @@ pub struct FileListEntry {
 pub enum Effect {
     Quit,
     CopySummary(String),
+    /// `e` — hand the terminal to the reader's editor, on this line.
+    ///
+    /// The path is repo-relative, as every path in the document is, and the
+    /// line counts from 1. Joining it to the checkout, deciding the file is
+    /// there, and spawning anything are the run loop's: it owns the terminal,
+    /// and this half of the crate is a pure function of the model.
+    OpenInEditor {
+        path: String,
+        line: u32,
+    },
 }
 
 /// An open symbol float: the token it lights, and the declaration it shows.
@@ -778,6 +806,14 @@ impl App {
     /// binary/submodule changes the group view cannot surface.
     pub fn files(&self) -> &[differential_engine::plan::FileView] {
         &self.session.plan().files
+    }
+
+    /// The command `e` hands the terminal to, when the reader has one.
+    ///
+    /// The run loop is what spawns it, and `opts` is private, so this is how
+    /// the one thing outside the model that needs it gets it.
+    pub fn editor(&self) -> Option<&EditorCommand> {
+        self.opts.editor.as_ref()
     }
 }
 

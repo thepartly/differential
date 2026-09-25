@@ -107,6 +107,53 @@ impl App {
         }
     }
 
+    /// What `e` opens: a repo-relative path, and the line in the file AS IT
+    /// IS NOW.
+    ///
+    /// The diff pane narrows to what the row can say, and always lands
+    /// somewhere. A row that IS a line gives its new-side number. A row that
+    /// is not one — a removed line, a hunk header, a `──` boundary, a
+    /// finding, a thread — still sits inside a hunk, so the hunk's first new-side line is
+    /// the nearest honest answer. A row inside no hunk still sits under a file
+    /// header, so the file opens at the top.
+    ///
+    /// The plan pane has one answer: the selected file, at the top. A group
+    /// and a directory are not files, so they get none and the footer says so.
+    ///
+    /// The line is a line of the HEAD side, which is the file on disk only
+    /// when the worktree is what was reviewed. That is the rule `/` already
+    /// reads under (ADR 0034), and the footer after the editor exits is what
+    /// keeps it honest.
+    fn editor_target(&self) -> Option<(String, u32)> {
+        if self.focus == Focus::Groups {
+            if self.view_mode != ViewMode::Files {
+                return None;
+            }
+            let TreeKind::File { file_idx } = self.tree.get(self.selected_file)?.kind else {
+                return None;
+            };
+            return Some((self.files().get(file_idx)?.path.clone(), 1));
+        }
+        if let Some(found) = self.new_side_of(self.cursor) {
+            return Some(found);
+        }
+        let kind = &self.rows.get(self.cursor)?.kind;
+        // `RowKind::hunk` withholds the hunk on a boundary row, because
+        // `space` and `c` must not mark or annotate a class from a row that is
+        // only about how much of the file is visible. Opening a file is
+        // neither, so the boundary's hunk is taken here by name.
+        let hunk = match kind {
+            RowKind::ContextEdge { hunk, .. } => Some(*hunk),
+            other => other.hunk(),
+        };
+        if let Some(h) = hunk.and_then(|h| self.session.doc().hunks.get(h)) {
+            // A hunk that only removes lines starts the new side at the line
+            // BEFORE the cut, which git writes as 0 when it cut the first one.
+            return Some((h.file.clone(), h.new_start.max(1)));
+        }
+        Some((self.file_path_above(self.cursor)?.to_string(), 1))
+    }
+
     /// `enter` in the file-list modal: close it on the selected file's header.
     fn jump_to_listed_file(&mut self) {
         self.jumping(Self::go_to_listed_file);
@@ -963,6 +1010,23 @@ impl App {
             // while a float is open: in the diff pane `open` has no other
             // meaning, and this one needs something to go to.
             Action::Open if detail && self.peek.is_some() => self.jump_to_declaration(),
+            // The file as it is now, in the reader's own editor. Nothing here
+            // reads the environment or spawns anything: the loop owns the
+            // terminal, so it is the only thing that can hand it away
+            // (ADR 0038).
+            Action::ExternalEditor => {
+                return match self.editor_target() {
+                    None => {
+                        self.status = "no file here".into();
+                        Vec::new()
+                    }
+                    Some(_) if self.opts.editor.is_none() => {
+                        self.status = "no editor · set [review].editor or $EDITOR".into();
+                        Vec::new()
+                    }
+                    Some((path, line)) => vec![Effect::OpenInEditor { path, line }],
+                };
+            }
             Action::NextHunk => self.jump_hunk(1),
             Action::PrevHunk => self.jump_hunk(-1),
             Action::ToggleSplit => self.toggle_split(),

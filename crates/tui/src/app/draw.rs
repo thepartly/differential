@@ -549,7 +549,15 @@ impl App {
                     ));
                 }
                 _ => {
-                    row.push(Span::styled(value, if default { dim } else { key }));
+                    // An empty value in this column would read as "no editor".
+                    // Unset here means the environment's, so the row says so
+                    // where every other row puts its value. The typed box
+                    // still opens on the real value, which is nothing.
+                    let shown = match (field, value.is_empty()) {
+                        (Field::Editor, true) => "$VISUAL, then $EDITOR".to_string(),
+                        _ => value,
+                    };
+                    row.push(Span::styled(shown, if default { dim } else { key }));
                     if default {
                         row.push(Span::styled(
                             "  default",

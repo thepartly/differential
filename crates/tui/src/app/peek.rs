@@ -61,7 +61,7 @@ impl App {
     ///
     /// A split row shows both sides at once, so the new-side number may be the
     /// row's `other` rather than its own.
-    fn new_side_of(&self, row: usize) -> Option<(String, u32)> {
+    pub(super) fn new_side_of(&self, row: usize) -> Option<(String, u32)> {
         let r = self.rows.get(row)?;
         let l = r.line.as_ref()?;
         let line = if l.side == "new" {

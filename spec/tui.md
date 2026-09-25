@@ -679,6 +679,7 @@ The full reference. `?` shows the subset that applies where the reader is standi
 | `h`/`l`, `0` | `shift-left`/`shift-right`, `shift-reset` | shift the diff pane eight columns sideways · back to the left edge. Diff pane only; refused while `w` is on |
 | `/` | `search` | **search — a word, anywhere in the changed files.** The one key that does not act on the pane you are in: it opens from either pane, over a selection, and out of the file list and the findings list. The files as they are NOW, so a removed line is not found. Literal and smart case; `ctrl-r` reads the query as a regular expression instead. `enter` jumps to the line, opening a fold or a context gap to reach it · `↑`/`↓` move the list, the only arrows that are not the query's, and `ctrl-p`/`ctrl-n` do the same · `←`/`→` and `home`/`end` move the caret · `ctrl-u`/`ctrl-w` clear the query or the word before the caret · every other printable key types · `esc` closes, keeping the query selected for the next `/` |
 | `f` | `files` | files, in the pane you are in — plan pane: toggle reading plan ↔ file tree (persisted) · diff pane: the file-list modal (`enter` jumps to the file) |
+| `e` | `external-editor` | **open the file in your editor**, in the pane you are in — diff pane: at the line under the cursor · plan pane, file view: the selected file, at the top. The file AS IT IS NOW, which is the rule `/` reads under: a review of a committed range names lines of that range, and the file on disk is the worktree's. A row that is not a line — a removed line, a hunk header, a `──` boundary, a finding, a thread — opens the hunk's first new-side line; a row under no hunk opens the file at the top. A group and a directory are not files, and the footer says so. The reviewer does not reload: the editor's writes are not in the diff on screen, and the footer says that too |
 | `space` | `toggle-reviewed` | mark reviewed — the whole selected group/file in the left pane, the **hunk** under the cursor in the diff pane |
 | `v` | `select` | start a line selection at the cursor · `j`/`k` extend it · `v` or `esc` drops it · `c` writes a finding over it |
 | `c` | `comment` | write a finding — on the line under the cursor, on the lines `v` selected, or on the whole hunk from a row that is not a line; on a line that already carries one, rewrite that one |
@@ -704,6 +705,7 @@ The user file's `[keys]` table rebinds any key in the table above by its `[keys]
 ```toml
 [keys]
 next-group = ["ctrl-j"]
+external-editor = ["ctrl-e"]
 delete = ["d d"]     # a sequence is written with spaces
 publish = []         # unbound
 ```
@@ -775,6 +777,11 @@ left of the screen. The diff stays visible beside it, which is what the preview 
 - **Theme, diff layout and context preview as they change.** `esc` puts back what was
   there. A layout this review recorded with `s` still wins over the default, and the diff
   row says so. Keys and the agent are not previewed.
+- **The `editor` row is typed, and checked on the spot.** It holds the command `e` opens a
+  file with, and a value this tool could not run is refused in the modal rather than at
+  the next press. Cleared, the row shows `$VISUAL, then $EDITOR` beside its `default` mark
+  — unset here means the environment's, never *no editor*, and an empty row on its own
+  would read as the second. The saved command is the one `e` uses at once.
 - **A key row is typed as the file writes it**: `["ctrl-j", "d d"]`, and `[]` unbinds.
   Typing back an action's defaults removes its override. The draft is checked as
   `dfr review` checks the file (ADR 0036), its problems are listed under the rows, and a
@@ -839,6 +846,47 @@ one that took it — which means the footer must never claim the copy landed. It
 same text, from the same store, through the same projection — `ReviewSession::
 findings_summary`, which is why the two can never drift. The picker leaves no range to
 name, so the reader is told the flag and supplies the rest.
+
+## `e` hands the terminal over
+
+The reviewer suspends — raw mode off, alternate screen left, mouse capture released —
+runs the editor in the foreground, and takes the terminal back. The child inherits this
+process's terminal, which is the whole of what makes it typeable. Nothing is piped and
+nothing is timed: the reader is the deadline, and an editor killed at twenty minutes is an
+editor that ate an afternoon's note ([ADR 0038](../adr/0038-the-reviewer-hands-the-terminal-to-an-editor.md)).
+
+Coming back costs three things, and skipping any of them is visible. The screen is wiped,
+because the renderer draws only the cells it thinks changed and the editor wrote over all
+of them. The geometry is measured again, because a terminal can be resized while the editor
+holds it. And the input queue is drained, because keys the reader pressed at the editor that
+it did not consume would otherwise be replayed at the reviewer — a `dd` nobody meant.
+
+**The command is the reader's, and it is a command rather than a name.** `[review].editor`
+holds a command line; `{file}` and `{line}` say where the path and the line go. Unset, the
+tool falls back to `$VISUAL` and then `$EDITOR`. A command naming no `{file}` gets the path
+appended, which is what makes a bare `EDITOR=vim` work; it opens the file at the top, and
+the footer says so rather than leaving the reader to wonder why the line was ignored.
+
+That is the one config key in this tool that is a command and not a name, and
+[consumers.md](consumers.md) says why.
+
+**The reviewer never reloads.** A plan document is a pure function of its range and is
+never patched ([persistence.md](persistence.md)), so the diff on screen is the diff that
+was generated — whatever was just written to the file. Reloading is re-running the
+pipeline, which is a different feature; the footer's `the diff is not reloaded` is what
+keeps this one honest in the meantime.
+
+The footer after the key, in each case:
+
+| what happened | the footer |
+|---|---|
+| no editor resolved | `no editor · set [review].editor or $EDITOR` |
+| the row is a group or a directory | `no file here` |
+| the path is not in the working tree | `src/x.rs is not in the working tree` |
+| the editor never started | the operating system's own message, passed through |
+| it exited non-zero | `nvim exited 1 · the diff is not reloaded` |
+| it saved | `edited src/x.rs · the diff is not reloaded` |
+| it saved, and the command has no `{line}` | the same, plus `the command has no {line}` |
 
 ## No range: the picker
 

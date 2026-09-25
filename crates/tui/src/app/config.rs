@@ -12,7 +12,8 @@
 
 use crossterm::event::{Event as CrosstermEvent, KeyCode, KeyEvent, KeyModifiers};
 use differential_engine::config::{
-    Agent, Config, DEFAULT_TIMEOUT_SECS, DiffLayout, KeysConfig, ReviewConfig, ThemeName,
+    Agent, Config, DEFAULT_TIMEOUT_SECS, DiffLayout, EditorCommand, KeysConfig, ReviewConfig,
+    ThemeName,
 };
 use differential_engine::store::OsConfigSource;
 use tui_input::backend::crossterm::to_input_request;
@@ -34,6 +35,7 @@ pub enum Field {
     Diff,
     Context,
     ContextStep,
+    Editor,
     Key(Action),
 }
 
@@ -47,6 +49,7 @@ impl Field {
             Field::Diff,
             Field::Context,
             Field::ContextStep,
+            Field::Editor,
         ];
         rows.extend(Action::ALL.map(Field::Key));
         rows
@@ -56,7 +59,9 @@ impl Field {
     pub fn section(self) -> &'static str {
         match self {
             Field::Agent | Field::Timeout => "[grouping]",
-            Field::Theme | Field::Diff | Field::Context | Field::ContextStep => "[review]",
+            Field::Theme | Field::Diff | Field::Context | Field::ContextStep | Field::Editor => {
+                "[review]"
+            }
             Field::Key(_) => "[keys]",
         }
     }
@@ -70,6 +75,7 @@ impl Field {
             Field::Diff => "diff",
             Field::Context => "context",
             Field::ContextStep => "context_step",
+            Field::Editor => "editor",
             Field::Key(a) => a.key(),
         }
     }
@@ -89,7 +95,7 @@ impl Field {
     fn typed(self) -> bool {
         matches!(
             self,
-            Field::Timeout | Field::Context | Field::ContextStep | Field::Key(_)
+            Field::Timeout | Field::Context | Field::ContextStep | Field::Editor | Field::Key(_)
         )
     }
 }
@@ -184,6 +190,13 @@ impl ConfigEdit {
                     d.review.context_step == def,
                 )
             }
+            Field::Editor => match &d.review.editor {
+                Some(text) => (text.clone(), false),
+                // Empty rather than the words "$VISUAL, then $EDITOR": this
+                // string is also what `enter` puts in the box, and prose
+                // typed back would not parse. The row's own note says it.
+                None => (String::new(), true),
+            },
             Field::Key(a) => match d.keys.0.get(&a) {
                 Some(keys) => (KeysConfig::render_list(keys), false),
                 None => (KeysConfig::render_list(&keymap::defaults(a)), true),
@@ -278,8 +291,8 @@ impl ConfigEdit {
                     false => d.review.context_step.saturating_sub(1).max(1),
                 }
             }
-            // A key has no next value; `enter` types one.
-            Field::Key(_) => {}
+            // Neither has a next value; `enter` types one.
+            Field::Editor | Field::Key(_) => {}
         }
     }
 
@@ -295,6 +308,7 @@ impl ConfigEdit {
             Field::Diff => d.review.diff = def.diff,
             Field::Context => d.review.context = def.context,
             Field::ContextStep => d.review.context_step = def.context_step,
+            Field::Editor => d.review.editor = None,
             Field::Key(a) => {
                 d.keys.0.remove(&a);
             }
@@ -336,6 +350,18 @@ impl ConfigEdit {
                     return Err("context_step must be at least 1".into());
                 }
                 d.review.context_step = n;
+            }
+            // Empty is unset, which means the environment. Anything else has
+            // to be a command this crate could actually run, so it is parsed
+            // here rather than at the next press of `e`.
+            Field::Editor => {
+                d.review.editor = match text.is_empty() {
+                    true => None,
+                    false => {
+                        EditorCommand::parse(&text, "editor").map_err(|e| e.to_string())?;
+                        Some(text)
+                    }
+                };
             }
             Field::Key(a) => {
                 let keys = KeysConfig::parse_list(&text).map_err(|e| {
@@ -409,6 +435,16 @@ impl App {
         // A default: a layout this review recorded with `s` still wins, and
         // the modal's diff row says so.
         self.opts.split_diff = review.diff.is_split();
+        // Not a preview of anything on screen — `e` is the next press that
+        // could use it — but it goes through this one function for the reason
+        // everything else does: the draft, the original and the saved config
+        // must not be able to disagree. Clearing the row means the
+        // environment, which the application layer handed over for exactly
+        // this (ADR 0038).
+        self.opts.editor = match &review.editor {
+            Some(text) => EditorCommand::parse(text, "[review].editor").ok(),
+            None => self.opts.editor_env.clone(),
+        };
         match theme_changed {
             true => self.set_theme(Theme::named(review.theme)),
             false => self.rebuild_rows(),

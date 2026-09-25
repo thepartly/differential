@@ -1,6 +1,9 @@
-// Adapted from agavra/tuicr (0dacb6b), src/terminal_state.rs — the
-// suspend/resume machinery removed (nothing here shells out to a foreground
-// process), leaving enter/draw/restore and the Drop-safe teardown.
+// Adapted from agavra/tuicr (0dacb6b), src/terminal_state.rs — enter, draw,
+// suspend, resume, restore, and the Drop-safe teardown.
+//
+// The suspend/resume pair was cut when this was vendored, because nothing here
+// shelled out to a foreground process. `e` does: it hands the terminal to the
+// reader's editor and takes it back (ADR 0038), so the pair is back.
 // MIT License — Copyright (c) 2025 tuicr contributors. See LICENSE-MIT.
 use std::io::{self, Write};
 
@@ -12,7 +15,8 @@ use crossterm::{
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
-use ratatui::{Frame, Terminal, backend::CrosstermBackend};
+use ratatui::layout::Rect;
+use ratatui::{Frame, Terminal, backend::Backend, backend::CrosstermBackend};
 
 /// Terminal capabilities enabled for one tuicr TUI session.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -84,6 +88,47 @@ impl<W: Write> TerminalSession<W> {
         F: FnOnce(&mut Frame),
     {
         self.terminal.draw(render_callback).map(|_| ())
+    }
+
+    /// Hands the terminal to a foreground child: raw mode off, alternate
+    /// screen left, capture released.
+    ///
+    /// The ratatui `Terminal` is kept, so [`resume`](Self::resume) costs no
+    /// rebuild. Calling it twice is a no-op, and a session left suspended is
+    /// one `Drop` and the panic hook both already handle: `active` is false,
+    /// so neither tries to deactivate a terminal that is already back.
+    pub fn suspend(&mut self) -> anyhow::Result<()> {
+        self.deactivate()
+    }
+
+    /// Takes the terminal back after the child exits.
+    ///
+    /// **Wiping the screen is load-bearing.** ratatui caches the frame it last
+    /// drew and writes only the cells that changed. The child wrote over that
+    /// screen, so without the wipe the reviewer paints a handful of cells onto
+    /// somebody else's output.
+    ///
+    /// **`Terminal::clear` is the wrong call for it, and it is the obvious
+    /// one.** Since ratatui 0.30 that method snapshots the cursor with a
+    /// `CSI 6 n` round trip so it can put it back, and a terminal that does
+    /// not answer within crossterm's short window returns an error — which,
+    /// on the way back from an editor, takes the whole reviewer down. It was
+    /// tried, and that is exactly what it did.
+    ///
+    /// `resize` clears the viewport and resets the back buffer through the
+    /// same helper, and asks the terminal nothing. The size is read while we
+    /// are at it because the terminal can be resized while the child holds
+    /// it — an ioctl, not a round trip.
+    pub fn resume(&mut self) -> anyhow::Result<()> {
+        if self.active {
+            return Ok(());
+        }
+        activate_writer(self.terminal.backend_mut(), self.features)?;
+        self.active = true;
+        let size = self.terminal.backend().size()?;
+        self.terminal
+            .resize(Rect::new(0, 0, size.width, size.height))?;
+        Ok(())
     }
 
     /// Restores the terminal state for the normal exit path.

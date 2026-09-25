@@ -300,9 +300,12 @@ context = 3
 context_step = 10
 # Diff layout a review opens in: "split" or "unified".
 diff = "split"
+# The command `e` opens a file with. {file} and {line} say where they go.
+editor = "nvim +{line} {file}"
 
 [keys]
 next-group = ["ctrl-j"]
+external-editor = ["ctrl-e"]
 delete = ["d d"]   # a sequence is written with spaces
 publish = []       # unbound
 ```
@@ -315,6 +318,7 @@ publish = []       # unbound
 | `review.context_step` | `10` | Lines one `z` pulls in at a context boundary row. |
 | `review.diff` | `split` | Layout a review OPENS in. `s` still toggles, and a review that has recorded a choice keeps it. |
 | `review.theme` | `dark` | Which palette the reviewer wears, by name. See below. |
+| `review.editor` | `$VISUAL`, then `$EDITOR` | The command the `external-editor` action opens a file with. See below. |
 | `keys.<action>` | the reviewer's own keys | The keys an action answers to. Setting it **replaces** that action's defaults, and `[]` unbinds it. The names, and the keys that cannot be rebound, are in [`spec/tui.md`](../spec/tui.md#rebinding). |
 
 Resolution order for each file: the explicit flag, then the default path, then the built-in
@@ -335,6 +339,59 @@ error: config error in ~/.config/differential/config.toml: [keys]: 2 problems
   "j" is bound to both down and delete in the review
   "j" is bound to both down and delete in the findings list
 ```
+
+### The editor `e` opens
+
+`review.editor` is a command line, not a name — the one key in this file that is, and
+[`spec/consumers.md`](../spec/consumers.md) says why. Two placeholders:
+
+| placeholder | stands for |
+|---|---|
+| `{file}` | the path, absolute |
+| `{line}` | the line, counting from 1 |
+
+```toml
+[review]
+editor = "nvim +{line} {file}"          # vim, neovim, nano, micro
+editor = "code --wait -g {file}:{line}"  # VS Code
+editor = "hx {file}:{line}"             # helix
+editor = "zed --wait {file}:{line}"     # Zed
+editor = "emacsclient -nw +{line} {file}"
+editor = "idea --line {line} {file}"
+```
+
+**A windowed editor needs its wait flag.** `zed`, `code` and `idea` hand the file to an
+app that is already running and exit at once, so without `--wait` (`-w` for Zed and VS
+Code) the reviewer takes the terminal back before you have typed anything, and the footer
+says `edited` about a file you have not touched yet. With the flag, the reviewer waits
+until you close the tab. A terminal editor — vim, helix, nano, `emacsclient -nw` — holds
+the terminal by itself and needs no flag.
+
+The command is split into words the way a shell would, so a program whose path holds a
+space is quoted: `editor = "'/Applications/My Editor' {file}"`. An unbalanced quote is a
+hard error at startup, like any other malformed config value.
+
+**The first word is the program, and it may not be a placeholder.** `editor = "{file}"`
+is refused at startup, because it would make the program the file you are reviewing — and
+a file carrying the executable bit would then be run by `e`, not merely fail to start.
+
+**A command naming no `{file}` gets the path appended.** That is what makes a bare
+`editor = "vim"` work, and it is why `$EDITOR` is a usable fallback. Such a command names
+no line either, so the file opens at the top and the reviewer's footer says
+`the command has no {line}` — the feature is not broken, it was not told where to jump.
+
+Unset, the tool reads `$VISUAL` and then `$EDITOR`. **The two sources fail differently.** A
+`review.editor` that cannot be split stops `dfr review` with an error, because it was
+written for this tool. A `$VISUAL` or `$EDITOR` that cannot be split is skipped, because it
+was written for every program on the machine; `e` then reports that no editor is set.
+
+`:config` in the reviewer edits this key like any other, checking the command as you type
+it and using the saved one at once. Clearing the row there means the environment again,
+which the modal says on the row.
+
+The reviewer does not reload after the editor exits. The diff on screen was generated from
+the range and is never patched, so whatever was just written is not in it. The footer says
+`the diff is not reloaded` every time, which is the honest version of that.
 
 ### Themes
 
