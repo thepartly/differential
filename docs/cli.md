@@ -395,19 +395,22 @@ the range and is never patched, so whatever was just written is not in it. The f
 
 ### Themes
 
-`review.theme` names one of eleven palettes. Each pairs a set of chrome colours with the
+`review.theme` names one of thirteen palettes. Each pairs a set of chrome colours with the
 syntax theme the code is painted in, so the diff and the code come from one source.
 
 `dark` (the default), `one-dark`, `one-light`, `gruvbox-dark`, `gruvbox-light`,
 `solarized-dark`, `solarized-light`, `catppuccin-mocha`, `catppuccin-latte`,
-`dracula`, `monokai`. `monokai` wears Monokai Pro's palette, with a syntax theme written
-for this crate; it is not affiliated with Monokai Pro.
+`dracula`, `monokai`, `flexoki`, `flexoki-light`.
+
+`monokai` wears Monokai Pro's palette, with a syntax theme written for this crate; it is not
+affiliated with Monokai Pro. `flexoki` and `flexoki-light` are Steph Ango's Flexoki (MIT),
+likewise with syntax themes written here.
 
 The shots below are the same change in the same reviewer, so what differs between them is
 only the palette. Regenerate with `./assets/themes.sh`.
 
 <details>
-<summary><b>Screenshots — the same change in all eleven</b></summary>
+<summary><b>Screenshots — the same change in all thirteen</b></summary>
 <br>
 
 <details>
@@ -484,6 +487,20 @@ only the palette. Regenerate with `./assets/themes.sh`.
 <summary><code>monokai</code></summary>
 
 ![monokai](https://raw.githubusercontent.com/thepartly/differential/main/assets/themes/monokai.png)
+
+</details>
+
+<details>
+<summary><code>flexoki</code></summary>
+
+![flexoki](https://raw.githubusercontent.com/thepartly/differential/main/assets/themes/flexoki.png)
+
+</details>
+
+<details>
+<summary><code>flexoki-light</code></summary>
+
+![flexoki-light](https://raw.githubusercontent.com/thepartly/differential/main/assets/themes/flexoki-light.png)
 
 </details>
 

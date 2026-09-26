@@ -167,8 +167,8 @@ and denies unknown ones.
 [review]
 # Which palette the reviewer wears. One of: dark (the default), one-dark,
 # one-light, gruvbox-dark, gruvbox-light, solarized-dark, solarized-light,
-# catppuccin-mocha, catppuccin-latte, dracula, monokai. A name nobody
-# implements is a hard error that says which ones exist.
+# catppuccin-mocha, catppuccin-latte, dracula, monokai, flexoki, flexoki-light.
+# A name nobody implements is a hard error that says which ones exist.
 theme = "dark"
 # Context lines shown either side of a hunk before any expansion.
 context = 3
