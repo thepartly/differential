@@ -499,12 +499,6 @@ impl Theme {
     }
 }
 
-/// Every colour on the screen, from six accents and the syntect theme's ground.
-///
-/// The mix fractions all run *towards the background*, so each rule reads the
-/// same way in a light theme as in a dark one: 0.86 is a whisper of colour over
-/// the ground, 0.35 is most of the way to the accent itself. That relativity is
-/// the whole reason a light palette needs no rules of its own.
 /// How far off the ground a selection has to sit to be seen, in Oklab
 /// lightness. Solarized Light's own selection, the faintest shipped, clears it
 /// with room.
@@ -517,6 +511,13 @@ const GAP: f32 = 0.04;
 const WHITE: Rgb = rgb(0xFF, 0xFF, 0xFF);
 const BLACK: Rgb = rgb(0x00, 0x00, 0x00);
 
+/// Every colour on the screen, from the syntect theme's own colours and six
+/// accents, against the syntect theme's ground (ADR 0039).
+///
+/// The mix fractions all run *towards the background*, so each rule reads the
+/// same way in a light theme as in a dark one: 0.90 is a whisper of colour over
+/// the ground, 0.52 is about half way to the accent itself. That relativity is
+/// the whole reason a light palette needs no rules of its own.
 fn derive(seed: &Seed, syntect: syntect::highlighting::Theme) -> Theme {
     let settings = &syntect.settings;
     // A syntect theme is not obliged to state either, though every embedded one
@@ -1216,6 +1217,23 @@ mod tests {
             {
                 bad.push(format!(
                     "{name:?}: line numbers are not the theme's {own_gut:?}"
+                ));
+            }
+            // The noise tier takes the comment colour on the same terms. A
+            // theme with no comment rule answers with its foreground, which is
+            // not a comment colour, so that case is skipped as `derive` skips it.
+            let comment = Scope::new("comment")
+                .ok()
+                .map(|s| Highlighter::new(theme).style_for_stack(&[s]).foreground)
+                .map(from_syntect)
+                .filter(|c| *c != fg);
+            if let Some(own_comment) = comment
+                && contrast(own_comment, bg) >= muted
+                && contrast(own_comment, bg) < contrast(fg, bg)
+                && must_rgb(t.noise_fg) != own_comment
+            {
+                bad.push(format!(
+                    "{name:?}: noise is not the theme's comment {own_comment:?}"
                 ));
             }
         }
