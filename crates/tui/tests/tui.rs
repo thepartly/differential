@@ -11429,3 +11429,77 @@ fn render_dump_joined_dirs() {
         println!("{l}");
     }
 }
+
+/// A line of wide characters, long enough that the preview shifts sideways
+/// to show the hit. The preview measured columns and cut by bytes, so the cut
+/// landed inside a character (a panic) or a full column off.
+#[test]
+fn the_search_preview_cuts_wide_text_by_columns() {
+    let r = TestRepo::new();
+    r.write("wide.txt", b"start\n");
+    r.commit_all("base");
+    let line = format!("{} needle\n", "中".repeat(70));
+    r.write("wide.txt", format!("start\n{line}").as_bytes());
+    r.commit_all("head");
+    let mut app = open_app_with(&r, &skim_first_backend(), ".dfr-wide-store");
+    sized(&mut app);
+    search_for(&mut app, "needle");
+    let rows = screen(&app, SCREEN.width, SCREEN.height);
+    // The preview's line 2: the hit shifted into view, and the box's own
+    // right edge still where it belongs — nothing overran it.
+    let preview = rows
+        .iter()
+        .find(|r| r.contains("│ 2 │") && r.contains("needle"))
+        .unwrap_or_else(|| panic!("the shifted preview shows the hit:\n{}", rows.join("\n")));
+    let top = rows
+        .iter()
+        .find(|r| r.contains(" search "))
+        .expect("the search box's top edge");
+    let edge = top.chars().position(|c| c == '┐').expect("its corner");
+    assert_eq!(
+        preview.chars().nth(edge),
+        Some('│'),
+        "the preview row stops at the box's edge: {preview:?}"
+    );
+}
+
+/// Hyphenated words: `textwrap` breaks after a hyphen and ratatui's own
+/// wrapper does not, so a box sized by one and drawn by the other came out
+/// short and lost the notice's last line.
+#[test]
+fn a_notice_box_holds_all_of_its_wrapped_text() {
+    let (_r, mut app) = make_app();
+    sized(&mut app);
+    let words = "a-long-hyphenated-word-that-wraps ".repeat(20);
+    let text = format!("{words}THE-END");
+    app.mode = Mode::Notice {
+        title: "forge".into(),
+        text,
+    };
+    let screen = screen(&app, SCREEN.width, SCREEN.height).join("\n");
+    assert!(
+        screen.contains("THE-END"),
+        "the last words are cut off:\n{screen}"
+    );
+    assert!(screen.contains("press any key to close"), "{screen}");
+}
+
+/// The composer grows with its note as its own text area wraps it — a guard
+/// on the sizing the notice box got wrong. A box too short for the note shows
+/// here as its FIRST words gone: the text area scrolls to keep the caret.
+#[test]
+fn the_composer_holds_all_of_its_wrapped_note() {
+    let (_r, mut app) = make_app();
+    sized(&mut app);
+    app.focus = Focus::Detail;
+    put_cursor_on(&mut app, |k| matches!(k, RowKind::Diff(_)));
+    app.handle_key(key('c'));
+    assert!(matches!(app.mode, Mode::Editing { .. }));
+    let words = "a-long-hyphenated-word-that-wraps ".repeat(12);
+    app.handle_paste(&format!("THE-START {words}THE-END"));
+    let screen = screen(&app, SCREEN.width, SCREEN.height).join("\n");
+    assert!(
+        screen.contains("THE-START") && screen.contains("THE-END"),
+        "the box does not hold the whole note:\n{screen}"
+    );
+}

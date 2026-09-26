@@ -75,16 +75,32 @@ impl Repo {
         let mut child = cmd
             .spawn()
             .map_err(|e| EngineError::GitSpawn { source: e })?;
-        if let Some(data) = stdin {
-            use std::io::Write;
-            let mut pipe = child.stdin.take().expect("stdin was requested");
-            pipe.write_all(data)
-                .map_err(|e| EngineError::GitSpawn { source: e })?;
-            // pipe drops here, closing stdin
+        // Stdin is written on its own thread while `wait_with_output` drains
+        // stdout and stderr. `cat-file --batch` and `check-attr --stdin`
+        // answer each line as it arrives, so writing ALL of stdin first
+        // deadlocked once the answer filled its pipe: git blocked writing,
+        // and this blocked writing to git. The engine's `subprocess` module
+        // solves the same problem, but with a polling watchdog and a deadline
+        // a local git call has no use for, on every one of hundreds of calls.
+        let pipe = stdin.map(|_| child.stdin.take().expect("stdin was requested"));
+        let (out, written) = std::thread::scope(|scope| {
+            let writer = pipe.zip(stdin).map(|(mut pipe, data)| {
+                scope.spawn(move || {
+                    use std::io::Write;
+                    pipe.write_all(data)
+                    // The pipe drops here, closing stdin.
+                })
+            });
+            let out = child.wait_with_output();
+            let written = writer.map_or(Ok(()), |w| w.join().expect("stdin writer panicked"));
+            (out, written)
+        });
+        let out = out.map_err(|e| EngineError::GitSpawn { source: e })?;
+        // A write that failed because git exited early is reported by git's
+        // own status below; one that failed while git succeeded is ours.
+        if out.status.success() {
+            written.map_err(|e| EngineError::GitSpawn { source: e })?;
         }
-        let out = child
-            .wait_with_output()
-            .map_err(|e| EngineError::GitSpawn { source: e })?;
 
         if !out.status.success() {
             return Err(EngineError::GitCommand {

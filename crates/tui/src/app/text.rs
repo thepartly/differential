@@ -193,6 +193,52 @@ pub(super) fn findings_skip(scroll: usize, rules: &[usize]) -> usize {
     scroll + rules.iter().filter(|r| **r <= scroll).count()
 }
 
+/// The first entry to draw so that `selected` is on screen in a findings list
+/// `rows` lines tall, counting the section rules drawn between the two.
+///
+/// `follow` counts entries, and a rule is a line too: every rule inside the
+/// window pushed the entries after it down one, so a selection `follow` had
+/// kept "in view" could sit below the box.
+pub(super) fn findings_follow(
+    selected: usize,
+    scroll: usize,
+    rows: usize,
+    rules: &[usize],
+) -> usize {
+    let rows = rows.max(1);
+    // Lines from entry `from` down to the selection: the entries, and each
+    // rule after `from` (the one at `from` is skipped with it).
+    let lines = |from: usize| {
+        selected + 1 - from
+            + rules
+                .iter()
+                .filter(|r| **r > from && **r <= selected)
+                .count()
+    };
+    let mut scroll = scroll.min(selected);
+    while scroll < selected && lines(scroll) > rows {
+        scroll += 1;
+    }
+    scroll
+}
+
+/// `step_list` for the findings list, whose rules take lines of their own.
+pub(super) fn findings_step(
+    selected: &mut usize,
+    scroll: &mut usize,
+    len: usize,
+    rows: usize,
+    rules: &[usize],
+    down: bool,
+) {
+    *selected = if down {
+        (*selected + 1).min(len.saturating_sub(1))
+    } else {
+        selected.saturating_sub(1)
+    };
+    *scroll = findings_follow(*selected, *scroll, rows, rules);
+}
+
 /// The same, for the file list — a plain bordered box with no footer row.
 pub(super) fn file_list_rows(entries: usize, body_rows: usize) -> usize {
     (entries + 2).min(body_rows).saturating_sub(2)
@@ -440,5 +486,39 @@ mod tests {
         // A body too short for any chrome must not underflow.
         assert_eq!(findings_rows(100, 1, 2), 0);
         assert_eq!(file_list_rows(100, 1), 0);
+    }
+
+    /// Where the selection is drawn, counting from the list's first line:
+    /// the entries after `scroll` and the rules between.
+    fn drawn_at(selected: usize, scroll: usize, rules: &[usize]) -> usize {
+        selected - scroll
+            + rules
+                .iter()
+                .filter(|r| **r > scroll && **r <= selected)
+                .count()
+    }
+
+    #[test]
+    fn the_findings_selection_stays_inside_the_box_across_rules() {
+        // A rule before every entry but the first: the worst case.
+        let rules: Vec<usize> = (1..20).collect();
+        let rows = 5;
+        let (mut selected, mut scroll) = (0, 0);
+        for _ in 0..19 {
+            findings_step(&mut selected, &mut scroll, 20, rows, &rules, true);
+            assert!(
+                drawn_at(selected, scroll, &rules) < rows,
+                "entry {selected} drawn at {} with scroll {scroll}",
+                drawn_at(selected, scroll, &rules)
+            );
+        }
+        // And back up: the window follows without jumping.
+        for _ in 0..19 {
+            findings_step(&mut selected, &mut scroll, 20, rows, &rules, false);
+            assert!(drawn_at(selected, scroll, &rules) < rows);
+        }
+        assert_eq!((selected, scroll), (0, 0));
+        // With no rules it is plain `follow`.
+        assert_eq!(findings_follow(9, 0, 5, &[]), follow(9, 0, 5));
     }
 }

@@ -14,7 +14,9 @@ categories = ["command-line-interface", "development-tools"]
 differential-engine = { workspace = true }
 anyhow = { workspace = true }
 base64 = { workspace = true }
-ratatui = "0.30"
+# `unstable-rendered-line-info` for `Paragraph::line_count`: a box sized by the
+# paragraph that draws it, rather than by a second wrapper that disagrees.
+ratatui = { version = "0.30", features = ["unstable-rendered-line-info"] }
 crossterm = "0.29"
 # Parses a `[keys]` string into the combination crossterm reports. No serde:
 # the strings arrive as strings, and parsing them is `keymap`'s own step.
