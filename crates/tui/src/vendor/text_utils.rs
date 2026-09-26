@@ -10,6 +10,7 @@ use ratatui::{style::Style, text::Span};
 use textwrap::WordSeparator;
 use textwrap::core::Word;
 use textwrap::wrap_algorithms::wrap_first_fit;
+use unicode_truncate::UnicodeTruncateStr;
 use unicode_width::UnicodeWidthStr;
 
 /// Truncate or pad highlighted spans to a specific display width
@@ -26,7 +27,9 @@ pub fn truncate_or_pad_spans(
     if total_width > width {
         // Need to truncate
         let mut result = Vec::new();
-        let mut remaining = width.saturating_sub(3); // Reserve space for "..."
+        // One column for the ellipsis the rest of the reviewer draws — the
+        // vendored `...` took three and was the one place it read that way.
+        let mut remaining = width.saturating_sub(1);
 
         for (style, text) in spans {
             if remaining == 0 {
@@ -38,26 +41,16 @@ pub fn truncate_or_pad_spans(
                 result.push(Span::styled(text.clone(), *style));
                 remaining -= text_width;
             } else {
-                // Truncate this span character by character to fit remaining width
-                let mut truncated = String::new();
-                let mut current_width = 0;
-                for c in text.chars() {
-                    let char_width = unicode_width::UnicodeWidthChar::width(c).unwrap_or(0);
-                    if current_width + char_width > remaining {
-                        break;
-                    }
-                    truncated.push(c);
-                    current_width += char_width;
-                }
+                let (truncated, _) = text.unicode_truncate(remaining);
                 if !truncated.is_empty() {
-                    result.push(Span::styled(truncated, *style));
+                    result.push(Span::styled(truncated.to_string(), *style));
                 }
                 remaining = 0;
             }
         }
 
         // Add ellipsis
-        result.push(Span::styled("...".to_string(), base_style));
+        result.push(Span::styled("…".to_string(), base_style));
         result
     } else if total_width < width {
         // Need to pad

@@ -98,7 +98,6 @@ impl App {
         }
     }
 
-    /// Key handling. Returns effects for the loop to execute.
     /// `enter` in the plan pane: a directory opens rather than jumping to the
     /// diff; anything else moves focus to the diff.
     fn enter_plan_entry(&mut self) {
@@ -583,6 +582,7 @@ impl App {
         effects
     }
 
+    /// Key handling. Returns effects for the loop to execute.
     fn on_key(&mut self, key: KeyEvent) -> Vec<Effect> {
         // One latch, taken before anything reads a key. It used to be taken
         // inside the normal-mode block, which a modal's early return never

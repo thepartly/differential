@@ -648,6 +648,7 @@ dependencies = [
  "tui-input",
  "tui-textarea-2",
  "two-face",
+ "unicode-truncate",
  "unicode-width",
 ]
 

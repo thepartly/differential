@@ -70,16 +70,11 @@ impl App {
                 frame.render_widget(&**textarea, area);
                 // The keys go INSIDE the box, on its last row, where a footer
                 // belongs — the title says what you are annotating.
-                let hints = composer_footer();
-                let row = footer_row(area);
-                let x = centered_x(row, hints_width(&hints));
+                // Centred by the line itself, with the arithmetic the hit
+                // test's `centered_x` repeats: `(row - line) / 2`, floored.
                 frame.render_widget(
-                    footer_line(&self.theme, &hints),
-                    Rect {
-                        x,
-                        width: row.width.saturating_sub(x - row.x),
-                        ..row
-                    },
+                    footer_line(&self.theme, &composer_footer()).centered(),
+                    footer_row(area),
                 );
             }
             Mode::Help(_) => {
@@ -96,7 +91,9 @@ impl App {
                 let widest = lines.iter().map(Line::width).max().unwrap_or(0) + 4;
                 let width = (74 + grown).max(widest);
                 let width = u16::try_from(width).unwrap_or(u16::MAX);
-                let area = centered_rect(panes.body, width, height);
+                let area = panes
+                    .body
+                    .centered(Constraint::Length(width), Constraint::Length(height));
                 self.float(frame, area, " help ", Paragraph::new(lines));
             }
             Mode::Notice { title, text } => {
@@ -126,7 +123,9 @@ impl App {
                     .saturating_add(FRAME_ROWS);
                 self.float(
                     frame,
-                    centered_rect(panes.body, width, height),
+                    panes
+                        .body
+                        .centered(Constraint::Length(width), Constraint::Length(height)),
                     &format!(" {title} "),
                     paragraph,
                 );
@@ -397,10 +396,7 @@ impl App {
             .into_iter()
             .map(|s| Span::styled(s.content, s.style.bg(self.theme.status_bg)))
             .collect();
-        let hints_w: usize = hints
-            .iter()
-            .map(|s| UnicodeWidthStr::width(s.content.as_ref()))
-            .sum();
+        let hints_w: usize = hints.iter().map(Span::width).sum();
         let room = usize::from(area.width).saturating_sub(hints_w + 4);
         let mut spans = vec![Span::styled(" :", typed)];
         spans.extend(caret_spans(&line.input, typed, typed, room));
@@ -414,10 +410,7 @@ impl App {
                     .bg(self.theme.status_bg),
             ));
         }
-        let used: usize = spans
-            .iter()
-            .map(|s| UnicodeWidthStr::width(s.content.as_ref()))
-            .sum();
+        let used: usize = spans.iter().map(Span::width).sum();
         let gap = usize::from(area.width).saturating_sub(used + hints_w);
         spans.push(Span::styled(" ".repeat(gap), bar));
         spans.extend(hints);
@@ -633,18 +626,11 @@ impl App {
         let names = list.field.choices();
         let width = names.iter().map(|n| n.len()).max().unwrap_or(0) as u16 + 6;
         let height = names.len() as u16 + 2;
-        // Under the row, in the value column; lifted when the modal's bottom
-        // would cut it.
-        let x = (modal.x + 20).min(modal.right().saturating_sub(width));
+        // Under the row, in the value column; `clamp` lifts it (or pulls it
+        // left) when the modal's edge would cut it, and shrinks it only when
+        // the modal itself is smaller.
         let below = modal.y + 1 + row as u16 + 1;
-        let y = below.min(modal.bottom().saturating_sub(height));
-        let area = Rect {
-            x,
-            y,
-            width,
-            height,
-        }
-        .intersection(modal);
+        let area = Rect::new(modal.x + 20, below, width, height).clamp(modal);
         let items: Vec<ListItem> = names
             .iter()
             .enumerate()
@@ -709,10 +695,7 @@ impl App {
             }
             super::Reading::Literal => Vec::new(),
         };
-        let badge_w: usize = badge
-            .iter()
-            .map(|s| UnicodeWidthStr::width(s.content.as_ref()))
-            .sum();
+        let badge_w: usize = badge.iter().map(Span::width).sum();
 
         // One lead column, one for the caret past the last character, and the
         // pill's own width: what is left is what the query is drawn in, and
@@ -723,11 +706,7 @@ impl App {
         row.extend(caret_spans(&s.input, typed, accent, room));
 
         if !badge.is_empty() {
-            let used: usize = row
-                .iter()
-                .chain(badge.iter())
-                .map(|s| UnicodeWidthStr::width(s.content.as_ref()))
-                .sum();
+            let used: usize = row.iter().chain(badge.iter()).map(Span::width).sum();
             // Hard against the right edge, so it sits where the hit count does
             // one border down and the two read as one column of state.
             row.push(Span::styled(
@@ -927,7 +906,10 @@ impl App {
             ViewMode::Files => "files",
         };
         let title = if orphans > 0 {
-            format!(" {pane_name} · ⚠ {orphans} orphaned finding(s) ")
+            format!(
+                " {pane_name} · ⚠ {orphans} orphaned finding{} ",
+                plural(orphans)
+            )
         } else {
             format!(" {pane_name} ")
         };
@@ -1100,11 +1082,7 @@ impl App {
             .into_iter()
             .map(|(st, t)| Span::styled(t, st))
             .collect();
-            let used: usize = counts
-                .iter()
-                .chain(&badge)
-                .map(|s| UnicodeWidthStr::width(s.content.as_ref()))
-                .sum();
+            let used: usize = counts.iter().chain(&badge).map(Span::width).sum();
             counts.push(Span::styled(
                 " ".repeat(width.saturating_sub(used).max(1)),
                 dim,
@@ -1218,8 +1196,6 @@ impl App {
         }
     }
 
-    /// The flat file list, floating over the foot of the plan pane: where you
-    /// are, and how much is left.
     /// Where the file list floats while the diff has focus: the foot of the
     /// plan pane, or nowhere when there are no files. Shared with the hit
     /// test, so a click on the float is known to be one.
@@ -1239,6 +1215,8 @@ impl App {
         })
     }
 
+    /// The flat file list, floating over the foot of the plan pane: where you
+    /// are, and how much is left.
     pub(super) fn draw_file_list(&self, frame: &mut Frame, plan: Rect) {
         let Some(area) = self.file_list_area(plan) else {
             return;
@@ -1329,17 +1307,6 @@ impl App {
         (List::new(items), state)
     }
 
-    /// The right pane while the plan has focus: the whole document's file tree
-    /// with the selected group's files lit, so what a group spans is one look
-    /// rather than a walk through its hunks.
-    ///
-    /// It floats over the FOOT of the detail pane at full pane width — the same
-    /// shape as the file list at the foot of the plan pane, so one focus reads
-    /// like the other. The diff carries on above it as a preview of what
-    /// entering the group will show.
-    ///
-    /// Deliberately not interactive. It is a map; a second cursor in a second
-    /// pane is a thing to explain and to get wrong.
     /// Where the group map floats while the plan has focus, or nowhere when the
     /// pane is too short to hold it. Shared with the hit test.
     pub fn group_map_area(&self, detail: Rect) -> Option<Rect> {
@@ -1516,6 +1483,17 @@ impl App {
         );
     }
 
+    /// The right pane while the plan has focus: the whole document's file tree
+    /// with the selected group's files lit, so what a group spans is one look
+    /// rather than a walk through its hunks.
+    ///
+    /// It floats over the FOOT of the detail pane at full pane width — the same
+    /// shape as the file list at the foot of the plan pane, so one focus reads
+    /// like the other. The diff carries on above it as a preview of what
+    /// entering the group will show.
+    ///
+    /// Deliberately not interactive. It is a map; a second cursor in a second
+    /// pane is a thing to explain and to get wrong.
     pub(super) fn draw_group_map(&self, frame: &mut Frame, detail: Rect) {
         let Some(area) = self.group_map_area(detail) else {
             return;
@@ -2074,12 +2052,7 @@ impl App {
     pub(super) fn status_row(&self, area: Rect) -> (Vec<Span<'static>>, Vec<Hint>, u16) {
         let mut acts = self.footer_hints();
         let left = self.status_left();
-        let width_of = |spans: &[Span]| -> usize {
-            spans
-                .iter()
-                .map(|s| UnicodeWidthStr::width(s.content.as_ref()))
-                .sum()
-        };
+        let width_of = |spans: &[Span]| -> usize { spans.iter().map(Span::width).sum() };
         let room = usize::from(area.width).saturating_sub(width_of(&left) + 1);
         // Dropped one at a time, from the left: the last of them is `? help`,
         // which is the way to every key that did not fit, so it goes last of
@@ -2217,12 +2190,7 @@ impl App {
         // (issue 30). A fixed list of ten keys was a wall the reader stopped
         // seeing; three keys that change with the place are three keys they
         // read. The same table feeds `?`, so the two cannot drift.
-        let used = |spans: &[Span]| -> usize {
-            spans
-                .iter()
-                .map(|s| UnicodeWidthStr::width(s.content.as_ref()))
-                .sum()
-        };
+        let used = |spans: &[Span]| -> usize { spans.iter().map(Span::width).sum() };
         let (left, hints, x0) = self.status_row(area);
         let right: Vec<Span> = footer_line(&self.theme, &hints)
             .spans
@@ -2237,11 +2205,6 @@ impl App {
     }
 }
 
-/// Render a row at the given pane width.
-///
-/// Every diff row pads HERE rather than at build time: a background that runs
-/// to the pane edge is a width question, and row counts must stay independent
-/// of width or each resize would rebuild them.
 /// What drawing knows about a row that building it could not.
 ///
 /// Every field here turns on where the cursor is or what the reader has
@@ -2319,6 +2282,10 @@ impl Paint<'_> {
 /// wrapped row is still ONE row: the cursor indexes rows, a finding anchors to
 /// a line, and a line that became three selectable rows would let a reader
 /// annotate a third of it.
+///
+/// Every diff row pads HERE rather than at build time: a background that runs
+/// to the pane edge is a width question, and row counts must stay independent
+/// of width or each resize would rebuild them.
 pub(super) fn compose_row_lines(
     theme: &Theme,
     content: &RowContent,
@@ -2823,12 +2790,6 @@ pub(super) enum Marker<'a> {
     Note,
 }
 
-/// A pane's frame: always the muted border, with the TITLE carrying focus.
-///
-/// A lit border draws a box around half the screen to say a thing about the
-/// cursor, which is the smallest thing on it — and it competed with the hunk
-/// edge, the one border in this view that means something. The title is where
-/// a reader looks to know which pane they are in anyway.
 /// Clear a float's area and repaint the theme's ground under it.
 ///
 /// `Clear` resets cells to the TERMINAL's default, which is not the theme's
@@ -2858,6 +2819,12 @@ pub fn pane_inner(area: Rect) -> Rect {
     frame().inner(area)
 }
 
+/// A pane's frame: always the muted border, with the TITLE carrying focus.
+///
+/// A lit border draws a box around half the screen to say a thing about the
+/// cursor, which is the smallest thing on it — and it competed with the hunk
+/// edge, the one border in this view that means something. The title is where
+/// a reader looks to know which pane they are in anyway.
 pub(super) fn pane(theme: &Theme, title: String, focused: bool) -> Block<'static> {
     let ink = if focused {
         theme.header_fg
@@ -2887,7 +2854,7 @@ pub fn composer_area(body: Rect, textarea: &TextArea<'_>) -> Rect {
     // The frame, the footer and the spare row: that is the four.
     let wanted = rows.saturating_add(FRAME_ROWS + 2);
     let height = wanted.clamp(10, body.height.max(10));
-    centered_rect(body, width, height)
+    body.centered(Constraint::Length(width), Constraint::Length(height))
 }
 
 /// A box centred on the body around `lines` of text, `width` wide at most.
@@ -2897,7 +2864,7 @@ fn box_around(body: Rect, width: u16, lines: usize) -> Rect {
     let height = u16::try_from(lines)
         .unwrap_or(u16::MAX)
         .saturating_add(FRAME_ROWS);
-    centered_rect(body, width, height)
+    body.centered(Constraint::Length(width), Constraint::Length(height))
 }
 
 /// Whether a box `box_around` sized for `lines` was tall enough to hold them
@@ -2934,9 +2901,10 @@ pub fn footer_row(area: Rect) -> Rect {
     }
 }
 
-/// Where a line `width` columns wide starts when centred in `row` — the one
-/// arithmetic for the composer's footer, drawn and hit-tested, so the two
-/// cannot round differently.
+/// Where a line `width` columns wide starts when centred in `row`, for the
+/// composer footer's hit test. The draw centres with `Line::centered`, which
+/// floors `(row - line) / 2` exactly as this does; ratatui has no public way to
+/// ask a line where it would start, so the hit test does the sum itself.
 pub fn centered_x(row: Rect, width: usize) -> u16 {
     let slack = usize::from(row.width).saturating_sub(width);
     row.x + u16::try_from(slack / 2).unwrap_or(0)
@@ -3045,7 +3013,7 @@ pub fn file_list_modal_area(body: Rect, entries: &[FileListEntry]) -> Rect {
     // the border and took the file NAME with them, which is the one part of
     // a path worth reading.
     let width = (lead + widest + 2).max(70).min(body.width as usize) as u16;
-    centered_rect(body, width, height)
+    body.centered(Constraint::Length(width), Constraint::Length(height))
 }
 
 /// The search box: a fixed size, centred on the body and clamped to it.
@@ -3061,7 +3029,7 @@ pub fn file_list_modal_area(body: Rect, entries: &[FileListEntry]) -> Rect {
 pub fn search_modal_area(body: Rect) -> Rect {
     let width = body.width.saturating_sub(8).clamp(40, 110);
     let height = u16::try_from(SEARCH_BOX_ROWS).unwrap_or(u16::MAX);
-    centered_rect(body, width, height)
+    body.centered(Constraint::Length(width), Constraint::Length(height))
 }
 
 /// The findings modal's box: the entries, their section rules, a title row
@@ -3070,18 +3038,7 @@ pub fn findings_modal_area(body: Rect, entries: usize, rules: usize) -> Rect {
     let height = (entries + rules + 4).min(body.height as usize) as u16;
     // Wide enough for the whole key footer: six keys is 83 columns, and a
     // list whose footer is cut is a list with keys nobody can read.
-    centered_rect(body, 86, height)
-}
-
-pub(super) fn centered_rect(area: Rect, width: u16, height: u16) -> Rect {
-    let w = width.min(area.width);
-    let h = height.min(area.height);
-    Rect {
-        x: area.x + (area.width - w) / 2,
-        y: area.y + (area.height - h) / 2,
-        width: w,
-        height: h,
-    }
+    body.centered(Constraint::Length(86), Constraint::Length(height))
 }
 
 /// A one-line field as spans: its text in `typed`, the caret drawn ON the

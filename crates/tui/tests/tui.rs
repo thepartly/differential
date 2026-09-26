@@ -5631,7 +5631,7 @@ fn w_wraps_a_long_line_and_leaves_the_row_count_alone() {
     let (_r, mut app) = app_with_a_long_line();
     let before = wrapped_pane(&mut app);
     assert!(
-        before.iter().any(|r| r.contains("...")),
+        before.iter().any(|r| r.contains('…')),
         "the line should be cut before w is pressed: {before:#?}"
     );
     let rows = app.rows.len();
@@ -5648,7 +5648,7 @@ fn w_wraps_a_long_line_and_leaves_the_row_count_alone() {
             .any(|r| r.contains("simply not there to read.")),
         "the end of the paragraph should be visible: {after:#?}"
     );
-    assert!(!after.iter().any(|r| r.contains("...")));
+    assert!(!after.iter().any(|r| r.contains('…')));
 
     // and - a wrapped line is still ONE row, and the cursor has not moved
     assert_eq!(app.rows.len(), rows, "wrapping must not change row COUNT");
@@ -11535,4 +11535,39 @@ fn render_dump_lists() {
         app.handle_key(key('j'));
     }
     dump("the config modal, scrolled into [keys]", &app);
+}
+
+/// The composer footer is centred twice: drawn by `Line::centered`, hit-tested
+/// by `centered_x`. They must agree cell for cell, at an even and an odd
+/// remainder both — this is what would catch ratatui rounding differently.
+#[test]
+fn the_composer_footer_is_drawn_where_its_hit_test_aims() {
+    for width in [100u16, 101, 97] {
+        let (_r, mut app) = make_app();
+        let screen_area = Rect::new(0, 0, width, 40);
+        app.set_area(screen_area);
+        app.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        app.handle_key(key('c'));
+        let area = match &app.mode {
+            Mode::Editing { editor, .. } => {
+                composer_area(layout(screen_area, DEFAULT_PLAN_COLS).body, editor)
+            }
+            _ => panic!("c opens the composer"),
+        };
+        let row = footer_row(area);
+        let hints = composer_footer();
+        // The first hint is `  enter ` + `save`: its key starts two in.
+        let aimed = usize::from(centered_x(row, hints_width(&hints))) + 2;
+        let drawn_row = &screen(&app, width, 40)[usize::from(row.y)];
+        let drawn = drawn_row
+            .chars()
+            .collect::<Vec<_>>()
+            .windows(5)
+            .position(|w| w.iter().collect::<String>() == "enter")
+            .expect("the footer is drawn");
+        assert_eq!(
+            drawn, aimed,
+            "width {width}: drawn at {drawn}, aimed at {aimed}"
+        );
+    }
 }

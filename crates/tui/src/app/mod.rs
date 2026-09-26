@@ -894,6 +894,6 @@ impl App {
 }
 
 /// The `s` a count takes, or not.
-pub(super) fn plural(n: usize) -> &'static str {
+pub(crate) fn plural(n: usize) -> &'static str {
     if n == 1 { "" } else { "s" }
 }
