@@ -5,14 +5,11 @@
 //! come from one function, and they used to be two different numbers.
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+use unicode_truncate::UnicodeTruncateStr;
+use unicode_width::UnicodeWidthStr;
 
 use super::*;
 
-/// The two count columns, and the width every path therefore starts after.
-///
-/// Each column is as wide as the widest number IN IT, so the paths line up
-/// down the list. Four digits is the floor, which is where both used to be
 /// Move a modal list's selection one step, and keep it in the window.
 ///
 /// The two modal lists wrote these four lines out each, differing only in
@@ -43,6 +40,10 @@ pub(super) fn basename(path: &str) -> &str {
     path.rsplit('/').next().unwrap_or(path)
 }
 
+/// The two count columns, and the width every path therefore starts after.
+///
+/// Each column is as wide as the widest number IN IT, so the paths line up
+/// down the list. Four digits is the floor, which is where both used to be
 /// fixed — one file over 9999 lines then pushed its OWN path right while every
 /// other row's stayed put, and the column the eye scans stopped being one.
 pub(super) fn counts_columns(entries: &[FileListEntry]) -> (usize, usize, usize) {
@@ -66,9 +67,9 @@ pub(super) fn counts_columns(entries: &[FileListEntry]) -> (usize, usize, usize)
 /// and the line number are what identify a finding; the leading directories are
 /// not, and cutting the tail throws away the only part worth reading.
 ///
-/// Hand-written rather than reached for. The vendored `truncate_or_pad_spans`
-/// next door cuts the tail, and WHICH END to keep is a policy no crate can hold
-/// for us.
+/// The POLICY is ours — which end to keep, and a cut at a `/` before a cut
+/// inside a name — because no crate can hold it for us. The cut itself is
+/// `unicode-truncate`'s, which counts display width by grapheme.
 pub(super) fn elide_head(s: &str, max: usize) -> String {
     if UnicodeWidthStr::width(s) <= max {
         return s.to_string();
@@ -87,17 +88,7 @@ pub(super) fn elide_head(s: &str, max: usize) -> String {
     }
     // Not even the last segment fits, so cut the name itself. One column goes
     // to the ellipsis; the rest buys tail characters.
-    let mut kept: Vec<char> = Vec::new();
-    let mut used = 0;
-    for c in s.chars().rev() {
-        let w = UnicodeWidthChar::width(c).unwrap_or(0);
-        if used + w > max - 1 {
-            break;
-        }
-        used += w;
-        kept.push(c);
-    }
-    let tail: String = kept.into_iter().rev().collect();
+    let (tail, _) = s.unicode_truncate_start(max - 1);
     format!("…{tail}")
 }
 
@@ -113,18 +104,8 @@ pub(super) fn truncate_width(s: &str, max: usize) -> String {
     if max == 0 {
         return String::new();
     }
-    let mut out = String::new();
-    let mut used = 0;
-    for c in s.chars() {
-        let w = UnicodeWidthChar::width(c).unwrap_or(0);
-        if used + w > max - 1 {
-            break;
-        }
-        used += w;
-        out.push(c);
-    }
-    out.push('…');
-    out
+    let (head, _) = s.unicode_truncate(max - 1);
+    format!("{head}…")
 }
 
 /// How many rows a modal list actually shows, from its content and the body's

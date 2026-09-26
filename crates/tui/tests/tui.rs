@@ -5631,7 +5631,7 @@ fn w_wraps_a_long_line_and_leaves_the_row_count_alone() {
     let (_r, mut app) = app_with_a_long_line();
     let before = wrapped_pane(&mut app);
     assert!(
-        before.iter().any(|r| r.contains("...")),
+        before.iter().any(|r| r.contains('…')),
         "the line should be cut before w is pressed: {before:#?}"
     );
     let rows = app.rows.len();
@@ -5648,7 +5648,7 @@ fn w_wraps_a_long_line_and_leaves_the_row_count_alone() {
             .any(|r| r.contains("simply not there to read.")),
         "the end of the paragraph should be visible: {after:#?}"
     );
-    assert!(!after.iter().any(|r| r.contains("...")));
+    assert!(!after.iter().any(|r| r.contains('…')));
 
     // and - a wrapped line is still ONE row, and the cursor has not moved
     assert_eq!(app.rows.len(), rows, "wrapping must not change row COUNT");

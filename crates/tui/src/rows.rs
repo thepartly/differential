@@ -1318,7 +1318,7 @@ fn thread_rows(ctx: &RowsContext, t: &RemoteThread, hunk: usize, collapsed: bool
         let n = t.comments.len();
         head.push_str(&format!(
             " · resolved · {n} comment{}",
-            if n == 1 { "" } else { "s" }
+            crate::app::plural(n)
         ));
         if let Some(open) = ctx.fold_says("to open") {
             head.push_str(&format!(" · {open}"));
