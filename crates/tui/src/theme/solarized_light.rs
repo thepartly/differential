@@ -8,11 +8,11 @@
 
 use two_face::theme::EmbeddedThemeName;
 
-use super::{Seed, rgb};
+use super::{Seed, Syntax, rgb};
 
 pub(super) fn seed() -> Seed {
     Seed {
-        syntax: EmbeddedThemeName::SolarizedLight,
+        syntax: Syntax::Embedded(EmbeddedThemeName::SolarizedLight),
         add: rgb(0x4F, 0x6B, 0x00),
         del: rgb(0xC2, 0x2B, 0x28),
         accent: rgb(0x1E, 0x6F, 0xA8),

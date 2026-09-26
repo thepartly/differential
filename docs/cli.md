@@ -400,7 +400,8 @@ syntax theme the code is painted in, so the diff and the code come from one sour
 
 `dark` (the default), `one-dark`, `one-light`, `gruvbox-dark`, `gruvbox-light`,
 `solarized-dark`, `solarized-light`, `catppuccin-mocha`, `catppuccin-latte`,
-`dracula`, `monokai`.
+`dracula`, `monokai`. `monokai` wears Monokai Pro's palette, with a syntax theme written
+for this crate; it is not affiliated with Monokai Pro.
 
 The shots below are the same change in the same reviewer, so what differs between them is
 only the palette. Regenerate with `./assets/themes.sh`.
