@@ -1,10 +1,12 @@
-//! Palettes: one seed each, everything else derived (ADR 0024).
+//! Palettes: one seed each, the syntax theme's own colours, and derivation for
+//! the rest (ADR 0024, ADR 0039).
 //!
 //! A theme decides seven things — which syntect theme paints the code, and six
-//! accents that a syntect theme does not reliably carry. The other thirty-odd
-//! colours are mixed from those by the rules in [`derive`], against the ground
-//! the syntect theme itself declares. That is what keeps the chrome and the
-//! code in one palette rather than two that drift.
+//! accents that a syntect theme does not reliably carry. The syntect theme
+//! then gives the ground, and the interface colours it states for itself: its
+//! selection, its line numbers, its comment colour. The other colours are mixed
+//! by the rules in [`derive`], against that ground. That is what keeps the
+//! chrome and the code in one palette rather than two that drift.
 //!
 //! One seed per file, in the modules below. Field schema modelled on lumen's
 //! `DiffColors`. There is no hand-tuned palette any more: a hand-tuned one is a
@@ -29,6 +31,8 @@ use differential_engine::config::ThemeName;
 use palette::color_difference::Wcag21RelativeContrast;
 use palette::{FromColor, IntoColor, Mix, Oklab, Srgb};
 use ratatui::style::{Color, Modifier, Style};
+use syntect::highlighting::Highlighter;
+use syntect::parsing::Scope;
 use two_face::theme::EmbeddedThemeName;
 
 use super::vendor::LineOrigin;
@@ -126,11 +130,30 @@ fn from_syntect(c: syntect::highlighting::Color) -> Rgb {
     rgb(c.r, c.g, c.b)
 }
 
+/// A colour the syntect theme states for an interface role, as it lands on
+/// the ground (ADR 0039).
+///
+/// Several themes state these with an alpha — Catppuccin's selection is its
+/// overlay at a quarter — and an editor composites them over the ground in
+/// sRGB, straight on the encoded values. That is the colour the theme's author
+/// looked at, so it is the one taken here: `palette`'s mix on a NON-linear
+/// `Srgb`, which is exactly that composite. The Oklab `mix` would be the
+/// wrong one — it is the rule for a derivation, not a record of what an editor
+/// paints.
+fn own(c: Option<syntect::highlighting::Color>, bg: Rgb) -> Option<Rgb> {
+    c.map(|c| {
+        let ground: Srgb<f32> = bg.into_format();
+        let top: Srgb<f32> = from_syntect(c).into_format();
+        ground.mix(top, f32::from(c.a) / 255.0).into_format()
+    })
+}
+
 /// What a theme decides for itself.
 ///
-/// Five accents, because a syntect theme carries a background and a foreground
-/// but has no opinion about what an *addition* is, or a finding, or the skim
-/// tier. Everything else on [`Theme`] is derived from these.
+/// Six accents, because a syntect theme carries a ground, a selection and a
+/// comment colour but has no opinion about what an *addition* is, or a
+/// finding, or the skim tier. Everything else on [`Theme`] is the syntect
+/// theme's own or derived from these (ADR 0039).
 ///
 /// A reviewed mark is NOT one of them. It was, and all eleven seeds set it to
 /// the same literal as `add` — eleven files independently agreeing to keep two
@@ -476,15 +499,25 @@ impl Theme {
     }
 }
 
-/// Every colour on the screen, from six accents and the syntect theme's ground.
-///
-/// The mix fractions all run *towards the background*, so each rule reads the
-/// same way in a light theme as in a dark one: 0.86 is a whisper of colour over
-/// the ground, 0.35 is most of the way to the accent itself. That relativity is
-/// the whole reason a light palette needs no rules of its own.
+/// How far off the ground a selection has to sit to be seen, in Oklab
+/// lightness. Solarized Light's own selection, the faintest shipped, clears it
+/// with room.
+const SEEN: f32 = 0.03;
+
+/// How much further off the ground the cursor's row sits than a selection, in
+/// Oklab lightness — the step that keeps the cursor the stronger end of a run.
+const GAP: f32 = 0.04;
+
 const WHITE: Rgb = rgb(0xFF, 0xFF, 0xFF);
 const BLACK: Rgb = rgb(0x00, 0x00, 0x00);
 
+/// Every colour on the screen, from the syntect theme's own colours and six
+/// accents, against the syntect theme's ground (ADR 0039).
+///
+/// The mix fractions all run *towards the background*, so each rule reads the
+/// same way in a light theme as in a dark one: 0.90 is a whisper of colour over
+/// the ground, 0.52 is about half way to the accent itself. That relativity is
+/// the whole reason a light palette needs no rules of its own.
 fn derive(seed: &Seed, syntect: syntect::highlighting::Theme) -> Theme {
     let settings = &syntect.settings;
     // A syntect theme is not obliged to state either, though every embedded one
@@ -513,7 +546,11 @@ fn derive(seed: &Seed, syntect: syntect::highlighting::Theme) -> Theme {
     // not a second mix from the seed.
     let (add_tint, del_tint) = (mix(add, bg, 0.90), mix(del, bg, 0.90));
     let (add_block, del_block) = (mix(add, bg, 0.78), mix(del, bg, 0.78));
-    let (add_word, del_word) = (mix(add, bg, 0.58), mix(del, bg, 0.58));
+    // Fitted to the six ports that state an inserted and a removed TEXT
+    // background (issue 157): 0.80 is their median, at ΔE 0.02. The 0.58
+    // this replaced sat 0.10 to 0.13 further from the ground than every one
+    // of them, which is most of why a changed word shouted.
+    let (add_word, del_word) = (mix(add, bg, 0.80), mix(del, bg, 0.80));
 
     // How far a selected row's colours move away from the ground: HALF the way
     // from a line's tint to its own gutter block.
@@ -530,6 +567,63 @@ fn derive(seed: &Seed, syntect: syntect::highlighting::Theme) -> Theme {
     let step = |tint: Rgb, block: Rgb| (lightness(block) - lightness(tint)).abs();
     let (add_step, del_step) = (step(add_tint, add_block), step(del_tint, del_block));
 
+    // The theme's own colours come first, and a derivation is the fallback
+    // (ADR 0039). Every syntect theme shipped states a selection and a line
+    // highlight, most state their line numbers, and all of them colour a
+    // comment — and the mixes that stood in for those landed 0.06 to 0.16
+    // away from what the theme's own editors paint (issue 157).
+    //
+    // Each is taken only if it clears the bar the tests hold that field to,
+    // so a theme's own value can never be less legible than the derivation it
+    // replaces: One Light's line numbers are 1.4:1 on its ground, which is a
+    // choice an editor can make and a reviewer's gutter cannot.
+    let muted = 3.0f32.min(contrast(fg, bg) * 0.65);
+    // Legible, and still quieter than the text: Monokai's own line numbers
+    // are its foreground, which is a gutter shouting as loud as the code.
+    let quiet = |c: &Rgb| contrast(*c, bg) >= muted && contrast(*c, bg) < contrast(fg, bg);
+    let away = |c: Rgb| (lightness(c) - lightness(bg)).abs();
+    // The comment colour, by syntect's own scope matching. A theme with no
+    // rule for it answers with its foreground, which is not a comment colour.
+    let comment = Scope::new("comment")
+        .ok()
+        .map(|s| Highlighter::new(&syntect).style_for_stack(&[s]).foreground)
+        .map(from_syntect)
+        .filter(|c| *c != fg);
+
+    // Line numbers: the theme's own, then its comment colour — which is what
+    // an editor numbers lines in when the theme says nothing — then a mix.
+    //
+    // The mix fitted to the ports' line numbers is 0.59, and it is not the
+    // one used: it takes five palettes under the 3:1 that
+    // `every_theme_is_legible_on_its_own_ground` holds a gutter to. 0.46 is
+    // the quietest that clears it everywhere.
+    let gutter_fg = own(settings.gutter_foreground, bg)
+        .filter(quiet)
+        .or(comment.filter(quiet))
+        .unwrap_or_else(|| mix(fg, bg, 0.46 * headroom));
+    // The noise tier is the quietest ink, and a comment is the quietest thing
+    // a theme paints. 0.38 is the mix fitted to the ports' comment colours.
+    let noise_fg = comment
+        .filter(quiet)
+        .unwrap_or_else(|| mix(fg, bg, 0.38 * headroom));
+
+    // A selection has to be seen, so it has a floor (`SEEN`). The fallback is
+    // the text colour at a sixth, fitted to the ports' selections — neutral,
+    // as every one of theirs is. The accent-tinted slab it replaces was the
+    // one colour on screen that no theme's editor paints.
+    let selected = own(settings.selection, bg)
+        .filter(|c| away(*c) >= SEEN)
+        .unwrap_or_else(|| mix(fg, bg, 0.84));
+    // The cursor's row is the moving end of a selection and has to be the
+    // stronger of the two, or a run reads backwards. No shipped theme's own
+    // line highlight is: four state the selection's exact colour, the rest
+    // something fainter. So it is taken only when it is clearly the stronger,
+    // and otherwise the cursor is the selection one step (`GAP`) further out
+    // — lightness alone, so it stays the theme's own grey.
+    let cursor = own(settings.line_highlight, bg)
+        .filter(|c| away(*c) >= away(selected) + GAP)
+        .unwrap_or_else(|| deepen(selected, bg, GAP));
+
     // One ink for all three cursor blocks, so the line number does not change
     // colour as the cursor moves between an addition, a deletion and a plain
     // line. Chosen by whichever of the palette's own extremes reads WORST on
@@ -538,11 +632,7 @@ fn derive(seed: &Seed, syntect: syntect::highlighting::Theme) -> Theme {
     //
     // From the palette rather than a flat white, so a Solarized cursor stays
     // Solarized.
-    let blocks = [
-        mix(add, bg, 0.52),
-        mix(del, bg, 0.52),
-        mix(accent, bg, 0.72),
-    ];
+    let blocks = [mix(add, bg, 0.52), mix(del, bg, 0.52), cursor];
     let worst = |ink: Rgb| {
         blocks
             .iter()
@@ -630,20 +720,20 @@ fn derive(seed: &Seed, syntect: syntect::highlighting::Theme) -> Theme {
         hint_bg: q(fg, 0.89),
         hint_cursor_fg: m(fg, 0.18),
         hint_cursor_bg: q(fg, 0.74),
-        gutter_fg: m(fg, 0.41),
+        gutter_fg: color(gutter_fg),
         // The code's own ink, not a mix of it: an unchanged line is the
         // theme's foreground, and quieting it by a tenth cost a low-contrast
         // palette like Solarized a quarter of the contrast it had.
         context_fg: color(fg),
-        cursor_bg: q(accent, 0.72),
-        selected_bg: q(accent, 0.90),
+        cursor_bg: color(cursor),
+        selected_bg: color(selected),
         header_fg: color(accent),
         foreign_fg: m(accent, 0.30),
         // Focus is the must-read tier and wears the deletion red; noise is the
-        // quietest thing on screen, one step past the gutter.
+        // quietest thing on screen, in the theme's comment colour.
         focus_fg: color(del),
         skim_fg: color(seed.skim),
-        noise_fg: m(fg, 0.42),
+        noise_fg: color(noise_fg),
         // A deeper sibling of the addition green. `reviewed` used to be its own
         // seed field and every theme set it to exactly `add`; the palette
         // before that distinguished them, and this keeps the distinction
@@ -672,7 +762,11 @@ fn derive(seed: &Seed, syntect: syntect::highlighting::Theme) -> Theme {
                 })
                 .expect("four candidates"),
         ),
-        status_bg: q(fg, 0.93),
+        // A shade DARKER than the ground, on a light theme as on a dark one:
+        // every port that sets a status bar apart sets it below the editor.
+        // Towards the foreground, as this was, lifted it on every dark theme.
+        // 0.05 is the median fitted to the ten ports.
+        status_bg: color(mix(bg, BLACK, 0.05)),
         highlighter: Arc::new(SyntaxHighlighter::with_theme(
             syntect,
             q(add, 0.90),
@@ -1066,6 +1160,84 @@ mod tests {
                 assert!(on_tint >= 3.5, "{name:?}: code on {what}: {on_tint:.2}:1");
             }
         }
+    }
+
+    /// The cursor's row has to be seen on a plain line, and seen INSIDE a
+    /// selection: it is the moving end of one, and a run whose moving end is
+    /// the quieter of the two reads backwards. Four shipped themes state one
+    /// colour for both, which is what this is here to catch.
+    #[test]
+    fn the_cursor_row_is_tellable_from_the_ground_and_from_a_selection() {
+        let mut bad = Vec::new();
+        for &name in ALL {
+            let t = Theme::named(name);
+            let bg = must_rgb(t.bg);
+            let away = |c: Color| (lightness(must_rgb(c)) - lightness(bg)).abs();
+            let (sel, cur) = (away(t.selected_bg), away(t.cursor_bg));
+            // The slack is the rounding an 8-bit channel forces on the way back.
+            if sel < SEEN - 0.005 {
+                bad.push(format!(
+                    "{name:?}: the selection is {sel:.3} off the ground"
+                ));
+            }
+            if cur < sel + GAP - 0.005 {
+                bad.push(format!(
+                    "{name:?}: the cursor row is {cur:.3} off the ground, the selection {sel:.3}"
+                ));
+            }
+        }
+        assert!(bad.is_empty(), "{}", bad.join("\n"));
+    }
+
+    /// A theme's own colour is used wherever it clears the bar, rather than a
+    /// derivation standing in for it (ADR 0039). Without this, a change to the
+    /// bars could send every theme quietly back to the mixes issue 157 was
+    /// about, and every other test here would still pass.
+    #[test]
+    fn a_theme_keeps_its_own_colours_where_they_pass() {
+        let mut bad = Vec::new();
+        for &name in ALL {
+            let t = Theme::named(name);
+            let theme = &two_face::theme::extra()[seed(name).syntax];
+            let st = &theme.settings;
+            let (bg, fg) = (must_rgb(t.bg), must_rgb(t.fg));
+            let muted = 3.0f32.min(contrast(fg, bg) * 0.65);
+            if let Some(own_sel) = own(st.selection, bg)
+                && (lightness(own_sel) - lightness(bg)).abs() >= SEEN
+                && must_rgb(t.selected_bg) != own_sel
+            {
+                bad.push(format!(
+                    "{name:?}: selection is not the theme's {own_sel:?}"
+                ));
+            }
+            if let Some(own_gut) = own(st.gutter_foreground, bg)
+                && contrast(own_gut, bg) >= muted
+                && contrast(own_gut, bg) < contrast(fg, bg)
+                && must_rgb(t.gutter_fg) != own_gut
+            {
+                bad.push(format!(
+                    "{name:?}: line numbers are not the theme's {own_gut:?}"
+                ));
+            }
+            // The noise tier takes the comment colour on the same terms. A
+            // theme with no comment rule answers with its foreground, which is
+            // not a comment colour, so that case is skipped as `derive` skips it.
+            let comment = Scope::new("comment")
+                .ok()
+                .map(|s| Highlighter::new(theme).style_for_stack(&[s]).foreground)
+                .map(from_syntect)
+                .filter(|c| *c != fg);
+            if let Some(own_comment) = comment
+                && contrast(own_comment, bg) >= muted
+                && contrast(own_comment, bg) < contrast(fg, bg)
+                && must_rgb(t.noise_fg) != own_comment
+            {
+                bad.push(format!(
+                    "{name:?}: noise is not the theme's comment {own_comment:?}"
+                ));
+            }
+        }
+        assert!(bad.is_empty(), "{}", bad.join("\n"));
     }
 
     #[test]
