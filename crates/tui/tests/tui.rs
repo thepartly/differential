@@ -11001,7 +11001,7 @@ fn every_multiple_choice_row_opens_a_list() {
     let edit = app.config_edit().unwrap();
     assert!(edit.dropdown.is_some(), "enter on the agent opens its list");
     let text = screen(&app, SCREEN.width, SCREEN.height).join("\n");
-    for a in Agent::ALL {
+    for &a in Agent::ALL {
         assert!(text.contains(a.key()), "{} is listed:\n{text}", a.key());
     }
     app.handle_key(key('j'));

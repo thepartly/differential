@@ -227,6 +227,8 @@ fn order_classes(
         })
         .collect();
 
+    // The same walk as `toposort_prefix`, for classes, and written out for
+    // the same reason: the tie-break is the content (see its note on petgraph).
     let mut remaining = members.clone();
     let mut emitted: HashSet<usize> = HashSet::new();
     let mut out: Vec<String> = Vec::with_capacity(members.len());
@@ -350,6 +352,12 @@ struct Sorted {
 /// hunk count, then original position (stable). On a deadlock, `resolve` picks
 /// the node and says why the cycle exists; the edges that node could not
 /// honour are recorded with that verdict.
+///
+/// Written out rather than `petgraph::algo::toposort` (design rule 5): that
+/// one has no tie-break for which ready node goes first, and no hook to break
+/// a cycle with a reason — it stops at the first one. Both are the ordering's
+/// whole content, so the walk is ours and the graph questions around it are
+/// petgraph's (`break_cycle` uses `is_cyclic_directed`).
 fn toposort_prefix(
     len: usize,
     deps: &[HashSet<usize>],

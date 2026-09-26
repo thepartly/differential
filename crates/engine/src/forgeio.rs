@@ -477,8 +477,10 @@ impl Forge for GhForge {
 /// and `gh pr view` names the head repository only.
 fn parse_request(v: &Value) -> Result<Request, ForgeError> {
     let url = str_of(v, "url")?;
-    // `…/owner/repo/pull/123`, read from the right.
-    let mut segments = url.trim_end_matches('/').rsplit('/').skip(2);
+    // `…/owner/repo/pull/123`, read from the right of the URL's PATH, so a
+    // query or a fragment is not mistaken for a segment.
+    let path = url_path(url)?;
+    let mut segments = path.rsplit('/').skip(2);
     let repo = segments
         .next()
         .ok_or_else(|| parse_err("url has no repo"))?;
@@ -499,6 +501,19 @@ fn parse_request(v: &Value) -> Result<Request, ForgeError> {
         merge_base: None,
         url: url.to_string(),
     })
+}
+
+/// A request URL's path, decoded, without its leading or trailing `/`.
+///
+/// `url` reads the URL, so a query, a fragment or a port cannot be mistaken
+/// for part of the path, and `percent_encoding` decodes it — a GitLab group
+/// may hold characters a URL has to escape.
+fn url_path(text: &str) -> Result<String, ForgeError> {
+    let parsed = url::Url::parse(text).map_err(|e| parse_err(format!("bad url {text:?}: {e}")))?;
+    let path = percent_encoding::percent_decode_str(parsed.path())
+        .decode_utf8()
+        .map_err(|_| parse_err("url path is not UTF-8"))?;
+    Ok(path.trim_matches('/').to_string())
 }
 
 /// One `reviewThreads` page: the threads, and the cursor of the next page.
@@ -835,12 +850,7 @@ impl Forge for GlabForge {
 /// the head. The project is the URL's path up to `/-/`.
 fn parse_mr(v: &Value) -> Result<Request, ForgeError> {
     let url = str_of(v, "web_url")?;
-    let path = url
-        .split_once("://")
-        .map(|(_, rest)| rest)
-        .and_then(|rest| rest.split_once('/'))
-        .map(|(_, path)| path)
-        .ok_or_else(|| parse_err("web_url has no path"))?;
+    let path = url_path(url)?;
     let project = path
         .split_once("/-/")
         .map(|(p, _)| p)
@@ -1287,6 +1297,47 @@ mod tests {
                 "head_sha": HEAD
             }
         })
+    }
+
+    #[test]
+    fn a_request_url_is_read_as_a_url() {
+        let pr = |url: &str| {
+            let v = json!({
+                "number": 84, "baseRefName": "main",
+                "baseRefOid": "e".repeat(40), "headRefOid": "d".repeat(40), "url": url
+            });
+            parse_request(&v).map(|r| r.project)
+        };
+        // A query, a fragment, a trailing slash: none of them is the path.
+        assert_eq!(
+            pr("https://github.com/owner/repo/pull/84?w=1").unwrap(),
+            "owner/repo"
+        );
+        assert_eq!(
+            pr("https://github.com/owner/repo/pull/84#discussion").unwrap(),
+            "owner/repo"
+        );
+        assert_eq!(
+            pr("https://github.com/owner/repo/pull/84/").unwrap(),
+            "owner/repo"
+        );
+        assert!(pr("not a url").is_err());
+
+        let mr = |url: &str| {
+            let mut v = mr_view();
+            v["web_url"] = json!(url);
+            parse_mr(&v).map(|r| r.project)
+        };
+        assert_eq!(
+            mr("https://gitlab.example.com:8443/group/sub/proj/-/merge_requests/12?tab=diffs")
+                .unwrap(),
+            "group/sub/proj"
+        );
+        assert_eq!(
+            mr("https://gitlab.example.com/gr%C3%BCppe/proj/-/merge_requests/12").unwrap(),
+            "grüppe/proj",
+            "the path is decoded"
+        );
     }
 
     #[test]
