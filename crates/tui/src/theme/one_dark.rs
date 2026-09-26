@@ -10,11 +10,11 @@
 
 use two_face::theme::EmbeddedThemeName;
 
-use super::{Seed, rgb};
+use super::{Seed, Syntax, rgb};
 
 pub(super) fn seed() -> Seed {
     Seed {
-        syntax: EmbeddedThemeName::TwoDark,
+        syntax: Syntax::Embedded(EmbeddedThemeName::TwoDark),
         add: rgb(0x98, 0xC3, 0x79),
         del: rgb(0xE8, 0x79, 0x7F),
         accent: rgb(0x61, 0xAF, 0xEF),

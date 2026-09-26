@@ -527,7 +527,8 @@ in — so the chrome and the code come from one source and cannot drift apart.
 
 `dark` (the default), `one-dark`, `one-light`, `gruvbox-dark`, `gruvbox-light`,
 `solarized-dark`, `solarized-light`, `catppuccin-mocha`, `catppuccin-latte`,
-`dracula`, `monokai`.
+`dracula`, `monokai`. `monokai` wears Monokai Pro's palette, with a syntax theme written
+for this crate; it is not affiliated with Monokai Pro.
 
 Every shot below is the same change in the same reviewer; only the palette differs.
 `./assets/themes.sh` regenerates them.
@@ -624,7 +625,8 @@ theme gives its ground and, where they are legible, its own selection, line numb
 comment colour. The other colours are mixed against that ground (ADR 0024, ADR 0039).
 Seeds live one per file in `src/theme/`.
 
-Adding one is a variant on `ThemeName` and a seed file. Tests then run the legibility,
+Adding one is a variant on `ThemeName` and a seed file, plus a `.tmTheme` when two-face does
+not ship the syntax theme (ADR 0040). Tests then run the legibility,
 chroma and distinctness checks over it along with the rest, which is what makes it cheap:
 a palette that does not hold up fails the build rather than someone's eyes.
 

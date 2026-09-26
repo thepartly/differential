@@ -7,11 +7,11 @@
 
 use two_face::theme::EmbeddedThemeName;
 
-use super::{Seed, rgb};
+use super::{Seed, Syntax, rgb};
 
 pub(super) fn seed() -> Seed {
     Seed {
-        syntax: EmbeddedThemeName::Dracula,
+        syntax: Syntax::Embedded(EmbeddedThemeName::Dracula),
         add: rgb(0x50, 0xFA, 0x7B),
         del: rgb(0xFF, 0x55, 0x55),
         accent: rgb(0x6F, 0xE3, 0xFB),

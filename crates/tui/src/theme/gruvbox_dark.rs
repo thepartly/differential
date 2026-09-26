@@ -6,11 +6,11 @@
 
 use two_face::theme::EmbeddedThemeName;
 
-use super::{Seed, rgb};
+use super::{Seed, Syntax, rgb};
 
 pub(super) fn seed() -> Seed {
     Seed {
-        syntax: EmbeddedThemeName::GruvboxDark,
+        syntax: Syntax::Embedded(EmbeddedThemeName::GruvboxDark),
         add: rgb(0xB8, 0xBB, 0x26),
         del: rgb(0xFB, 0x69, 0x54),
         accent: rgb(0x8E, 0xC0, 0x7C),
