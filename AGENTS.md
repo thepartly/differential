@@ -4,7 +4,7 @@ A reading plan for a diff: it sorts a branch's hunks into shape classes, merges 
 into groups by intent, orders the groups foundation-first, and opens them in the terminal
 reviewer. Read [`README.md`](README.md) for what it is.
 
-`spec/` is normative — what the program does. `adr/` records why (0001–0039).
+`spec/` is normative — what the program does. `adr/` records why (0001–0040).
 [`spec/terminology.md`](spec/terminology.md) fixes the words: use them, and add one only for
 a concept no entry covers. **When your change contradicts a spec, an ADR or a constraint,
 the docs and the code change together, or the change is wrong.**
