@@ -619,9 +619,10 @@ A theme **paints its own background** rather than letting the terminal's show th
 light palette works on a dark terminal and the other way round.
 
 Each is *derived* rather than hand-written: a seed names the syntax theme and six accents —
-an addition, a deletion, the accent, the skim tier, the highlight, a finding — and the
-other thirty-odd colours are mixed from those against the ground the syntax theme declares
-(ADR 0024). Seeds live one per file in `src/theme/`.
+an addition, a deletion, the accent, the skim tier, the highlight, a finding. The syntax
+theme gives its ground and, where they are legible, its own selection, line numbers and
+comment colour. The other colours are mixed against that ground (ADR 0024, ADR 0039).
+Seeds live one per file in `src/theme/`.
 
 Adding one is a variant on `ThemeName` and a seed file. Tests then run the legibility,
 chroma and distinctness checks over it along with the rest, which is what makes it cheap:

@@ -185,8 +185,8 @@ editor = "nvim +{line} {file}"
 
 `theme` is a **name, not a colour list**, for the same reason `agent` is a name and not an
 argv. A palette is not a value the caller supplies but a coherent set the renderer builds:
-thirty-odd colours plus the syntax theme the code is painted in, all derived together so
-the chrome and the code cannot disagree (ADR 0024). A free-form colour table would be a
+thirty-odd colours plus the syntax theme the code is painted in, built together from that
+syntax theme and a seed so the chrome and the code cannot disagree (ADR 0024, ADR 0039). A free-form colour table would be a
 knob that looked like it worked, and would freeze thirty field names as public API.
 Adding a theme is adding a `config::ThemeName` variant and a seed file.
 

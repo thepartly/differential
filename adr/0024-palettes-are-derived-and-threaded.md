@@ -1,6 +1,8 @@
 # 0024 — Palettes are derived from a seed, and threaded
 
-Status: accepted.
+Status: accepted. Amended by [ADR 0039](0039-a-theme-s-own-colours-come-first.md): the
+syntax theme now gives its own selection, line numbers and comment colour as well as its
+ground, and derivation is the fallback.
 
 ## Context
 
