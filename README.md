@@ -254,11 +254,11 @@ document reports the two separately:
 
 ## Themes
 
-Eleven palettes ship with it: `dark` (the default), `one-dark`, `one-light`, `gruvbox-dark`,
-`gruvbox-light`, `solarized-dark`, `solarized-light`, `catppuccin-mocha`,
-`catppuccin-latte`, `dracula` and `monokai`.
+Thirteen palettes ship with it: `dark` (the default), `one-dark`, `one-light`,
+`gruvbox-dark`, `gruvbox-light`, `solarized-dark`, `solarized-light`, `catppuccin-mocha`,
+`catppuccin-latte`, `dracula`, `monokai`, `flexoki` and `flexoki-light`.
 
-**[Screenshots of all eleven](https://github.com/thepartly/differential/blob/main/docs/cli.md#themes)** — the same change in the same reviewer,
+**[Screenshots of all thirteen](https://github.com/thepartly/differential/blob/main/docs/cli.md#themes)** — the same change in the same reviewer,
 only the palette differs.
 
 ## Commands

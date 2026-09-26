@@ -1,7 +1,7 @@
 # One split-pane screenshot of the reviewer, for a single palette.
 #
 # A TEMPLATE, not a runnable tape: `assets/themes.sh` substitutes `__THEME__`
-# and runs one copy of this per theme. That is deliberate. Recording all eleven
+# and runs one copy of this per theme. That is deliberate. Recording all thirteen
 # in one tape shares a terminal between them, and a shared terminal shares
 # scrollback, leftover keystrokes and a shell prompt — `Wait+Screen` matched a
 # previous run's reviewer still in the buffer and fired the shot at a bare

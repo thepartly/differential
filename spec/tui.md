@@ -212,15 +212,15 @@ open fold and a hunk's expansion — where along a line a reader is looking is a
 position for this sitting, not a preference, so nothing about it reaches the sidecar.
 
 **The palette is chosen, and painted.** `[review].theme` in the user config names one of
-eleven: `dark` (the default), `one-dark`, `one-light`, `gruvbox-dark`, `gruvbox-light`,
+thirteen: `dark` (the default), `one-dark`, `one-light`, `gruvbox-dark`, `gruvbox-light`,
 `solarized-dark`, `solarized-light`, `catppuccin-mocha`, `catppuccin-latte`, `dracula`,
-`monokai`. Each pairs the reviewer's colours with the syntax theme the code is painted in,
+`monokai`, `flexoki`, `flexoki-light`. Each pairs the reviewer's colours with the syntax theme the code is painted in,
 so the chrome and the code are one palette rather than two that drift (ADR 0024). The
 syntax theme gives its ground, and its own selection, line numbers and comment colour
 wherever they clear the legibility bars. The rest is derived against that ground (ADR
-0039). Most syntax themes come from two-face. `monokai` wears Monokai Pro's palette, which
-two-face does not ship, so its syntax theme is a `.tmTheme` compiled into the reviewer (ADR
-0040). The cursor's row is the selection one step further from the ground, so it stays the
+0039). Most syntax themes come from two-face. `monokai` (in Monokai Pro's palette),
+`flexoki` and `flexoki-light` are palettes two-face does not ship, so their syntax themes
+are `.tmTheme` files compiled into the reviewer (ADR 0040). The cursor's row is the selection one step further from the ground, so it stays the
 stronger end of a run even where a theme paints its line highlight and its selection alike.
 
 A theme paints its **own background**. The terminal's used to show through wherever nothing
