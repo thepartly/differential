@@ -10,7 +10,7 @@ use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, List, ListItem, Paragraph};
+use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph};
 use unicode_width::UnicodeWidthStr;
 
 use differential_engine::plan::{self, LineCounts};
@@ -23,9 +23,8 @@ use crate::vendor::text_utils::{
 };
 
 use super::text::{
-    Hint, Ink, SEARCH_BOX_ROWS, basename, counts_columns, elide_head, file_list_rows,
-    findings_rows, findings_skip, joined, pad_to_width, plain, search_list_rows,
-    search_preview_rows, truncate_width,
+    Hint, Ink, SEARCH_BOX_ROWS, basename, counts_columns, elide_head, findings_rows, findings_skip,
+    joined, plain, search_list_rows, search_preview_rows, truncate_width,
 };
 use super::*;
 use crossterm::event::KeyCode;
@@ -167,14 +166,18 @@ impl App {
                     .max()
                     .unwrap_or(0)
                     .min(inner_w / 3);
-                let mut lines: Vec<Line> = Vec::new();
+                // A rule is an item of its own, never selected: the list's
+                // rows are the entries and the rules between them, which is
+                // what the offset and the hit test count in.
+                let mut items: Vec<ListItem> = Vec::new();
+                let mut item_of_selected = None;
                 for (i, e) in entries.iter().enumerate() {
                     if rules.contains(&i) {
                         let label = match e.section() {
                             1 => "review threads",
                             _ => "orphaned",
                         };
-                        lines.push(Line::from(Span::styled(
+                        items.push(ListItem::new(Span::styled(
                             format!(
                                 " ── {label} {} ",
                                 "─".repeat(inner_w.saturating_sub(label.len() + 6))
@@ -182,24 +185,14 @@ impl App {
                             dim,
                         )));
                     }
-                    let on = i == *selected;
-                    let base = Style::default().fg(if e.orphaned || e.resolved {
+                    if i == *selected {
+                        item_of_selected = Some(items.len());
+                    }
+                    let style = Style::default().fg(if e.orphaned || e.resolved {
                         self.theme.gutter_fg
                     } else {
                         self.theme.context_fg
                     });
-                    let style = if on {
-                        base.bg(self.theme.selected_bg).add_modifier(Modifier::BOLD)
-                    } else {
-                        base
-                    };
-                    let bg = |st: Style| {
-                        if on {
-                            st.bg(self.theme.selected_bg)
-                        } else {
-                            st
-                        }
-                    };
                     let moved = match (e.moved, e.published, e.resolved) {
                         (true, _, _) => " (moved)",
                         (_, true, _) => " (published)",
@@ -221,19 +214,12 @@ impl App {
                         UnicodeWidthStr::width(at.as_str()) + UnicodeWidthStr::width(moved) + 1,
                     );
                     let body = truncate_width(&e.body, room);
-                    let mut line = Line::from(vec![
-                        Span::styled(at, bg(dim)),
+                    items.push(ListItem::new(Line::from(vec![
+                        Span::styled(at, dim),
                         Span::styled(body, style),
-                        Span::styled(moved.to_string(), bg(dim)),
-                    ]);
-                    if on {
-                        pad_to_width(&mut line, inner_w, self.theme.selected_bg);
-                    }
-                    lines.push(line);
+                        Span::styled(moved.to_string(), dim),
+                    ])));
                 }
-                // A rule is a row too, so scrolling counts drawn rows.
-                let skip = findings_skip(*scroll, &rules);
-                let shown: Vec<Line> = lines.into_iter().skip(skip).take(inner_h).collect();
 
                 // The keys go in a footer inside the box, as the composer's
                 // do: the confirmation needs that row anyway, and a title
@@ -257,10 +243,18 @@ impl App {
                     title.push_str(&format!("· {orphans} orphaned "));
                 }
                 clear_to_ground(frame, &self.theme, area);
-                frame.render_widget(
-                    Paragraph::new(shown).block(pane(&self.theme, title, true)),
-                    area,
-                );
+                frame.render_widget(pane(&self.theme, title, true), area);
+                // As tall as the rows `j`/`k` scroll against and no taller,
+                // so the list cannot draw under the footer.
+                let list_area = Rect {
+                    height: u16::try_from(inner_h).unwrap_or(u16::MAX),
+                    ..pane_inner(area)
+                };
+                // The item the window starts at: entry `scroll`, past the
+                // rules above it.
+                let (list, mut state) =
+                    self.selection_list(items, findings_skip(*scroll, &rules), item_of_selected);
+                frame.render_stateful_widget(list, list_area, &mut state);
                 frame.render_widget(Paragraph::new(footer), footer_row(area));
             }
             Mode::FileList {
@@ -268,65 +262,49 @@ impl App {
                 selected,
                 scroll,
             } => {
-                let body_rows = panes.body.height as usize;
-                // Window before building, and by the same number `j`/`k`
-                // scroll against: the surplus lines used to be built and then
-                // silently dropped off the bottom of the box.
-                let inner_h = file_list_rows(entries.len(), body_rows);
-
                 let (add_w, del_w, lead) = counts_columns(entries);
                 let area = file_list_modal_area(panes.body, entries);
                 let inner_w = area.width.saturating_sub(2) as usize;
                 let path_col = inner_w.saturating_sub(lead);
 
-                let lines: Vec<Line> = entries
+                let items: Vec<ListItem> = entries
                     .iter()
-                    .enumerate()
-                    .skip(*scroll)
-                    .take(inner_h)
-                    .map(|(i, e)| {
+                    .map(|e| {
                         let mark = if e.reviewed { "✓" } else { " " };
-                        let mut style = Style::default().fg(self.theme.context_fg);
-                        if i == *selected {
-                            style = style
-                                .bg(self.theme.selected_bg)
-                                .add_modifier(Modifier::BOLD);
-                        }
+                        let style = Style::default().fg(self.theme.context_fg);
                         // The counts say added and removed here too — they were
                         // one grey run, which is the one thing a file list is
                         // scanned for.
-                        let on = |c| {
-                            Style::default().fg(c).patch(
-                                style
-                                    .bg
-                                    .map_or(Style::default(), |b| Style::default().bg(b)),
-                            )
-                        };
-                        Line::from(vec![
+                        ListItem::new(Line::from(vec![
                             Span::styled(format!("{mark} "), style),
-                            Span::styled(format!("+{:<add_w$}", e.adds), on(self.theme.add_fg)),
-                            Span::styled(format!("−{:<del_w$} ", e.dels), on(self.theme.del_fg)),
+                            Span::styled(
+                                format!("+{:<add_w$}", e.adds),
+                                Style::default().fg(self.theme.add_fg),
+                            ),
+                            Span::styled(
+                                format!("−{:<del_w$} ", e.dels),
+                                Style::default().fg(self.theme.del_fg),
+                            ),
                             // Whole when it fits, and cut at its HEAD when it
                             // does not, so the name survives whatever the
                             // directories above it cost.
                             Span::styled(elide_head(&e.path, path_col), style),
-                        ])
+                        ]))
                     })
                     .collect();
+                // The keys are the table's too, drawn in the title because
+                // this box has no spare row for a footer.
+                let title = format!(
+                    " files{}— {} ",
+                    self.skipped_note(),
+                    plain(&self.modal_hints())
+                );
                 clear_to_ground(frame, &self.theme, area);
-                frame.render_widget(
-                    Paragraph::new(lines).block(pane(
-                        &self.theme,
-                        // The keys are the table's too, drawn in the title
-                        // because this box has no spare row for a footer.
-                        format!(
-                            " files{}— {} ",
-                            self.skipped_note(),
-                            plain(&self.modal_hints())
-                        ),
-                        true,
-                    )),
+                let (list, mut state) = self.selection_list(items, *scroll, Some(*selected));
+                frame.render_stateful_widget(
+                    list.block(pane(&self.theme, title, true)),
                     area,
+                    &mut state,
                 );
             }
             Mode::Search(s) => self.draw_search(frame, panes.body, s),
@@ -351,12 +329,18 @@ impl App {
         let body_rows = usize::from(body.height);
         let dim = Style::default().fg(self.theme.gutter_fg);
 
-        let mut lines = vec![self.search_query_line(s, inner_w)];
-        lines.extend(self.search_list_lines(s, inner_w, search_list_rows(body_rows)));
-        // The rule between the two halves, so the preview reads as an answer
-        // to the row above it rather than as more list.
-        lines.push(Line::from(Span::styled("─".repeat(inner_w), dim)));
-        lines.extend(self.search_preview_lines(s, inner_w, search_preview_rows(body_rows)));
+        // The query, the list, the rule and the preview, each in a rect of
+        // its own: the list is a `List` over its rect, so it windows and lights
+        // its own rows, and the hit test's "row 1 is the list's first" is
+        // this layout's first `Length(1)`.
+        let list_rows = search_list_rows(body_rows);
+        let [query_row, list_area, rule_row, preview_area] = ratatui::layout::Layout::vertical([
+            Constraint::Length(1),
+            Constraint::Length(u16::try_from(list_rows).unwrap_or(u16::MAX)),
+            Constraint::Length(1),
+            Constraint::Fill(1),
+        ])
+        .areas(pane_inner(area));
 
         let found = match s.entries.len() {
             // A pattern that does not compile finds nothing, and so does a
@@ -369,11 +353,26 @@ impl App {
         };
         clear_to_ground(frame, &self.theme, area);
         frame.render_widget(
-            Paragraph::new(lines).block(
-                pane(&self.theme, " search ".into(), true)
-                    .title_bottom(Line::from(Span::styled(found, dim)).right_aligned()),
-            ),
+            pane(&self.theme, " search ".into(), true)
+                .title_bottom(Line::from(Span::styled(found, dim)).right_aligned()),
             area,
+        );
+        frame.render_widget(
+            Paragraph::new(self.search_query_line(s, inner_w)),
+            query_row,
+        );
+        let (items, selected) = self.search_list_items(s, inner_w, list_rows);
+        let (list, mut state) = self.selection_list(items, s.scroll, selected);
+        frame.render_stateful_widget(list, list_area, &mut state);
+        // The rule between the two halves, so the preview reads as an answer
+        // to the row above it rather than as more list.
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled("─".repeat(inner_w), dim))),
+            rule_row,
+        );
+        frame.render_widget(
+            Paragraph::new(self.search_preview_lines(s, inner_w, search_preview_rows(body_rows))),
+            preview_area,
         );
         frame.render_widget(
             Paragraph::new(footer_line(&self.theme, &self.modal_footer())),
@@ -494,7 +493,7 @@ impl App {
     /// wrong with the draft, and its keys. Anchored to the left, so the diff
     /// the preview is changing stays in view beside it.
     fn draw_config(&self, frame: &mut Frame, body: Rect, edit: &super::config::ConfigEdit) {
-        use super::config::{ConfigLine, Field, config_lines};
+        use super::config::Field;
         let area = config_modal_area(body);
         let inner_w = usize::from(area.width.saturating_sub(2));
         let dim = Style::default().fg(self.theme.gutter_fg);
@@ -504,39 +503,34 @@ impl App {
             .fg(self.theme.finding_fg)
             .add_modifier(Modifier::BOLD);
 
-        let mut lines: Vec<Line> = self
+        let mut head: Vec<Line> = self
             .config_header()
             .into_iter()
             .map(|l| Line::from(Span::styled(l, dim)))
             .collect();
-        lines.push(Line::from(""));
+        head.push(Line::from(""));
+        let section_line = |name: &str| {
+            Line::from(Span::styled(
+                format!(" {name}"),
+                dim.add_modifier(Modifier::ITALIC),
+            ))
+        };
         let fields = Field::all();
-        // Where the open list's row landed, for the list to drop from.
-        let mut list_line = None;
-        for entry in config_lines(edit, self.config_rows()) {
-            let i = match entry {
-                ConfigLine::Section(name) => {
-                    lines.push(Line::from(Span::styled(
-                        format!(" {name}"),
-                        dim.add_modifier(Modifier::ITALIC),
-                    )));
-                    continue;
-                }
-                ConfigLine::Row(i) => i,
-            };
-            let field = fields[i];
-            if edit.dropdown.as_ref().is_some_and(|l| l.field == field) {
-                list_line = Some(lines.len());
+        // Every setting, with a section item where each table starts. The
+        // window starts at the item of the first visible setting, so the
+        // section above the window is not drawn twice: it is the sticky row.
+        let mut items: Vec<ListItem> = Vec::new();
+        let mut item_of: Vec<usize> = Vec::with_capacity(fields.len());
+        for (i, &field) in fields.iter().enumerate() {
+            if i == 0 || fields[i - 1].section() != field.section() {
+                items.push(ListItem::new(section_line(field.section())));
             }
+            item_of.push(items.len());
             let selected = i == edit.selected;
             let (value, default) = edit.value(field);
             let mut row = vec![Span::styled(
                 format!("   {:<16}", field.label()),
-                if selected {
-                    key.add_modifier(Modifier::BOLD)
-                } else {
-                    text
-                },
+                if selected { key } else { text },
             )];
             match (&edit.editing, selected) {
                 (Some(input), true) => {
@@ -569,37 +563,55 @@ impl App {
                     }
                 }
             }
-            let mut line = Line::from(row);
-            if selected {
-                line = Line::from(
-                    line.spans
-                        .into_iter()
-                        .map(|s| Span::styled(s.content, s.style.bg(self.theme.selected_bg)))
-                        .collect::<Vec<_>>(),
-                );
-                pad_to_width(&mut line, inner_w, self.theme.selected_bg);
-            }
-            lines.push(line);
+            items.push(ListItem::new(Line::from(row)));
         }
-        let notes = self.config_notes(edit);
+        let offset = item_of[edit.scroll];
+        let mut notes: Vec<Line> = self
+            .config_notes(edit)
+            .into_iter()
+            .map(|n| Line::from(Span::styled(n, warn)))
+            .collect();
         if !notes.is_empty() {
-            lines.push(Line::from(""));
-            lines.extend(notes.into_iter().map(|n| Line::from(Span::styled(n, warn))));
+            notes.insert(0, Line::from(""));
         }
         let title = match edit.dirty() {
             true => " config · changed ",
             false => " config ",
         };
+        let as_rows = |n: usize| u16::try_from(n).unwrap_or(u16::MAX);
+        let [head_area, sticky_area, list_area, notes_area, _footer] =
+            ratatui::layout::Layout::vertical([
+                Constraint::Length(as_rows(head.len())),
+                Constraint::Length(1),
+                Constraint::Fill(1),
+                Constraint::Length(as_rows(notes.len())),
+                Constraint::Length(1),
+            ])
+            .areas(pane_inner(area));
         clear_to_ground(frame, &self.theme, area);
+        frame.render_widget(pane(&self.theme, title.into(), true), area);
+        frame.render_widget(Paragraph::new(head), head_area);
         frame.render_widget(
-            Paragraph::new(lines).block(pane(&self.theme, title.into(), true)),
-            area,
+            Paragraph::new(section_line(fields[edit.scroll].section())),
+            sticky_area,
         );
+        // The row budget the model scrolls by (`config_rows`) leaves room for
+        // the section items a window can hold, so the selection is always in
+        // this window and `List` keeps the offset it is handed.
+        let (list, mut state) = self.selection_list(items, offset, Some(item_of[edit.selected]));
+        frame.render_stateful_widget(list, list_area, &mut state);
+        frame.render_widget(Paragraph::new(notes), notes_area);
         frame.render_widget(
             Paragraph::new(footer_line(&self.theme, &self.modal_footer())),
             footer_row(area),
         );
-        if let (Some(list), Some(row)) = (&edit.dropdown, list_line) {
+        // The open choice list drops from its row: the row's line inside the
+        // modal is the header, the sticky row, and its place in the window.
+        if let Some(list) = &edit.dropdown
+            && let Some(at) = fields.iter().position(|f| *f == list.field)
+            && item_of[at] >= offset
+        {
+            let row = head_area.height as usize + 1 + (item_of[at] - offset);
             self.draw_choice_list(frame, area, row, list);
         }
     }
@@ -723,17 +735,15 @@ impl App {
         Line::from(row)
     }
 
-    /// The occurrence list, drawn at its full height whatever it holds.
-    ///
-    /// A box that grew and shrank under a query being typed would move the
-    /// preview under the reader's eyes on every keystroke, so the blanks are
-    /// part of the answer.
-    fn search_list_lines(
+    /// The occurrence list's rows, and which one is selected — `None` for the
+    /// one row that says there is nothing to select. The badges are aligned
+    /// over the rows the window shows, which is what `rows` is for.
+    fn search_list_items(
         &self,
         s: &super::Search,
         inner_w: usize,
         rows: usize,
-    ) -> Vec<Line<'static>> {
+    ) -> (Vec<ListItem<'static>>, Option<usize>) {
         let dim = Style::default().fg(self.theme.gutter_fg);
         let text = Style::default().fg(self.theme.context_fg);
 
@@ -745,17 +755,20 @@ impl App {
             } else {
                 "no occurrence of that"
             };
-            return pad_rows(
-                vec![Line::from(Span::styled(format!("  {words}"), dim))],
-                rows,
+            return (
+                vec![ListItem::new(Span::styled(format!("  {words}"), dim))],
+                None,
             );
         }
 
         // The badges are right-aligned so the paths line up on the left, where
         // the eye scans them.
-        let shown = || s.entries.iter().enumerate().skip(s.scroll).take(rows);
-        let badge_col = shown()
-            .map(|(_, e)| UnicodeWidthStr::width(e.badge.as_str()))
+        let badge_col = s
+            .entries
+            .iter()
+            .skip(s.scroll)
+            .take(rows)
+            .map(|e| UnicodeWidthStr::width(e.badge.as_str()))
             .max()
             .unwrap_or(0);
         // The lead the findings list uses, and no cursor glyph: the selected
@@ -769,37 +782,24 @@ impl App {
         // row down.
         let room = inner_w.saturating_sub(badge_col + LEAD + GAP);
 
-        let lines: Vec<Line> = shown()
-            .map(|(i, e)| {
-                let on = i == s.selected;
-                let mut style = text;
-                if on {
-                    style = style
-                        .bg(self.theme.selected_bg)
-                        .add_modifier(Modifier::BOLD);
-                }
-                let bg = |st: Style| match on {
-                    true => st.bg(self.theme.selected_bg),
-                    false => st,
-                };
+        let items = s
+            .entries
+            .iter()
+            .map(|e| {
                 // Whole when it fits, cut at its HEAD when it does not: the
                 // file name and the line number identify the hit, and the
                 // directories above them do not.
                 let at = elide_head(&format!("{}:{}", e.path, e.line), room);
                 let pad = room.saturating_sub(UnicodeWidthStr::width(at.as_str()));
-                let mut line = Line::from(vec![
-                    Span::styled(" ".repeat(LEAD), bg(dim)),
-                    Span::styled(at, style),
-                    Span::styled(" ".repeat(pad + GAP), bg(dim)),
-                    Span::styled(e.badge.clone(), bg(dim)),
-                ]);
-                if on {
-                    pad_to_width(&mut line, inner_w, self.theme.selected_bg);
-                }
-                line
+                ListItem::new(Line::from(vec![
+                    Span::styled(" ".repeat(LEAD), dim),
+                    Span::styled(at, text),
+                    Span::styled(" ".repeat(pad + GAP), dim),
+                    Span::styled(e.badge.clone(), dim),
+                ]))
             })
             .collect();
-        pad_rows(lines, rows)
+        (items, Some(s.selected))
     }
 
     /// The selected hit's line and its neighbours, in the pane's own language:
@@ -869,13 +869,13 @@ impl App {
     }
 
     pub(super) fn draw_groups(&self, frame: &mut Frame, area: Rect) {
-        let inner_h = area.height.saturating_sub(2) as usize;
         let inner_w = area.width.saturating_sub(2) as usize;
         let selected = self.selected_entry();
 
-        // Entries render as blocks of lines, so scrolling counts ROWS, not
-        // entries; keep the whole selected block in view.
-        let mut blocks: Vec<Vec<Line>> = match self.view_mode {
+        // Each entry is one item of several lines. Scroll was decided in
+        // update (`follow_plan_scroll`) and is the list's offset: drawing only
+        // reads it.
+        let blocks: Vec<Vec<Line>> = match self.view_mode {
             ViewMode::Groups => {
                 // Both hoisted out of the loop. `edge_span` takes no argument
                 // and depends only on the selection, so it gave every group
@@ -896,28 +896,9 @@ impl App {
                     .collect()
             }
         };
-        // The selection reads as a row, not as highlighted text: pad its lines
-        // out to the pane so the background runs to the right edge.
-        if let Some(block) = blocks.get_mut(selected) {
-            for line in block.iter_mut() {
-                pad_to_width(line, inner_w, self.theme.selected_bg);
-            }
-        }
-        // Scroll was decided in update; drawing only reads it. The heights
-        // this pane renders must match what `plan_block_height` predicted, or
-        // the two would disagree about where the selection is.
-        debug_assert!(
-            blocks
-                .iter()
-                .enumerate()
-                .all(|(i, b)| b.len() == self.plan_block_height(i)),
-            "plan block height disagrees with the rendered block"
-        );
-        let items: Vec<Line> = blocks
+        let items: Vec<ListItem> = blocks
             .into_iter()
-            .flatten()
-            .skip(self.group_scroll)
-            .take(inner_h)
+            .map(|lines| ListItem::new(ratatui::text::Text::from(lines)))
             .collect();
 
         let orphans = self
@@ -936,7 +917,22 @@ impl App {
             format!(" {pane_name} ")
         };
         let block = pane(&self.theme, title, self.focus == Focus::Groups);
-        frame.render_widget(Paragraph::new(items).block(block), area);
+        // The selection reads as a row, not as highlighted text: the list
+        // lights every line of the selected entry edge to edge. The rows'
+        // own ink (bold, the reviewed tick) is theirs, so only the band.
+        let mut items = items;
+        if let Some(item) = items.get_mut(selected) {
+            *item = item
+                .clone()
+                .style(Style::default().bg(self.theme.selected_bg));
+        }
+        frame.render_stateful_widget(
+            List::new(items).block(block),
+            area,
+            &mut ListState::default()
+                .with_offset(self.group_scroll)
+                .with_selected(Some(selected)),
+        );
     }
 
     /// How a plan row relates to the selected one — what the connector line
@@ -1249,46 +1245,32 @@ impl App {
         let reviewed = &self.reviewed;
         let here = self.file_at_cursor();
         let files = &self.listed_files;
-        let inner_w = area.width.saturating_sub(2) as usize;
         // Keep the current file in view; the list can outrun its pane.
         let h = area.height.saturating_sub(2) as usize;
         let at = here.and_then(|i| files.iter().position(|&f| f == i));
         let scroll = at.map_or(0, |n| n.saturating_sub(h.saturating_sub(1)));
 
-        let mut lines: Vec<Line> = files
+        let mut items: Vec<ListItem> = files
             .iter()
-            .skip(scroll)
-            .take(h)
             .map(|&i| {
                 let f = &self.files()[i];
-                let on = here == Some(i);
                 let done = plan::all_reviewed(&f.hunks, reviewed);
-                let base = Style::default().fg(if done {
+                let style = Style::default().fg(if done {
                     self.theme.reviewed_fg
                 } else {
                     self.theme.context_fg
                 });
-                let style = if on {
-                    base.bg(self.theme.selected_bg).add_modifier(Modifier::BOLD)
-                } else {
-                    base
-                };
-                let name = basename(&f.path);
                 // No marker glyph: the row the reader is on is the one lit
                 // edge to edge, which says it in the one place they are
                 // already looking.
-                let mut line = Line::from(vec![
-                    Span::styled("  ".to_string(), style),
-                    Span::styled(name.to_string(), style),
-                ]);
-                if on {
-                    pad_to_width(&mut line, inner_w, self.theme.selected_bg);
-                }
-                line
+                ListItem::new(Line::from(Span::styled(
+                    format!("  {}", basename(&f.path)),
+                    style,
+                )))
             })
             .collect();
-        if lines.is_empty() {
-            lines.push(Line::from(Span::styled(
+        if items.is_empty() {
+            items.push(ListItem::new(Span::styled(
                 "  (no files)",
                 Style::default().fg(self.theme.gutter_fg),
             )));
@@ -1297,10 +1279,39 @@ impl App {
             Some(n) => format!(" file {} of {}{}", n + 1, files.len(), self.skipped_note()),
             None => format!(" {} files{}", files.len(), self.skipped_note()),
         };
-        frame.render_widget(
-            Paragraph::new(lines).block(pane(&self.theme, title, true)),
-            area,
-        );
+        let (list, mut state) = self.selection_list(items, scroll, at);
+        frame.render_stateful_widget(list.block(pane(&self.theme, title, true)), area, &mut state);
+    }
+
+    /// A selectable list in this reviewer's ink: the selected row lit edge
+    /// to edge on `selected_bg`, in bold, over whatever colour its text has.
+    ///
+    /// ratatui's `List` + `ListState` (#167): the widget paints the band and
+    /// windows the rows, where every list used to pad its own band out to the
+    /// edge and slice its own window. The model still owns the offset — each
+    /// list hands `ListState::with_offset` the scroll it keeps — because the
+    /// mouse's hit tests read it, and `draw` does not mutate.
+    ///
+    /// The band is the selected ITEM's style, not the list's
+    /// `highlight_style`: `List` paints an item's style under its text and the
+    /// highlight over it, so a highlight would repaint every span that carries
+    /// a background of its own — a role pill, a tint — in the band's colour.
+    pub(super) fn selection_list<'a>(
+        &self,
+        mut items: Vec<ListItem<'a>>,
+        offset: usize,
+        selected: Option<usize>,
+    ) -> (List<'a>, ListState) {
+        if let Some(item) = selected.and_then(|i| items.get_mut(i)) {
+            let band = Style::default()
+                .bg(self.theme.selected_bg)
+                .add_modifier(Modifier::BOLD);
+            *item = item.clone().style(band);
+        }
+        let state = ListState::default()
+            .with_offset(offset)
+            .with_selected(selected);
+        (List::new(items), state)
     }
 
     /// The right pane while the plan has focus: the whole document's file tree
@@ -1584,14 +1595,9 @@ impl App {
             None => " files ".to_string(),
         };
         frame.render_widget(
-            Paragraph::new(
-                lines
-                    .into_iter()
-                    .skip(scroll)
-                    .take(inner_h)
-                    .collect::<Vec<_>>(),
-            )
-            .block(pane(&self.theme, title, true)),
+            Paragraph::new(lines)
+                .scroll((u16::try_from(scroll).unwrap_or(u16::MAX), 0))
+                .block(pane(&self.theme, title, true)),
             area,
         );
     }
@@ -3036,16 +3042,6 @@ pub fn file_list_modal_area(body: Rect, entries: &[FileListEntry]) -> Rect {
     // a path worth reading.
     let width = (lead + widest + 2).max(70).min(body.width as usize) as u16;
     centered_rect(body, width, height)
-}
-
-/// Blank rows out to `rows`, so a box that holds fewer draws the same height.
-///
-/// Never shorter than what it is given: the list is windowed before it gets
-/// here, and cutting a row it decided to show would be this function quietly
-/// overruling that.
-fn pad_rows(mut lines: Vec<Line<'static>>, rows: usize) -> Vec<Line<'static>> {
-    lines.resize(rows.max(lines.len()), Line::from(""));
-    lines
 }
 
 /// The search box: a fixed size, centred on the body and clamped to it.

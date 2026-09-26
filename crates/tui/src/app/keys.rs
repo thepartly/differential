@@ -301,7 +301,7 @@ impl App {
                         self.select_entry(idx);
                     } else if click
                         && let Some(line) = content_line(panes.plan, at)
-                        && let Some(idx) = self.plan_entry_at_line(self.group_scroll + line)
+                        && let Some(idx) = self.plan_entry_at_line(line)
                     {
                         if idx == self.selected_entry() {
                             self.enter_plan_entry();

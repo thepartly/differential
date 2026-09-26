@@ -10,6 +10,13 @@ order — keys before and after it each see the geometry that was true when they
 pressed. Row *contents* still compose their columns at draw time from the pane width, which
 is why a resize never rebuilds rows.
 
+**The plan pane scrolls a whole entry at a time.** A group is several rows — its title, its
+counts, and its `after:` line when it has one — and the pane never shows one with its top
+cut off: the first row drawn is always the first row of an entry, and the window moves only
+as far as keeping the selected entry whole needs. Every selectable list in the reviewer is
+ratatui's `List`, which lights the selected entry edge to edge, under anything a row
+paints itself (a role pill keeps its fill).
+
 **Focus never changes a height**: the overviews below float over a pane rather than taking
 room from one, which is what keeps the heights a function of the terminal alone.
 

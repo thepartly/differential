@@ -563,11 +563,12 @@ impl App {
         self.scroll
     }
 
-    /// Rows one left-pane entry occupies.
+    /// Rows one left-pane entry occupies: its `ListItem`'s height.
     ///
-    /// Arithmetic, not rendering, so the scroll math does not need a `Frame` —
-    /// which is what lets it move out of `draw_groups`. A `debug_assert` there
-    /// checks the two still agree.
+    /// Arithmetic, not rendering, so the scroll math does not need a `Frame`.
+    /// It must match what `group_lines` / `tree_lines` build; the list widget
+    /// windows by the items' real heights, and a disagreement would show as a
+    /// selection the model thinks is in view and the widget scrolled to.
     pub(super) fn plan_block_height(&self, idx: usize) -> usize {
         match self.view_mode {
             // group_lines: a title row, a counts row, and an `after:` row only
@@ -580,16 +581,21 @@ impl App {
         }
     }
 
-    /// Keep the whole selected plan block in view. Lifted out of `draw_groups`.
+    /// Keep the whole selected plan block in view.
+    ///
+    /// `group_scroll` is the first ENTRY drawn — the `List`'s offset — so the
+    /// pane scrolls a whole group at a time, and a group is never shown with
+    /// its top cut off. The window moves only as far as the selection needs.
     pub(super) fn follow_plan_scroll(&mut self) {
         let h = self.viewport.plan_rows.max(MIN_VIEWPORT);
         let selected = self.selected_entry();
-        let start_row: usize = (0..selected).map(|i| self.plan_block_height(i)).sum();
-        let end_row = start_row + self.plan_block_height(selected);
-        if start_row < self.group_scroll {
-            self.group_scroll = start_row;
-        } else if end_row > self.group_scroll + h {
-            self.group_scroll = end_row.saturating_sub(h);
+        if selected < self.group_scroll {
+            self.group_scroll = selected;
+        }
+        let heights: Vec<usize> = (0..=selected).map(|i| self.plan_block_height(i)).collect();
+        let rows = |from: usize| -> usize { heights[from..].iter().sum() };
+        while self.group_scroll < selected && rows(self.group_scroll) > h {
+            self.group_scroll += 1;
         }
     }
 
@@ -650,16 +656,15 @@ impl App {
         None
     }
 
-    /// The plan entry whose block holds line `line` of the whole list — the
-    /// caller adds `group_scroll` to a screen line, so this is
-    /// `follow_plan_scroll`'s arithmetic run the other way.
+    /// The plan entry whose block holds line `line` of the pane, counted from
+    /// its first content line: the list's items, walked from its offset.
     pub(super) fn plan_entry_at_line(&self, line: usize) -> Option<usize> {
         let n = match self.view_mode {
             ViewMode::Groups => self.groups().len(),
             ViewMode::Files => self.tree.len(),
         };
         let mut used = 0;
-        for i in 0..n {
+        for i in self.group_scroll..n {
             used += self.plan_block_height(i);
             if line < used {
                 return Some(i);

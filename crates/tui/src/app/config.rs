@@ -383,11 +383,7 @@ impl ConfigEdit {
     fn select(&mut self, to: usize, rows: usize) {
         let last = Field::all().len() - 1;
         self.selected = to.min(last);
-        if self.selected < self.scroll {
-            self.scroll = self.selected;
-        } else if rows > 0 && self.selected >= self.scroll + rows {
-            self.scroll = self.selected + 1 - rows;
-        }
+        self.scroll = super::text::follow(self.selected, self.scroll, rows);
     }
 }
 
