@@ -493,8 +493,9 @@ rejected: a palette is the reader's choice, not the repository's.
 
 A theme is a *derived* palette, not a copy of a published one. Each declares a syntax theme
 and six accents — an addition, a deletion, the accent, the skim tier, the highlight, a
-finding — and the remaining thirty-odd colours are mixed from those against the ground the
-syntax theme itself declares (ADR 0024). Where a published palette's own accents were not
+finding. The syntax theme gives its ground and, where they are legible, its own selection,
+line numbers and comment colour; the remaining colours are mixed against that ground
+(ADR 0024, ADR 0039). Where a published palette's own accents were not
 legible as interface text, they were adjusted and the reason recorded in that theme's file
 under `crates/tui/src/theme/`.
 

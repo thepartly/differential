@@ -1,4 +1,8 @@
-//! One Dark. The Atom-descended palette, over One Half's syntax theme.
+//! One Dark. The Atom-descended palette, over `TwoDark`, the syntax theme
+//! that paints it on its own `#282C34` in its own `#ABB2BF`.
+//!
+//! It was One Half Dark, which shares the ground and not the text: `#DCDFE4`,
+//! ΔE 0.14 brighter than One Dark's, on every line of code (issue 157).
 //!
 //! Its published red sits at 4.4:1 on this ground and its yellow at chroma
 //! 0.097 — both a shade under the bars, so both are nudged. Everything else is
@@ -10,7 +14,7 @@ use super::{Seed, rgb};
 
 pub(super) fn seed() -> Seed {
     Seed {
-        syntax: EmbeddedThemeName::OneHalfDark,
+        syntax: EmbeddedThemeName::TwoDark,
         add: rgb(0x98, 0xC3, 0x79),
         del: rgb(0xE8, 0x79, 0x7F),
         accent: rgb(0x61, 0xAF, 0xEF),

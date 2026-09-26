@@ -212,9 +212,11 @@ A new term earns an entry only when it names a concept no existing entry covers.
   the terminal to, on the line under the cursor. Its command is the reader's, with `{file}`
   and `{line}` placeholders. Always qualified, because the **finding composer** is an editor
   too. [tui.md](tui.md), [ADR 0038](../adr/0038-the-reviewer-hands-the-terminal-to-an-editor.md).
-- **theme** / **seed** / **accent**. A theme declares a seed: a syntax theme and six accents,
-  from which every other colour is derived.
-  [ADR 0024](../adr/0024-palettes-are-derived-and-threaded.md).
+- **theme** / **seed** / **accent**. A theme declares a seed: a syntax theme and six accents.
+  The syntax theme's own selection, line numbers and comment colour are used where they
+  are legible, and every other colour is derived.
+  [ADR 0024](../adr/0024-palettes-are-derived-and-threaded.md),
+  [ADR 0039](../adr/0039-a-theme-s-own-colours-come-first.md).
 - **action** / **binding** (`config::Action`, `keymap::Binding`). An action is something the
   reviewer does on a key, by the name `[keys]` uses: `down`, `delete`. A binding is the key,
   or the sequence of keys, it answers to. A **screen** (`keymap::Screen`) is where a key is

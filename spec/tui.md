@@ -215,8 +215,11 @@ position for this sitting, not a preference, so nothing about it reaches the sid
 eleven: `dark` (the default), `one-dark`, `one-light`, `gruvbox-dark`, `gruvbox-light`,
 `solarized-dark`, `solarized-light`, `catppuccin-mocha`, `catppuccin-latte`, `dracula`,
 `monokai`. Each pairs the reviewer's colours with the syntax theme the code is painted in,
-and derives the former from the latter's own ground, so the chrome and the code are one
-palette rather than two that drift (ADR 0024).
+so the chrome and the code are one palette rather than two that drift (ADR 0024). The
+syntax theme gives its ground, and its own selection, line numbers and comment colour
+wherever they clear the legibility bars. The rest is derived against that ground (ADR
+0039). The cursor's row is the selection one step further from the ground, so it stays the
+stronger end of a run even where a theme paints its line highlight and its selection alike.
 
 A theme paints its **own background**. The terminal's used to show through wherever nothing
 else painted, which is most of the screen — and is why the reviewer could only ever be
