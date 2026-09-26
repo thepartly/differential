@@ -84,8 +84,12 @@ pub fn of(path: &[u8]) -> Vec<u8> {
     if let Some(namespace) = lookup(path) {
         return namespace.as_bytes().to_vec();
     }
-    match path.iter().rposition(|&b| b == b'.') {
-        Some(dot) => path[dot..].to_vec(),
+    // The extension is the FILE's: a dot in a directory name is not one, and
+    // `a.b/Makefile` has none. Bytes, not `Path`, because a git path need
+    // not be UTF-8 and this crate does not assume a platform.
+    let name = path.rsplit(|&b| b == b'/').next().unwrap_or(path);
+    match name.iter().rposition(|&b| b == b'.') {
+        Some(dot) => name[dot..].to_vec(),
         None => path.to_vec(),
     }
 }
@@ -96,6 +100,14 @@ mod tests {
 
     fn ns(path: &str) -> String {
         String::from_utf8(of(path.as_bytes())).unwrap()
+    }
+
+    #[test]
+    fn an_unclaimed_file_falls_back_to_its_own_extension() {
+        assert_eq!(ns("docs/notes.unknown"), ".unknown");
+        // A dot in a directory is not the file's extension.
+        assert_eq!(ns("a.b/Makefile"), "a.b/Makefile");
+        assert_eq!(ns("v1.2/data.bin"), ".bin");
     }
 
     #[test]

@@ -32,6 +32,10 @@ use crate::schema;
 /// Renderers compose their own vocabulary from this — a commit subject, a
 /// glyph, a colour — but they all start from one token, so none of them can
 /// drift away from the schema on its own.
+///
+/// A `match` here, not strum as the config names use: `Effort` and `Role` are
+/// `engine::schema` types, and a derive for a consumer's convenience does not
+/// go on the schema (ADR 0008, 0018). The test below pins the two to serde.
 pub const fn effort_name(effort: schema::Effort) -> &'static str {
     match effort {
         schema::Effort::Focus => "focus",

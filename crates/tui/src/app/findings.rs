@@ -443,6 +443,7 @@ impl App {
         let (was, scrolled) = (*selected, *scroll);
         self.mode = Mode::Normal;
         self.open_findings();
+        let body_rows = self.viewport.body_rows;
         if let Mode::Findings {
             entries,
             selected,
@@ -451,7 +452,9 @@ impl App {
         } = &mut self.mode
         {
             *selected = was.min(entries.len().saturating_sub(1));
-            *scroll = scrolled.min(*selected);
+            let rules = section_rules(entries);
+            let rows = text::findings_rows(entries.len(), rules.len(), body_rows);
+            *scroll = text::findings_follow(*selected, scrolled, rows, &rules);
         }
     }
 

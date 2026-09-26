@@ -482,3 +482,34 @@ fn a_newline_inside_a_path_still_reads_its_blobs() {
     assert_eq!(d.files[0].path, odd, "the path survives round-trip");
     assert_eq!(d.hunks.len(), 1);
 }
+
+// ----------------------------------------------------------- git's pipes
+
+/// A command that writes while it reads must not deadlock on a large input.
+/// `check-attr --stdin` answers each path as it arrives, so an input bigger
+/// than a pipe fills the output pipe before the input is written — and a
+/// writer that finishes stdin before reading stdout waits forever.
+#[test]
+fn a_large_stdin_does_not_deadlock_against_git_writing_back() {
+    use differential_engine::ports::AttributeSource;
+    let r = TestRepo::new();
+    r.write("f.txt", b"x\n");
+    r.commit_all("base");
+    let repo = r.repo();
+    // ~1.2 MB of paths in, more than that out: well past any pipe buffer.
+    let paths: Vec<Vec<u8>> = (0..20_000)
+        .map(|i| format!("some/deep/directory/tree/file-{i:05}.txt").into_bytes())
+        .collect();
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let refs: Vec<&[u8]> = paths.iter().map(Vec::as_slice).collect();
+        let _ = tx.send(
+            repo.check_attr("linguist-generated", &refs)
+                .map(|v| v.len()),
+        );
+    });
+    let answered = rx
+        .recv_timeout(std::time::Duration::from_secs(60))
+        .expect("check-attr deadlocked on a large stdin");
+    assert_eq!(answered.unwrap(), 20_000);
+}

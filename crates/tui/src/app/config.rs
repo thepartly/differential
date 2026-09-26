@@ -51,7 +51,7 @@ impl Field {
             Field::ContextStep,
             Field::Editor,
         ];
-        rows.extend(Action::ALL.map(Field::Key));
+        rows.extend(Action::ALL.iter().copied().map(Field::Key));
         rows
     }
 
@@ -262,7 +262,7 @@ impl ConfigEdit {
         let d = &mut self.draft;
         match field {
             Field::Agent => {
-                let next = cycle(&Agent::ALL, d.grouping.agent.unwrap_or_default(), forward);
+                let next = cycle(Agent::ALL, d.grouping.agent.unwrap_or_default(), forward);
                 // The default is written as no key at all, so a file that never
                 // named an agent does not start naming one by being cycled past.
                 d.grouping.agent = (next != Agent::default()).then_some(next);
@@ -277,8 +277,8 @@ impl ConfigEdit {
                 };
                 d.grouping.timeout_secs = (next != DEFAULT_TIMEOUT_SECS).then_some(next);
             }
-            Field::Theme => d.review.theme = cycle(&ThemeName::ALL, d.review.theme, forward),
-            Field::Diff => d.review.diff = cycle(&DiffLayout::ALL, d.review.diff, forward),
+            Field::Theme => d.review.theme = cycle(ThemeName::ALL, d.review.theme, forward),
+            Field::Diff => d.review.diff = cycle(DiffLayout::ALL, d.review.diff, forward),
             Field::Context => {
                 d.review.context = match forward {
                     true => d.review.context.saturating_add(1),

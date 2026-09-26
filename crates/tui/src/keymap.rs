@@ -519,7 +519,7 @@ mod tests {
     fn every_action_has_a_default_somewhere() {
         // An action with no row would parse in `[keys]` and do nothing
         // anywhere, which is a knob that looks like it works.
-        for a in Action::ALL {
+        for &a in Action::ALL {
             assert!(
                 DEFAULTS.iter().any(|(d, ..)| *d == a),
                 "{} has no default row",
@@ -710,7 +710,7 @@ mod tests {
     fn a_binding_presses_what_it_names() {
         let map = Keymap::default();
         for screen in Screen::ALL {
-            for a in Action::ALL {
+            for &a in Action::ALL {
                 for b in map.bindings(screen, a) {
                     let mut pending = Vec::new();
                     let mut last = Lookup::Nothing;

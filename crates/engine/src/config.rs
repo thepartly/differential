@@ -87,8 +87,20 @@ pub struct UserConfig {
 ///
 /// **Four of the five keep the model read-only; `Pi` does not** (ADR 0033).
 /// Read [`Agent::read_only`] and [`ReadOnly::is_enforced`] before choosing one.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    Default,
+    PartialEq,
+    Eq,
+    Deserialize,
+    Serialize,
+    strum::IntoStaticStr,
+    strum::VariantArray,
+)]
 #[serde(rename_all = "kebab-case")]
+#[strum(serialize_all = "kebab-case")]
 pub enum Agent {
     /// Headless `claude`, read-only by tool allowlist (ADR 0022).
     #[default]
@@ -110,32 +122,16 @@ pub enum Agent {
 }
 
 impl Agent {
-    /// Every agent, so a lister does not keep its own copy of the list.
-    ///
-    /// The array is exhaustive by hand, which a `match` would enforce and an
-    /// array cannot. `all_agents_are_listed` in this module is that check.
-    pub const ALL: [Agent; 5] = [
-        Agent::ClaudeCode,
-        Agent::Codex,
-        Agent::Droid,
-        Agent::Copilot,
-        Agent::Pi,
-    ];
+    /// Every variant, in declaration order, from strum's `VariantArray`: the
+    /// derive is what keeps the list whole, so there is no hand-kept array to
+    /// forget a variant in.
+    pub const ALL: &'static [Agent] = <Agent as strum::VariantArray>::VARIANTS;
 
-    /// The name this agent answers to in `[grouping].agent`.
-    ///
-    /// Hand-written rather than derived, because serde renames on the way IN
-    /// and there is no way to ask it for the string on the way out without a
-    /// second derive. The `match` is the guard: a new variant does not compile
-    /// until it has a name here.
+    /// The name this answers to in the config file. strum's `IntoStaticStr`,
+    /// renamed as serde renames it; `every_*_name_round_trips` in this module
+    /// pins the two derives to the same spelling.
     pub fn key(self) -> &'static str {
-        match self {
-            Agent::ClaudeCode => "claude-code",
-            Agent::Codex => "codex",
-            Agent::Droid => "droid",
-            Agent::Copilot => "copilot",
-            Agent::Pi => "pi",
-        }
+        self.into()
     }
 
     /// Whether anyone has ever run this agent's command line.
@@ -243,8 +239,20 @@ pub const DEFAULT_TIMEOUT_SECS: u64 = 1200;
 /// colour list would be a knob that looked like it worked.
 ///
 /// Adding a theme is adding a variant here and a seed in the renderer.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    Default,
+    PartialEq,
+    Eq,
+    Deserialize,
+    Serialize,
+    strum::IntoStaticStr,
+    strum::VariantArray,
+)]
 #[serde(rename_all = "kebab-case")]
+#[strum(serialize_all = "kebab-case")]
 pub enum ThemeName {
     /// The original palette: a dark slate ground with a cyan accent.
     #[default]
@@ -301,8 +309,20 @@ pub struct ReviewConfig {
 ///
 /// An enum rather than a bool because a config key is permanent, and a third
 /// layout would otherwise need a second key contradicting the first.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Default,
+    Deserialize,
+    Serialize,
+    strum::IntoStaticStr,
+    strum::VariantArray,
+)]
 #[serde(rename_all = "lowercase")]
+#[strum(serialize_all = "lowercase")]
 pub enum DiffLayout {
     /// Old and new side by side.
     #[default]
@@ -312,54 +332,34 @@ pub enum DiffLayout {
 }
 
 impl DiffLayout {
-    pub const ALL: [DiffLayout; 2] = [DiffLayout::Split, DiffLayout::Unified];
+    /// Every variant, in declaration order, from strum's `VariantArray`: the
+    /// derive is what keeps the list whole, so there is no hand-kept array to
+    /// forget a variant in.
+    pub const ALL: &'static [DiffLayout] = <DiffLayout as strum::VariantArray>::VARIANTS;
 
     pub fn is_split(self) -> bool {
         matches!(self, DiffLayout::Split)
     }
 
-    /// The name this layout answers to in `[review].diff`.
+    /// The name this answers to in the config file. strum's `IntoStaticStr`,
+    /// renamed as serde renames it; `every_*_name_round_trips` in this module
+    /// pins the two derives to the same spelling.
     pub fn key(self) -> &'static str {
-        match self {
-            DiffLayout::Split => "split",
-            DiffLayout::Unified => "unified",
-        }
+        self.into()
     }
 }
 
 impl ThemeName {
-    /// Every palette, in the order the config modal cycles through them.
-    /// `every_theme_name_round_trips` is the exhaustiveness check.
-    pub const ALL: [ThemeName; 11] = [
-        ThemeName::Dark,
-        ThemeName::OneDark,
-        ThemeName::OneLight,
-        ThemeName::GruvboxDark,
-        ThemeName::GruvboxLight,
-        ThemeName::SolarizedDark,
-        ThemeName::SolarizedLight,
-        ThemeName::CatppuccinMocha,
-        ThemeName::CatppuccinLatte,
-        ThemeName::Dracula,
-        ThemeName::Monokai,
-    ];
+    /// Every variant, in declaration order, from strum's `VariantArray`: the
+    /// derive is what keeps the list whole, so there is no hand-kept array to
+    /// forget a variant in.
+    pub const ALL: &'static [ThemeName] = <ThemeName as strum::VariantArray>::VARIANTS;
 
-    /// The name this palette answers to in `[review].theme`. Hand-written for
-    /// the reason [`Agent::key`] is.
+    /// The name this answers to in the config file. strum's `IntoStaticStr`,
+    /// renamed as serde renames it; `every_*_name_round_trips` in this module
+    /// pins the two derives to the same spelling.
     pub fn key(self) -> &'static str {
-        match self {
-            ThemeName::Dark => "dark",
-            ThemeName::OneDark => "one-dark",
-            ThemeName::OneLight => "one-light",
-            ThemeName::GruvboxDark => "gruvbox-dark",
-            ThemeName::GruvboxLight => "gruvbox-light",
-            ThemeName::SolarizedDark => "solarized-dark",
-            ThemeName::SolarizedLight => "solarized-light",
-            ThemeName::CatppuccinMocha => "catppuccin-mocha",
-            ThemeName::CatppuccinLatte => "catppuccin-latte",
-            ThemeName::Dracula => "dracula",
-            ThemeName::Monokai => "monokai",
-        }
+        self.into()
     }
 }
 
@@ -503,8 +503,22 @@ impl Default for ReviewConfig {
 ///
 /// Adding an action is adding a variant here, its name in [`Action::key`],
 /// and its default keys and its arm in the renderer.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Deserialize,
+    Serialize,
+    strum::IntoStaticStr,
+    strum::VariantArray,
+)]
 #[serde(rename_all = "kebab-case")]
+#[strum(serialize_all = "kebab-case")]
 pub enum Action {
     ToggleFocus,
     Open,
@@ -548,89 +562,16 @@ pub enum Action {
 }
 
 impl Action {
-    /// Every action, so a lister does not keep its own copy of the list.
-    /// `all_actions_are_listed` in this module is the check a `match` would
-    /// have been.
-    pub const ALL: [Action; 36] = [
-        Action::ToggleFocus,
-        Action::Open,
-        Action::Close,
-        Action::Down,
-        Action::Up,
-        Action::NextGroup,
-        Action::PrevGroup,
-        Action::HalfPageDown,
-        Action::HalfPageUp,
-        Action::Top,
-        Action::Bottom,
-        Action::NextHunk,
-        Action::PrevHunk,
-        Action::ToggleSplit,
-        Action::ToggleWrap,
-        Action::ShiftRight,
-        Action::ShiftLeft,
-        Action::ShiftReset,
-        Action::GrowDiff,
-        Action::ShrinkDiff,
-        Action::Fold,
-        Action::Files,
-        Action::ExternalEditor,
-        Action::Findings,
-        Action::Search,
-        Action::ToggleReviewed,
-        Action::Select,
-        Action::Comment,
-        Action::Delete,
-        Action::ClearNotes,
-        Action::Copy,
-        Action::Reply,
-        Action::Resolve,
-        Action::Refetch,
-        Action::Publish,
-        Action::Back,
-    ];
+    /// Every variant, in declaration order, from strum's `VariantArray`: the
+    /// derive is what keeps the list whole, so there is no hand-kept array to
+    /// forget a variant in.
+    pub const ALL: &'static [Action] = <Action as strum::VariantArray>::VARIANTS;
 
-    /// The name this action answers to in `[keys]`. Hand-written for the
-    /// reason [`Agent::key`] is: serde renames on the way in only.
+    /// The name this answers to in the config file. strum's `IntoStaticStr`,
+    /// renamed as serde renames it; `every_*_name_round_trips` in this module
+    /// pins the two derives to the same spelling.
     pub fn key(self) -> &'static str {
-        match self {
-            Action::ToggleFocus => "toggle-focus",
-            Action::Open => "open",
-            Action::Close => "close",
-            Action::Down => "down",
-            Action::Up => "up",
-            Action::NextGroup => "next-group",
-            Action::PrevGroup => "prev-group",
-            Action::HalfPageDown => "half-page-down",
-            Action::HalfPageUp => "half-page-up",
-            Action::Top => "top",
-            Action::Bottom => "bottom",
-            Action::NextHunk => "next-hunk",
-            Action::PrevHunk => "prev-hunk",
-            Action::ToggleSplit => "toggle-split",
-            Action::ToggleWrap => "toggle-wrap",
-            Action::ShiftRight => "shift-right",
-            Action::ShiftLeft => "shift-left",
-            Action::ShiftReset => "shift-reset",
-            Action::GrowDiff => "grow-diff",
-            Action::ShrinkDiff => "shrink-diff",
-            Action::Fold => "fold",
-            Action::Files => "files",
-            Action::ExternalEditor => "external-editor",
-            Action::Findings => "findings",
-            Action::Search => "search",
-            Action::ToggleReviewed => "toggle-reviewed",
-            Action::Select => "select",
-            Action::Comment => "comment",
-            Action::Delete => "delete",
-            Action::ClearNotes => "clear-notes",
-            Action::Copy => "copy",
-            Action::Reply => "reply",
-            Action::Resolve => "resolve",
-            Action::Refetch => "refetch",
-            Action::Publish => "publish",
-            Action::Back => "back",
-        }
+        self.into()
     }
 }
 
@@ -1016,7 +957,7 @@ attributes = ["linguist-generated", "custom-generated"]
         // than the one asked for, and the cache key would agree with neither.
         let err = Config::parse_user("[grouping]\nagent = \"gpt\"", "test").unwrap_err();
         let text = err.to_string();
-        for agent in Agent::ALL {
+        for &agent in Agent::ALL {
             assert!(
                 text.contains(agent.key()),
                 "the error must name {}: {text}",
@@ -1033,44 +974,16 @@ attributes = ["linguist-generated", "custom-generated"]
 
     #[test]
     fn every_agent_name_round_trips() {
-        // `key` is hand-written and serde renames on the way in, so the two
-        // can drift. They may not: `key` is what the docs print, what
+        // `key` comes from strum and parsing from serde: two derives, each
+        // with its own rename rule, so the two can drift. They may not: `key` is what the docs print, what
         // `dfr agents` lists and what an error message offers, and a name a
         // user copies from any of those must parse.
-        for agent in Agent::ALL {
+        for &agent in Agent::ALL {
             let toml = format!("[grouping]\nagent = \"{}\"", agent.key());
             let u = Config::parse_user(&toml, "test")
                 .unwrap_or_else(|e| panic!("{} must parse: {e}", agent.key()));
             assert_eq!(u.grouping.agent, Some(agent), "{}", agent.key());
         }
-    }
-
-    #[test]
-    fn all_agents_are_listed() {
-        // `Agent::ALL` is an array, so nothing makes it exhaustive but this.
-        // A variant missing from it is an agent nobody can find: it would not
-        // appear in `dfr agents`, and the "valid names" error would not offer
-        // it.
-        fn covered(agent: Agent) -> bool {
-            Agent::ALL.contains(&agent)
-        }
-        // The `match` is the point. Adding a variant breaks this line, and the
-        // fix is to add it to `ALL` as well.
-        for agent in Agent::ALL {
-            match agent {
-                Agent::ClaudeCode | Agent::Codex | Agent::Droid | Agent::Copilot | Agent::Pi => {
-                    assert!(covered(agent))
-                }
-            }
-        }
-        assert_eq!(Agent::ALL.len(), 5, "a new agent belongs in ALL");
-
-        // No two agents share a name.
-        let mut keys: Vec<&str> = Agent::ALL.iter().map(|a| a.key()).collect();
-        keys.sort_unstable();
-        let before = keys.len();
-        keys.dedup();
-        assert_eq!(keys.len(), before, "two agents share a name: {keys:?}");
     }
 
     #[test]
@@ -1325,7 +1238,7 @@ attributes = ["linguist-generated", "custom-generated"]
     fn an_unknown_action_is_an_error_naming_every_action() {
         let err = Config::parse_user("[keys]\nexplode = [\"x\"]", "test").unwrap_err();
         let text = err.to_string();
-        for action in Action::ALL {
+        for &action in Action::ALL {
             assert!(
                 text.contains(action.key()),
                 "must name {}: {text}",
@@ -1345,7 +1258,7 @@ attributes = ["linguist-generated", "custom-generated"]
 
     #[test]
     fn every_action_name_round_trips() {
-        for action in Action::ALL {
+        for &action in Action::ALL {
             let text = format!("[keys]\n{} = []", action.key());
             let u = Config::parse_user(&text, "test").unwrap();
             assert!(
@@ -1353,55 +1266,6 @@ attributes = ["linguist-generated", "custom-generated"]
                 "{} did not parse",
                 action.key()
             );
-        }
-    }
-
-    #[test]
-    fn all_actions_are_listed() {
-        // The same check as `all_agents_are_listed`: the `match` breaks when a
-        // variant is added, and the fix is to add it to `ALL` as well.
-        fn listed(a: Action) -> bool {
-            Action::ALL.contains(&a)
-        }
-        for a in Action::ALL {
-            match a {
-                Action::ToggleFocus
-                | Action::Open
-                | Action::Close
-                | Action::Down
-                | Action::Up
-                | Action::NextGroup
-                | Action::PrevGroup
-                | Action::HalfPageDown
-                | Action::HalfPageUp
-                | Action::Top
-                | Action::Bottom
-                | Action::NextHunk
-                | Action::PrevHunk
-                | Action::ToggleSplit
-                | Action::ToggleWrap
-                | Action::ShiftRight
-                | Action::ShiftLeft
-                | Action::ShiftReset
-                | Action::GrowDiff
-                | Action::ShrinkDiff
-                | Action::Fold
-                | Action::Files
-                | Action::ExternalEditor
-                | Action::Findings
-                | Action::Search
-                | Action::ToggleReviewed
-                | Action::Select
-                | Action::Comment
-                | Action::Delete
-                | Action::ClearNotes
-                | Action::Copy
-                | Action::Reply
-                | Action::Resolve
-                | Action::Refetch
-                | Action::Publish
-                | Action::Back => assert!(listed(a)),
-            }
         }
     }
 
@@ -1439,7 +1303,7 @@ attributes = ["linguist-generated", "custom-generated"]
 
     #[test]
     fn every_theme_and_layout_name_round_trips() {
-        for theme in ThemeName::ALL {
+        for &theme in ThemeName::ALL {
             // The `match` is the exhaustiveness guard `ALL` cannot be.
             match theme {
                 ThemeName::Dark
@@ -1460,7 +1324,7 @@ attributes = ["linguist-generated", "custom-generated"]
                 theme
             );
         }
-        for diff in DiffLayout::ALL {
+        for &diff in DiffLayout::ALL {
             match diff {
                 DiffLayout::Split | DiffLayout::Unified => {}
             }

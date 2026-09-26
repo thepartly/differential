@@ -25,6 +25,8 @@ etcetera = { workspace = true }
 memchr = { workspace = true }
 percent-encoding = { workspace = true }
 petgraph = { workspace = true }
+strum = { workspace = true }
+url = { workspace = true }
 
 [dev-dependencies]
 differential-testutil = { workspace = true }
