@@ -10685,10 +10685,10 @@ fn the_theme_list_wears_each_theme_and_esc_goes_back() {
     assert!(app.config_edit().unwrap().dropdown.is_none());
     assert_eq!(
         app.config_edit().unwrap().draft.review.theme,
-        ThemeName::Monokai,
+        ThemeName::FlexokiLight,
         "enter keeps it"
     );
-    assert_eq!(app.options().theme, ThemeName::Monokai);
+    assert_eq!(app.options().theme, ThemeName::FlexokiLight);
 }
 
 #[test]

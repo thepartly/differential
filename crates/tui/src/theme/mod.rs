@@ -17,6 +17,8 @@ mod catppuccin_latte;
 mod catppuccin_mocha;
 mod dark;
 mod dracula;
+mod flexoki;
+mod flexoki_light;
 mod gruvbox_dark;
 mod gruvbox_light;
 mod monokai;
@@ -224,6 +226,8 @@ fn seed(name: ThemeName) -> Seed {
         ThemeName::SolarizedDark => solarized_dark::seed(),
         ThemeName::SolarizedLight => solarized_light::seed(),
         ThemeName::Monokai => monokai::seed(),
+        ThemeName::Flexoki => flexoki::seed(),
+        ThemeName::FlexokiLight => flexoki_light::seed(),
     }
 }
 
