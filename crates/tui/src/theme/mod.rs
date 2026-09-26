@@ -25,13 +25,14 @@ mod one_light;
 mod solarized_dark;
 mod solarized_light;
 
+use std::io::Cursor;
 use std::sync::Arc;
 
 use differential_engine::config::ThemeName;
 use palette::color_difference::Wcag21RelativeContrast;
 use palette::{FromColor, IntoColor, Mix, Oklab, Srgb};
 use ratatui::style::{Color, Modifier, Style};
-use syntect::highlighting::Highlighter;
+use syntect::highlighting::{Highlighter, ThemeSet};
 use syntect::parsing::Scope;
 use two_face::theme::EmbeddedThemeName;
 
@@ -162,7 +163,7 @@ fn own(c: Option<syntect::highlighting::Color>, bg: Rgb) -> Option<Rgb> {
 /// palette this replaced did distinguish them.
 pub(super) struct Seed {
     /// The code's own colours, and the ground the chrome is mixed against.
-    pub syntax: EmbeddedThemeName,
+    pub syntax: Syntax,
     pub add: Rgb,
     pub del: Rgb,
     /// The hunk you are reading, a header, the cursor's tint.
@@ -184,6 +185,30 @@ pub(super) struct Seed {
     /// were identical to another's, not about a field with its own job.
     pub highlight: Rgb,
     pub finding: Rgb,
+}
+
+/// Where a seed's syntax theme comes from (ADR 0040).
+///
+/// two-face ships most of them, pre-parsed. A palette it does not ship is a
+/// `.tmTheme` in this directory, written for this crate and compiled in — a
+/// file, not a download, so a theme is still a name that always works.
+pub(super) enum Syntax {
+    Embedded(EmbeddedThemeName),
+    /// A plist `.tmTheme`, from `include_bytes!`.
+    Bundled(&'static [u8]),
+}
+
+impl Syntax {
+    fn theme(&self) -> syntect::highlighting::Theme {
+        match self {
+            Syntax::Embedded(name) => two_face::theme::extra()[*name].clone(),
+            // A bundled file is part of the build, so a parse failure is a bug
+            // in this crate rather than a condition a reader can meet —
+            // `every_named_theme_builds` is where it fails.
+            Syntax::Bundled(bytes) => ThemeSet::load_from_reader(&mut Cursor::new(bytes))
+                .expect("a bundled .tmTheme parses"),
+        }
+    }
 }
 
 fn seed(name: ThemeName) -> Seed {
@@ -343,7 +368,7 @@ impl Theme {
     /// theme dump and the syntax set — happens once, here.
     pub fn named(name: ThemeName) -> Theme {
         let seed = seed(name);
-        let syntect = two_face::theme::extra()[seed.syntax].clone();
+        let syntect = seed.syntax.theme();
         derive(&seed, syntect)
     }
 
@@ -998,7 +1023,7 @@ mod tests {
                 (text, "reviewed_fg", t.reviewed_fg),
                 // The one that is DERIVED to clear this bar rather than
                 // checked against it afterwards. Here so the derivation is
-                // held to the bar it aims at, over all eleven grounds.
+                // held to the bar it aims at, over every ground.
                 (text, "highlight_ink", t.highlight_ink),
                 (text, "focus_fg", t.focus_fg),
                 // Quieter by design — they mark rather than say.
@@ -1198,7 +1223,7 @@ mod tests {
         let mut bad = Vec::new();
         for &name in ALL {
             let t = Theme::named(name);
-            let theme = &two_face::theme::extra()[seed(name).syntax];
+            let theme = seed(name).syntax.theme();
             let st = &theme.settings;
             let (bg, fg) = (must_rgb(t.bg), must_rgb(t.fg));
             let muted = 3.0f32.min(contrast(fg, bg) * 0.65);
@@ -1224,7 +1249,7 @@ mod tests {
             // not a comment colour, so that case is skipped as `derive` skips it.
             let comment = Scope::new("comment")
                 .ok()
-                .map(|s| Highlighter::new(theme).style_for_stack(&[s]).foreground)
+                .map(|s| Highlighter::new(&theme).style_for_stack(&[s]).foreground)
                 .map(from_syntect)
                 .filter(|c| *c != fg);
             if let Some(own_comment) = comment

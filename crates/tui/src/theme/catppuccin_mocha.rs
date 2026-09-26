@@ -7,11 +7,11 @@
 
 use two_face::theme::EmbeddedThemeName;
 
-use super::{Seed, rgb};
+use super::{Seed, Syntax, rgb};
 
 pub(super) fn seed() -> Seed {
     Seed {
-        syntax: EmbeddedThemeName::CatppuccinMocha,
+        syntax: Syntax::Embedded(EmbeddedThemeName::CatppuccinMocha),
         add: rgb(0xA6, 0xE3, 0xA1),
         del: rgb(0xF3, 0x8B, 0xA8),
         accent: rgb(0x89, 0xB4, 0xFA),
