@@ -345,20 +345,21 @@ fn draw(
     .areas(block.inner(area));
     frame.render_widget(block, area);
     frame.render_widget(Paragraph::new(header_lines), header_area);
+    // The band is the selected item's style, painted under its text — not
+    // `highlight_style`, which `List` paints over it and which would repaint
+    // any span with a background of its own (the reviewer's lists do this too).
+    if let Some(item) = items.get_mut(state.selected) {
+        let band = Style::default()
+            .bg(theme.selected_bg)
+            .add_modifier(Modifier::BOLD);
+        *item = item.clone().style(band);
+    }
     // `List` keeps the cursor in view; the offset it settles on is kept, and
     // is what `hit` reads for the next click — the frame the click aims at.
     let mut list = ListState::default()
         .with_offset(state.scroll)
         .with_selected(Some(state.selected));
-    frame.render_stateful_widget(
-        List::new(items).highlight_style(
-            Style::default()
-                .bg(theme.selected_bg)
-                .add_modifier(Modifier::BOLD),
-        ),
-        list_area,
-        &mut list,
-    );
+    frame.render_stateful_widget(List::new(items), list_area, &mut list);
     state.scroll = list.offset();
     frame.render_widget(Paragraph::new(footer), footer_area);
 }

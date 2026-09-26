@@ -735,7 +735,13 @@ pub fn config_lines(edit: &ConfigEdit, rows: usize) -> Vec<ConfigLine> {
 
 /// The field on list line `line`, counted from the list's first line.
 fn config_row_at(edit: &ConfigEdit, line: usize, top: usize) -> Option<usize> {
-    // The list starts under the header and a blank.
+    // The list starts under the header and a blank. From there the drawn
+    // lines are the sticky section row, then the list's window — and
+    // `config_lines` from `scroll` is the same sequence: it always opens with
+    // the section of the first visible row (its "leading" marker), which is
+    // exactly what the sticky row draws, and then emits the rows and any later
+    // section markers the list's window holds. So its index 0 is the sticky
+    // row and every index after is one list line; neither side is off by one.
     let line = line.checked_sub(top)?;
     match config_lines(edit, usize::MAX).get(line)? {
         ConfigLine::Row(i) => Some(*i),
