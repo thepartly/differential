@@ -522,19 +522,22 @@ problem with the table. It touches no terminal, so an application calls it befor
 
 ### Themes
 
-Eleven, each pairing the reviewer's own colours with the syntax theme the code is painted
+Thirteen, each pairing the reviewer's own colours with the syntax theme the code is painted
 in — so the chrome and the code come from one source and cannot drift apart.
 
 `dark` (the default), `one-dark`, `one-light`, `gruvbox-dark`, `gruvbox-light`,
 `solarized-dark`, `solarized-light`, `catppuccin-mocha`, `catppuccin-latte`,
-`dracula`, `monokai`. `monokai` wears Monokai Pro's palette, with a syntax theme written
-for this crate; it is not affiliated with Monokai Pro.
+`dracula`, `monokai`, `flexoki`, `flexoki-light`.
+
+`monokai` wears Monokai Pro's palette, with a syntax theme written for this crate; it is not
+affiliated with Monokai Pro. `flexoki` and `flexoki-light` are Steph Ango's Flexoki (MIT),
+likewise with syntax themes written here.
 
 Every shot below is the same change in the same reviewer; only the palette differs.
 `./assets/themes.sh` regenerates them.
 
 <details>
-<summary><b>Screenshots — the same change in all eleven</b></summary>
+<summary><b>Screenshots — the same change in all thirteen</b></summary>
 <br>
 
 <details>
@@ -611,6 +614,20 @@ Every shot below is the same change in the same reviewer; only the palette diffe
 <summary><code>monokai</code></summary>
 
 ![monokai](https://raw.githubusercontent.com/thepartly/differential/main/assets/themes/monokai.png)
+
+</details>
+
+<details>
+<summary><code>flexoki</code></summary>
+
+![flexoki](https://raw.githubusercontent.com/thepartly/differential/main/assets/themes/flexoki.png)
+
+</details>
+
+<details>
+<summary><code>flexoki-light</code></summary>
+
+![flexoki-light](https://raw.githubusercontent.com/thepartly/differential/main/assets/themes/flexoki-light.png)
 
 </details>
 

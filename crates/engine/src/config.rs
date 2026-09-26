@@ -267,6 +267,8 @@ pub enum ThemeName {
     CatppuccinLatte,
     Dracula,
     Monokai,
+    Flexoki,
+    FlexokiLight,
 }
 
 /// `[review]` — how the terminal reviewer looks, and how much of a file it
@@ -1048,6 +1050,8 @@ attributes = ["linguist-generated", "custom-generated"]
             "gruvbox-dark",
             "solarized-light",
             "monokai",
+            "flexoki",
+            "flexoki-light",
         ] {
             assert!(msg.contains(name), "{name} missing from: {msg}");
         }
@@ -1316,7 +1320,9 @@ attributes = ["linguist-generated", "custom-generated"]
                 | ThemeName::CatppuccinMocha
                 | ThemeName::CatppuccinLatte
                 | ThemeName::Dracula
-                | ThemeName::Monokai => {}
+                | ThemeName::Monokai
+                | ThemeName::Flexoki
+                | ThemeName::FlexokiLight => {}
             }
             let text = format!("[review]\ntheme = \"{}\"", theme.key());
             assert_eq!(

@@ -57,6 +57,8 @@ with it. The same rule applies to any future bundled theme: take the colours, wr
 - A reader on `monokai` sees a different palette after upgrading: a warm grey ground in
   place of olive, and softer accents. The release notes carry it as a `tui` feature.
 - Adding a palette that two-face does not ship is a variant, a seed file and a `.tmTheme`.
+  Flexoki and Flexoki Light followed the same way. Flexoki is MIT-licensed; its two files
+  are still written here from the palette, and credit it in their headers.
 - A bundled theme's code colours are our mapping, not the original's. The right colours
   land on the right kinds of token, but not always on the same tokens the official theme
   picks.
