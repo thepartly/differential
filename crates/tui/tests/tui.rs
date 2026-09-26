@@ -11503,3 +11503,36 @@ fn the_composer_holds_all_of_its_wrapped_note() {
         "the box does not hold the whole note:\n{screen}"
     );
 }
+
+/// `cargo test -p differential-tui --test tui -- --ignored --nocapture render_dump_lists`
+///
+/// Every selectable list, drawn by ratatui's `List` (#167): the plan pane with
+/// its selected group (the role pill keeps its fill), the file list, the
+/// search list, and the config modal.
+#[ignore = "a dump for the author's eyes, not an assertion"]
+#[test]
+fn render_dump_lists() {
+    let (_r, mut app) = make_app();
+    sized(&mut app);
+    let dump = |title: &str, app: &App| {
+        println!("── {title} ──");
+        for row in screen(app, SCREEN.width, SCREEN.height) {
+            println!("{row}");
+        }
+    };
+    app.handle_key(key('j'));
+    dump("the plan pane, second group selected", &app);
+    app.focus = Focus::Detail;
+    app.handle_key(key('f'));
+    dump("the file list", &app);
+    app.mode = Mode::Normal;
+    search_for(&mut app, "helper");
+    app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+    dump("the search list, second hit", &app);
+    app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    command(&mut app, "config");
+    for _ in 0..14 {
+        app.handle_key(key('j'));
+    }
+    dump("the config modal, scrolled into [keys]", &app);
+}

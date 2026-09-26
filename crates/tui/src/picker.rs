@@ -11,10 +11,10 @@ use crossterm::event::{self, Event, KeyCode, MouseButton, MouseEventKind};
 use differential_engine::gitio::Repo;
 use differential_engine::ports::{CommitHistory, CommitSummary};
 use differential_engine::worktree::is_clean;
-use ratatui::layout::Rect;
+use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, Paragraph};
+use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph};
 
 use super::theme::Theme;
 
@@ -187,12 +187,10 @@ const OUT_RANGE: &str = "  ";
 const AT_BASE: &str = "└ ";
 
 /// The block `draw` frames the list with: one row of border at the top, which
-/// is where the first header row is, and `BORDER_ROWS` in all.
+/// is where the first header row is.
 const TOP_BORDER: usize = 1;
-/// Block border, top and bottom.
-const BORDER_ROWS: usize = 2 * TOP_BORDER;
 /// The blank line plus the key hints under the commit list.
-const FOOTER_ROWS: usize = 2;
+const FOOTER_ROWS: u16 = 2;
 
 /// Rows strictly newer than the base are reviewed — the base commit's own
 /// changes are not.
@@ -253,11 +251,6 @@ fn header(theme: &Theme, state: &PickerState, bar: Style) -> Vec<Line<'static>> 
     lines
 }
 
-/// Rows the chrome occupies around the commit list.
-fn chrome_rows(header_rows: usize) -> usize {
-    header_rows + BORDER_ROWS + FOOTER_ROWS
-}
-
 fn draw(
     frame: &mut ratatui::Frame,
     theme: &Theme,
@@ -267,26 +260,12 @@ fn draw(
     let area: Rect = frame.area();
     let bar = Style::default().fg(theme.reviewed_fg);
 
-    let mut lines = header(theme, state, bar);
+    let header_lines = header(theme, state, bar);
 
-    // Scroll the commit list to keep the cursor visible. The chrome height is
-    // DERIVED from the header just built — the checkbox row is conditional, so
-    // a hard-coded count would silently mis-scroll the list without it.
-    let viewport = (area.height as usize)
-        .saturating_sub(chrome_rows(lines.len()))
-        .max(1);
-    if state.selected < state.scroll {
-        state.scroll = state.selected;
-    } else if state.selected >= state.scroll + viewport {
-        state.scroll = state.selected + 1 - viewport;
-    }
-
-    for (i, c) in commits.iter().enumerate().skip(state.scroll).take(viewport) {
+    let mut items: Vec<ListItem> = Vec::with_capacity(commits.len());
+    for (i, c) in commits.iter().enumerate() {
         let at_base = i == state.selected;
-        let mut style = Style::default().fg(theme.context_fg);
-        if at_base {
-            style = style.bg(theme.selected_bg).add_modifier(Modifier::BOLD);
-        }
+        let style = Style::default().fg(theme.context_fg);
         let gutter = if at_base {
             AT_BASE
         } else if in_range(i, state.selected) {
@@ -317,18 +296,20 @@ fn draw(
                 Style::default().fg(theme.gutter_fg),
             ));
         }
-        lines.push(Line::from(spans));
+        items.push(ListItem::new(Line::from(spans)));
     }
 
-    lines.push(Line::default());
-    lines.push(Line::from(Span::styled(
-        if state.dirty {
-            "  j/k move · space uncommitted · enter review · q cancel"
-        } else {
-            "  j/k move · enter review · q cancel"
-        },
-        Style::default().fg(theme.gutter_fg),
-    )));
+    let footer = vec![
+        Line::default(),
+        Line::from(Span::styled(
+            if state.dirty {
+                "  j/k move · space uncommitted · enter review · q cancel"
+            } else {
+                "  j/k move · enter review · q cancel"
+            },
+            Style::default().fg(theme.gutter_fg),
+        )),
+    ];
 
     let head = if state.include_worktree {
         "worktree"
@@ -349,14 +330,38 @@ fn draw(
     // TERMINAL's default, so without this a light palette shows the terminal's
     // background wherever nothing else paints — which is most of the screen.
     frame.render_widget(Block::default().style(theme.ground()), area);
-    frame.render_widget(
-        Paragraph::new(lines).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(format!(" dfr review — {base}..{head}{empty}")),
-        ),
-        area,
-    );
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(format!(" dfr review — {base}..{head}{empty}"));
+    // The header, the commit list and the footer, each in a rect of its own.
+    // The header's height is the header BUILT — the checkbox row is
+    // conditional — so the list's rect, and so its scroll, cannot disagree
+    // with what is drawn above it.
+    let [header_area, list_area, footer_area] = Layout::vertical([
+        Constraint::Length(u16::try_from(header_lines.len()).unwrap_or(u16::MAX)),
+        Constraint::Fill(1),
+        Constraint::Length(FOOTER_ROWS),
+    ])
+    .areas(block.inner(area));
+    frame.render_widget(block, area);
+    frame.render_widget(Paragraph::new(header_lines), header_area);
+    // The band is the selected item's style, painted under its text — not
+    // `highlight_style`, which `List` paints over it and which would repaint
+    // any span with a background of its own (the reviewer's lists do this too).
+    if let Some(item) = items.get_mut(state.selected) {
+        let band = Style::default()
+            .bg(theme.selected_bg)
+            .add_modifier(Modifier::BOLD);
+        *item = item.clone().style(band);
+    }
+    // `List` keeps the cursor in view; the offset it settles on is kept, and
+    // is what `hit` reads for the next click — the frame the click aims at.
+    let mut list = ListState::default()
+        .with_offset(state.scroll)
+        .with_selected(Some(state.selected));
+    frame.render_stateful_widget(List::new(items), list_area, &mut list);
+    state.scroll = list.offset();
+    frame.render_widget(Paragraph::new(footer), footer_area);
 }
 
 #[cfg(test)]
@@ -408,20 +413,38 @@ mod tests {
         }
     }
 
-    /// The commit list's viewport is derived from the header, so hiding a row
-    /// widens it rather than silently mis-scrolling. 6 is what the constant
-    /// used to be hard-coded to, back when the header was always two rows.
+    /// The list keeps the cursor in view as the terminal allows, and the
+    /// offset it settled on is the one a click is read against.
     #[test]
-    fn chrome_height_tracks_the_header() {
-        let bar = ratatui::style::Style::default();
-        assert_eq!(
-            super::chrome_rows(super::header(&theme(), &state(true), bar).len()),
-            6
-        );
-        assert_eq!(
-            super::chrome_rows(super::header(&theme(), &state(false), bar).len()),
-            5
-        );
+    fn the_cursor_stays_in_view_and_a_click_finds_it() {
+        use differential_engine::ports::CommitSummary;
+        let commits: Vec<super::CommitEntry> = (0..30)
+            .map(|i| super::CommitEntry {
+                summary: CommitSummary {
+                    sha: format!("{i:040}"),
+                    short: format!("{i:07}"),
+                    subject: format!("commit {i}"),
+                    author: "someone".into(),
+                },
+                refs: Vec::new(),
+            })
+            .collect();
+        for dirty in [true, false] {
+            let mut s = state(dirty);
+            s.selected = 20;
+            let mut terminal =
+                ratatui::Terminal::new(ratatui::backend::TestBackend::new(80, 10)).unwrap();
+            terminal
+                .draw(|f| super::draw(f, &theme(), &commits, &mut s))
+                .unwrap();
+            // The border, the header, the list, the footer: the row the
+            // selection is drawn on is the row a click there names.
+            let buf = terminal.backend().buffer().clone();
+            let row = (0..10u16)
+                .find(|&y| (0..80u16).any(|x| buf[(x, y)].symbol() == "└"))
+                .expect("the base row is drawn");
+            assert_eq!(s.hit(row, commits.len()), Some(super::Hit::Commit(20)));
+        }
     }
 
     #[test]

@@ -5,8 +5,6 @@
 //! come from one function, and they used to be two different numbers.
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use ratatui::style::Style;
-use ratatui::text::{Line, Span};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use super::*;
@@ -127,23 +125,6 @@ pub(super) fn truncate_width(s: &str, max: usize) -> String {
     }
     out.push('…');
     out
-}
-
-/// Extend `line` with blank, styled cells so a selection background covers
-/// the full row width. Trailing padding only — the leading connector column
-/// keeps its own styling.
-pub(super) fn pad_to_width(line: &mut Line<'static>, width: usize, bg: ratatui::style::Color) {
-    let used: usize = line
-        .spans
-        .iter()
-        .map(|s| UnicodeWidthStr::width(s.content.as_ref()))
-        .sum();
-    if used < width {
-        line.spans.push(Span::styled(
-            " ".repeat(width - used),
-            Style::default().bg(bg),
-        ));
-    }
 }
 
 /// How many rows a modal list actually shows, from its content and the body's
