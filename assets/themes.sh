@@ -38,7 +38,7 @@ base="$(git rev-parse HEAD~1)"
 head="$(git rev-parse HEAD)"
 
 # One agent call. Every recorded run below is a cache hit, so the splash is
-# brief and all eleven screenshots show the same document.
+# brief and all thirteen screenshots show the same document.
 echo "warming the grouping cache (one agent call)…"
 "$dfr" findings "$base..$head" >/dev/null
 
@@ -49,13 +49,13 @@ cd "$root"
 # Override to iterate on one: THEMES=dracula ./assets/themes.sh
 for t in ${THEMES:-dark one-dark one-light gruvbox-dark gruvbox-light \
          solarized-dark solarized-light catppuccin-mocha catppuccin-latte \
-         dracula monokai}; do
+         dracula monokai flexoki flexoki-light}; do
   printf '[review]\ntheme = "%s"\n' "$t" > "$fixture/cfg/$t.toml"
   sed -e "s|__THEME__|$t|g" -e "s|__OUT__|$root/assets/themes|g" \
     assets/theme.vhs > "$fixture/$t.vhs"
   # Every recording starts from the same state. The reviewer records its
   # layout and cursor per review, so without this each theme resumes wherever
-  # the last one left off — eleven screenshots of eleven different screens.
+  # the last one left off — thirteen screenshots of thirteen different screens.
   # The grouping cache is a sibling directory and is deliberately kept.
   rm -rf "$fixture/.git/differential/reviews"
 
@@ -75,7 +75,7 @@ done
 
 # VHS writes true-colour PNGs, and a terminal screenshot has perhaps a hundred
 # distinct colours in it — so a palette re-encode is ~3x smaller with nothing
-# visible lost. Without it eleven screenshots are 4 MB of repository.
+# visible lost. Without it thirteen screenshots are 4 MB of repository.
 if command -v ffmpeg >/dev/null; then
   echo "quantising..."
   for png in "$root"/assets/themes/*.png; do
