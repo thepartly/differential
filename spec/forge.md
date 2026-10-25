@@ -209,7 +209,7 @@ before them loads unchanged:
 
 | need | call |
 |---|---|
-| request | `gh pr view <n> --json number,baseRefName,baseRefOid,headRefOid,url` — the project is read from `url`, since the request lives in the base repository |
+| request | `gh pr view [<n>] --json number,url` finds the request — with no number, the current branch's — and `gh api repos/{owner}/{repo}/pulls/<n>` reads `base.ref`, `base.sha`, `head.sha` and `html_url`. The project is read from the URL, since the request lives in the base repository. The refs are not `--json` fields: `baseRefOid` exists only from gh 2.63, and an older gh rejects the whole call |
 | threads | `gh api graphql` — `pullRequest(number).reviewThreads { id isResolved isOutdated path diffSide line startLine comments { databaseId body author createdAt replyTo diffHunk } }`, paginated |
 | publish, new | `gh api POST repos/{owner}/{repo}/pulls/<n>/reviews` with `commit_id`, `event: "COMMENT"`, and `comments: [{path, body, line, side, start_line, start_side}]` — one review |
 | publish, reply | `gh api POST repos/{owner}/{repo}/pulls/<n>/comments/<root comment id>/replies` with `body`, one per reply |

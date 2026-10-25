@@ -332,12 +332,16 @@ impl Forge for GhForge {
         if let Some(id) = id {
             args.push(id);
         }
-        args.extend(["--json", "number,baseRefName,baseRefOid,headRefOid,url"]);
+        // `gh pr view` only finds the request — it is what resolves the
+        // current branch's. The refs come from REST: `baseRefOid` is a
+        // `--json` field only from gh 2.63, and an older gh rejects the call.
+        args.extend(["--json", "number,url"]);
         let v = self
             .tool
             .json(&args, None)
             .map_err(|e| no_request(e, id, self.kind().noun()))?;
-        parse_request(&v)
+        let pull = self.tool.rest("GET", &pull_path(&v)?, None)?;
+        parse_request(&pull)
     }
 
     fn threads(&self, req: &Request) -> Result<Vec<RemoteThread>, ForgeError> {
@@ -471,14 +475,49 @@ impl Forge for GhForge {
     }
 }
 
-/// `gh pr view --json number,baseRefName,baseRefOid,headRefOid,url`.
+/// `repos/<owner>/<repo>/pulls/<n>`, from `gh pr view --json number,url`.
+fn pull_path(v: &Value) -> Result<String, ForgeError> {
+    let project = pull_project(str_of(v, "url")?)?;
+    Ok(format!("repos/{project}/pulls/{}", pull_number(v)?))
+}
+
+/// `gh api repos/<owner>/<repo>/pulls/<n>`.
 ///
 /// The project comes from the URL: the request lives in the base repository,
-/// and `gh pr view` names the head repository only.
+/// and the head may live in a fork.
 fn parse_request(v: &Value) -> Result<Request, ForgeError> {
-    let url = str_of(v, "url")?;
-    // `…/owner/repo/pull/123`, read from the right of the URL's PATH, so a
-    // query or a fragment is not mistaken for a segment.
+    let url = str_of(v, "html_url")?;
+    let sha = |side: &str| {
+        v.pointer(&format!("/{side}/sha"))
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .ok_or_else(|| parse_err(format!("missing {side}.sha")))
+    };
+    Ok(Request {
+        kind: ForgeKind::Github,
+        project: pull_project(url)?,
+        id: pull_number(v)?.to_string(),
+        base_ref: v
+            .pointer("/base/ref")
+            .and_then(Value::as_str)
+            .ok_or_else(|| parse_err("missing base.ref"))?
+            .to_string(),
+        base_tip: sha("base")?,
+        head: sha("head")?,
+        merge_base: None,
+        url: url.to_string(),
+    })
+}
+
+fn pull_number(v: &Value) -> Result<i64, ForgeError> {
+    v.get("number")
+        .and_then(Value::as_i64)
+        .ok_or_else(|| parse_err("missing number"))
+}
+
+/// `owner/repo` of `…/owner/repo/pull/123`, read from the right of the URL's
+/// PATH, so a query or a fragment is not mistaken for a segment.
+fn pull_project(url: &str) -> Result<String, ForgeError> {
     let path = url_path(url)?;
     let mut segments = path.rsplit('/').skip(2);
     let repo = segments
@@ -487,20 +526,7 @@ fn parse_request(v: &Value) -> Result<Request, ForgeError> {
     let owner = segments
         .next()
         .ok_or_else(|| parse_err("url has no owner"))?;
-    let number = v
-        .get("number")
-        .and_then(Value::as_i64)
-        .ok_or_else(|| parse_err("missing number"))?;
-    Ok(Request {
-        kind: ForgeKind::Github,
-        project: format!("{owner}/{repo}"),
-        id: number.to_string(),
-        base_ref: str_of(v, "baseRefName")?.to_string(),
-        base_tip: str_of(v, "baseRefOid")?.to_string(),
-        head: str_of(v, "headRefOid")?.to_string(),
-        merge_base: None,
-        url: url.to_string(),
-    })
+    Ok(format!("{owner}/{repo}"))
 }
 
 /// A request URL's path, decoded, without its leading or trailing `/`.
@@ -1076,19 +1102,26 @@ mod tests {
     use crate::forge::with_marker;
 
     #[test]
-    fn a_pull_request_is_read_from_gh_pr_view() {
+    fn a_pull_request_is_found_by_gh_pr_view_and_read_from_rest() {
+        let view = json!({"number": 84, "url": "https://github.com/owner/repo/pull/84"});
+        assert_eq!(pull_path(&view).unwrap(), "repos/owner/repo/pulls/84");
+
+        // The REST shape, cut to what is read. The head lives in a fork; the
+        // request still belongs to the base repository.
         let v = json!({
             "number": 84,
-            "baseRefName": "main",
-            "baseRefOid": "ecc9400aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            "headRefOid": "d5cd4feac46323dae75365481257bd71fb736603",
-            "url": "https://github.com/owner/repo/pull/84"
+            "html_url": "https://github.com/owner/repo/pull/84",
+            "base": {"ref": "main", "sha": "ecc9400aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                     "repo": {"full_name": "owner/repo"}},
+            "head": {"ref": "feature", "sha": "d5cd4feac46323dae75365481257bd71fb736603",
+                     "repo": {"full_name": "fork/repo"}}
         });
         let req = parse_request(&v).unwrap();
         assert_eq!(req.kind, ForgeKind::Github);
         assert_eq!(req.project, "owner/repo");
         assert_eq!(req.id, "84");
         assert_eq!(req.base_ref, "main");
+        assert_eq!(req.base_tip, "ecc9400aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         assert_eq!(req.head, "d5cd4feac46323dae75365481257bd71fb736603");
         assert_eq!(
             req.fetch_hint("origin"),
@@ -1301,13 +1334,7 @@ mod tests {
 
     #[test]
     fn a_request_url_is_read_as_a_url() {
-        let pr = |url: &str| {
-            let v = json!({
-                "number": 84, "baseRefName": "main",
-                "baseRefOid": "e".repeat(40), "headRefOid": "d".repeat(40), "url": url
-            });
-            parse_request(&v).map(|r| r.project)
-        };
+        let pr = pull_project;
         // A query, a fragment, a trailing slash: none of them is the path.
         assert_eq!(
             pr("https://github.com/owner/repo/pull/84?w=1").unwrap(),
